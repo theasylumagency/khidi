@@ -1,0 +1,27 @@
+{
+  "name": "agrotrade-warehouse",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@12.16.1",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "corepack pnpm -r build",
+    "typecheck": "corepack pnpm -r typecheck",
+    "lint": "corepack pnpm check:boundaries && corepack pnpm -r lint",
+    "check:boundaries": "depcruise packages apps --config .dependency-cruiser.cjs",
+    "test": "vitest run",
+    "db:migrate": "corepack pnpm --filter @agrotrade/db migrate",
+    "db:seed": "corepack pnpm --filter @agrotrade/db seed",
+    "dev:hub": "corepack pnpm --filter @agrotrade/hub dev",
+    "dev:worker": "corepack pnpm --filter @agrotrade/worker dev"
+  },
+  "devDependencies": {
+    "@types/node": "24.0.0",
+    "dependency-cruiser": "16.10.2",
+    "tsx": "4.19.3",
+    "typescript": "5.8.2",
+    "vitest": "3.0.8"
+  }
+}

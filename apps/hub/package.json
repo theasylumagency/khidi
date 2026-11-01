@@ -1,0 +1,39 @@
+{
+  "name": "@agrotrade/hub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --port 3100",
+    "build": "next build",
+    "start": "next start --port 3100",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agrotrade/auth": "workspace:*",
+    "@agrotrade/db": "workspace:*",
+    "@agrotrade/domain": "workspace:*",
+    "@agrotrade/entities": "workspace:*",
+    "@agrotrade/evidence": "workspace:*",
+    "@agrotrade/fulfillment": "workspace:*",
+    "@agrotrade/i18n": "workspace:*",
+    "@agrotrade/inventory": "workspace:*",
+    "@agrotrade/media": "workspace:*",
+    "@agrotrade/notifications": "workspace:*",
+    "@agrotrade/pricing": "workspace:*",
+    "@agrotrade/products": "workspace:*",
+    "@agrotrade/publishing": "workspace:*",
+    "@agrotrade/reports": "workspace:*",
+    "@agrotrade/scanning": "workspace:*",
+    "@agrotrade/shared": "workspace:*",
+    "@agrotrade/ui": "workspace:*",
+    "next": "15.2.1",
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.0.10",
+    "@types/react-dom": "19.0.4"
+  }
+}

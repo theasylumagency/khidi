@@ -1,0 +1,26 @@
+{
+  "name": "AgroTrade Hub — ონლაინ საწყობი",
+  "short_name": "AgroTrade Hub",
+  "description": "შიდა ონლაინ საწყობის, კატალოგის, მარაგებისა და შესრულების მართვის სისტემა",
+  "lang": "ka",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/icons/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

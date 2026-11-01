@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:18.4
+    container_name: agrotrade-hub-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hub_migrator
+      POSTGRES_PASSWORD: hub_migrator_dev_password
+      POSTGRES_DB: agrotrade_hub
+    ports:
+      - "127.0.0.1:5435:5432"
+    volumes:
+      - agrotrade_pgdata:/var/lib/postgresql
+      - ./docker/postgres/init-roles.sql:/docker-entrypoint-initdb.d/01-init-roles.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hub_migrator -d agrotrade_hub"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  agrotrade_pgdata:

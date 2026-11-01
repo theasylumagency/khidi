@@ -1,0 +1,13 @@
+export const SKU_LIFECYCLE_STATES = [
+  "INTAKE",
+  "IDENTIFYING",
+  "IDENTIFICATION_REQUIRED",
+  "IDENTIFIED",
+  "ACCOUNTING_MAPPING_REQUIRED",
+  "CONTENT_GENERATING",
+  "CONTENT_REVIEW",
+  "READY",
+  "ARCHIVED"
+] as const;
+
+export type SkuLifecycleState = (typeof SKU_LIFECYCLE_STATES)[number];

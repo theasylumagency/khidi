@@ -1,0 +1,178 @@
+import { randomBytes, createHash } from "node:crypto";
+import { z } from "zod";
+
+/**
+ * RFC 9562 UUIDv7 generator (monotonic millisecond timestamp + cryptographic random bits).
+ */
+let lastTimestampMs = 0n;
+let sequenceCounter = 0;
+
+export function createUuidV7(nowMs: number = Date.now()): string {
+  let ts = BigInt(Math.floor(nowMs));
+  if (ts === lastTimestampMs) {
+    sequenceCounter = (sequenceCounter + 1) & 0x0fff;
+    if (sequenceCounter === 0) {
+      ts += 1n;
+    }
+  } else {
+    lastTimestampMs = ts;
+    sequenceCounter = randomBytes(2).readUInt16BE(0) & 0x0fff;
+  }
+
+  const bytes = randomBytes(16);
+  // 48-bit big-endian timestamp
+  bytes[0] = Number((ts >> 40n) & 0xffn);
+  bytes[1] = Number((ts >> 32n) & 0xffn);
+  bytes[2] = Number((ts >> 24n) & 0xffn);
+  bytes[3] = Number((ts >> 16n) & 0xffn);
+  bytes[4] = Number((ts >> 8n) & 0xffn);
+  bytes[5] = Number(ts & 0xffn);
+
+  // Version 7 (0111) + 12-bit sequence counter
+  bytes[6] = 0x70 | ((sequenceCounter >> 8) & 0x0f);
+  bytes[7] = sequenceCounter & 0xff;
+
+  // Variant 10xx
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+export function createCorrelationId(): string {
+  return `cor_${createUuidV7()}`;
+}
+
+export function sha256Hex(input: string): string {
+  return createHash("sha256").update(input, "utf8").digest("hex");
+}
+
+/**
+ * Money in integer minor units (tetri) with explicit GEL currency (§3.4).
+ */
+export const CURRENCY_GEL = "GEL" as const;
+export type CurrencyCode = typeof CURRENCY_GEL;
+
+export interface MoneyMinor {
+  readonly amountMinor: number;
+  readonly currency: CurrencyCode;
+}
+
+export function tetri(amountMinor: number): MoneyMinor {
+  if (!Number.isSafeInteger(amountMinor)) {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      `Money must be an integer in tetri, received: ${String(amountMinor)}`
+    );
+  }
+  return { amountMinor, currency: CURRENCY_GEL };
+}
+
+export function parseLariToTetri(lariInput: string): number {
+  const trimmed = lariInput.trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
+    throw new AppError("VALIDATION_ERROR", `Invalid GEL amount format: "${lariInput}"`);
+  }
+  const [wholePart = "0", fracPart = ""] = trimmed.split(".");
+  const paddedFrac = fracPart.padEnd(2, "0");
+  const result = Number(wholePart) * 100 + Number(paddedFrac);
+  if (!Number.isSafeInteger(result)) {
+    throw new AppError("VALIDATION_ERROR", `Amount out of safe integer range: "${lariInput}"`);
+  }
+  return result;
+}
+
+export function formatTetri(amountMinor: number): string {
+  if (!Number.isSafeInteger(amountMinor)) {
+    throw new AppError("VALIDATION_ERROR", "amountMinor must be a safe integer");
+  }
+  const sign = amountMinor < 0 ? "-" : "";
+  const abs = Math.abs(amountMinor);
+  const lari = Math.floor(abs / 100);
+  const rem = String(abs % 100).padStart(2, "0");
+  return `${sign}${lari}.${rem} ₾`;
+}
+
+/**
+ * UTC storage and Asia/Tbilisi display helpers (§3.4).
+ */
+export const TBILISI_TIMEZONE = "Asia/Tbilisi" as const;
+
+export function nowUtc(): Date {
+  return new Date();
+}
+
+export function formatTbilisiDateTime(date: Date | string, locale: "ka" | "en" = "ka"): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  const intlLocale = locale === "ka" ? "ka-GE" : "en-GB";
+  return new Intl.DateTimeFormat(intlLocale, {
+    timeZone: TBILISI_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).format(d);
+}
+
+/**
+ * Standardized domain errors.
+ */
+export type ErrorCode =
+  | "UNAUTHORIZED"
+  | "FORBIDDEN"
+  | "NOT_FOUND"
+  | "VALIDATION_ERROR"
+  | "CONFLICT"
+  | "PRECONDITION_FAILED"
+  | "INVARIANT_VIOLATION"
+  | "IDEMPOTENCY_CONFLICT";
+
+export class AppError extends Error {
+  public readonly code: ErrorCode;
+  public readonly details?: Record<string, unknown>;
+
+  constructor(code: ErrorCode, message: string, details?: Record<string, unknown>) {
+    super(message);
+    this.name = "AppError";
+    this.code = code;
+    this.details = details;
+  }
+}
+
+/**
+ * Core Roles, Relationship Modes, and Zod Schemas (§4.4, §13.1, [C12]).
+ */
+export const USER_ROLES = [
+  "ADMIN",
+  "OPERATOR",
+  "STOCK_MANAGER",
+  "WAREHOUSE",
+  "ORDER_MANAGER"
+] as const;
+
+export type UserRole = (typeof USER_ROLES)[number];
+
+export const GRANULAR_PERMISSIONS = [
+  "price.edit",
+  "stock.transfer.cross_entity",
+  "product.approve",
+  "evidence.view_invoices"
+] as const;
+
+export type GranularPermission = (typeof GRANULAR_PERMISSIONS)[number];
+
+export const RELATIONSHIP_MODES = ["PURCHASE", "CONSIGNMENT"] as const;
+export type RelationshipMode = (typeof RELATIONSHIP_MODES)[number];
+
+export const LOCALES = ["ka", "en"] as const;
+export type SupportedLocale = (typeof LOCALES)[number];
+
+export const uuidSchema = z.string().uuid();
+export const roleSchema = z.enum(USER_ROLES);
+export const localeSchema = z.enum(LOCALES);
+export const relationshipModeSchema = z.enum(RELATIONSHIP_MODES);
+export const positiveTetriSchema = z.number().int().positive();
+export const idempotencyKeySchema = z.string().min(8).max(128);

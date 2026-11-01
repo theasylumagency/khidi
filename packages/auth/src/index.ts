@@ -1,0 +1,605 @@
+import { randomBytes } from "node:crypto";
+import bcrypt from "bcryptjs";
+import * as OTPAuth from "otpauth";
+import { and, eq, inArray } from "drizzle-orm";
+import {
+  type AppDatabase,
+  users,
+  userEntityMemberships,
+  userPermissions,
+  registeredDevices,
+  sessions,
+  storefronts,
+  storefrontApiKeys
+} from "@agrotrade/db";
+import { type DomainActor, withDomainTransaction } from "@agrotrade/domain";
+import {
+  AppError,
+  createUuidV7,
+  sha256Hex,
+  type GranularPermission,
+  type SupportedLocale,
+  type UserRole
+} from "@agrotrade/shared";
+
+const BCRYPT_ROUNDS = 10;
+const OFFICE_SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+const WAREHOUSE_PIN_SESSION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours short session (§13.2)
+const MAX_PIN_ATTEMPTS = 5;
+const PIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
+
+export interface AuthenticatedPrincipal {
+  userId: string;
+  email: string | null;
+  fullName: string;
+  role: UserRole;
+  locale: SupportedLocale;
+  entityIds: string[];
+  permissions: GranularPermission[];
+  authMethod: "OFFICE_PASSWORD_TOTP" | "WAREHOUSE_PIN";
+  deviceId: string | null;
+}
+
+export async function hashSecret(plain: string): Promise<string> {
+  return bcrypt.hash(plain, BCRYPT_ROUNDS);
+}
+
+export async function verifySecret(plain: string, hash: string): Promise<boolean> {
+  return bcrypt.compare(plain, hash);
+}
+
+export function generateTotpSecret(email: string): { base32Secret: string; otpauthUri: string } {
+  const secret = new OTPAuth.Secret({ size: 20 });
+  const totp = new OTPAuth.TOTP({
+    issuer: "AgroTrade Hub",
+    label: email,
+    algorithm: "SHA1",
+    digits: 6,
+    period: 30,
+    secret
+  });
+  return {
+    base32Secret: secret.base32,
+    otpauthUri: totp.toString()
+  };
+}
+
+export function generateCurrentTotpToken(base32Secret: string, timestampMs: number = Date.now()): string {
+  const totp = new OTPAuth.TOTP({
+    issuer: "AgroTrade Hub",
+    algorithm: "SHA1",
+    digits: 6,
+    period: 30,
+    secret: OTPAuth.Secret.fromBase32(base32Secret)
+  });
+  return totp.generate({ timestamp: timestampMs });
+}
+
+export function verifyTotpCode(base32Secret: string, code: string, timestampMs: number = Date.now()): boolean {
+  const totp = new OTPAuth.TOTP({
+    issuer: "AgroTrade Hub",
+    algorithm: "SHA1",
+    digits: 6,
+    period: 30,
+    secret: OTPAuth.Secret.fromBase32(base32Secret)
+  });
+  const delta = totp.validate({ token: code.trim(), timestamp: timestampMs, window: 1 });
+  return delta !== null;
+}
+
+export function roleRequiresMandatoryTotp(role: UserRole): boolean {
+  return role === "ADMIN" || role === "STOCK_MANAGER";
+}
+
+/**
+ * RBAC and Entity Isolation Rules (§13.1, [C12]).
+ */
+export function canAccessAdminScreens(principal: AuthenticatedPrincipal): boolean {
+  return principal.role === "ADMIN";
+}
+
+export function canViewPrices(principal: AuthenticatedPrincipal): boolean {
+  if (principal.role === "WAREHOUSE") {
+    return false;
+  }
+  return (
+    principal.role === "ADMIN" ||
+    principal.role === "OPERATOR" ||
+    principal.permissions.includes("price.edit")
+  );
+}
+
+export function canEditPrices(principal: AuthenticatedPrincipal): boolean {
+  if (principal.role === "WAREHOUSE") {
+    return false;
+  }
+  return principal.role === "ADMIN" || principal.permissions.includes("price.edit");
+}
+
+export function canViewCommercialInvoices(principal: AuthenticatedPrincipal): boolean {
+  return principal.role === "ADMIN";
+}
+
+export function canPerformCrossEntityTransfer(principal: AuthenticatedPrincipal): boolean {
+  return (
+    principal.role === "ADMIN" ||
+    principal.permissions.includes("stock.transfer.cross_entity")
+  );
+}
+
+export function canAccessEntityData(principal: AuthenticatedPrincipal, legalEntityId: string): boolean {
+  if (principal.role === "ADMIN") {
+    return true;
+  }
+  return principal.entityIds.includes(legalEntityId);
+}
+
+export function canManageEntityStock(principal: AuthenticatedPrincipal, legalEntityId: string): boolean {
+  if (principal.role === "ADMIN") {
+    return true;
+  }
+  if (principal.role === "STOCK_MANAGER") {
+    return principal.entityIds.includes(legalEntityId);
+  }
+  return false;
+}
+
+export function assertRoleAllowed(principal: AuthenticatedPrincipal, allowedRoles: UserRole[]): void {
+  if (!allowedRoles.includes(principal.role)) {
+    throw new AppError(
+      "FORBIDDEN",
+      `Role ${principal.role} is not permitted for this operation.`
+    );
+  }
+}
+
+export function assertEntityAccess(principal: AuthenticatedPrincipal, legalEntityId: string): void {
+  if (!canAccessEntityData(principal, legalEntityId)) {
+    throw new AppError(
+      "FORBIDDEN",
+      `User ${principal.userId} (${principal.role}) does not have access to legal entity ${legalEntityId}.`
+    );
+  }
+}
+
+export function assertEntityStockManagement(principal: AuthenticatedPrincipal, legalEntityId: string): void {
+  if (!canManageEntityStock(principal, legalEntityId)) {
+    throw new AppError(
+      "FORBIDDEN",
+      `User ${principal.userId} (${principal.role}) cannot manage stock for legal entity ${legalEntityId}.`
+    );
+  }
+}
+
+export function assertPriceViewAccess(principal: AuthenticatedPrincipal): void {
+  if (!canViewPrices(principal)) {
+    throw new AppError("FORBIDDEN", `Role ${principal.role} cannot view price data.`);
+  }
+}
+
+export function assertPriceEditAccess(principal: AuthenticatedPrincipal): void {
+  if (!canEditPrices(principal)) {
+    throw new AppError("FORBIDDEN", `User ${principal.userId} is not permitted to edit prices.`);
+  }
+}
+
+export async function loadPrincipalByUserId(
+  db: AppDatabase,
+  userId: string,
+  authMethod: "OFFICE_PASSWORD_TOTP" | "WAREHOUSE_PIN" = "OFFICE_PASSWORD_TOTP",
+  deviceId: string | null = null
+): Promise<AuthenticatedPrincipal> {
+  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  if (!user || !user.active) {
+    throw new AppError("UNAUTHORIZED", "User is not active or does not exist.");
+  }
+
+  const memberships = await db
+    .select()
+    .from(userEntityMemberships)
+    .where(eq(userEntityMemberships.userId, user.id));
+
+  const perms = await db
+    .select()
+    .from(userPermissions)
+    .where(eq(userPermissions.userId, user.id));
+
+  return {
+    userId: user.id,
+    email: user.email,
+    fullName: user.fullName,
+    role: user.role as UserRole,
+    locale: (user.locale as SupportedLocale) ?? "ka",
+    entityIds: memberships.map((m) => m.legalEntityId),
+    permissions: perms.map((p) => p.permissionKey as GranularPermission),
+    authMethod,
+    deviceId
+  };
+}
+
+/**
+ * Office Login: Email + Password + Mandatory TOTP for ADMIN and STOCK_MANAGER (§13.2).
+ */
+export async function loginOfficeUser(
+  db: AppDatabase,
+  input: {
+    email: string;
+    password: string;
+    totpCode?: string;
+    ipAddress?: string;
+    userAgent?: string;
+  }
+): Promise<{ sessionToken: string; principal: AuthenticatedPrincipal }> {
+  const normalizedEmail = input.email.trim().toLowerCase();
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, normalizedEmail))
+    .limit(1);
+
+  if (!user || !user.active || !user.passwordHash) {
+    throw new AppError("UNAUTHORIZED", "Invalid email or password.");
+  }
+
+  const passwordValid = await verifySecret(input.password, user.passwordHash);
+  if (!passwordValid) {
+    throw new AppError("UNAUTHORIZED", "Invalid email or password.");
+  }
+
+  const role = user.role as UserRole;
+  if (roleRequiresMandatoryTotp(role) || user.totpEnabled) {
+    if (!user.totpSecretEncrypted) {
+      throw new AppError(
+        "UNAUTHORIZED",
+        `Mandatory TOTP is required for role ${role}, but TOTP is not configured.`
+      );
+    }
+    if (!input.totpCode || !verifyTotpCode(user.totpSecretEncrypted, input.totpCode)) {
+      throw new AppError("UNAUTHORIZED", "Invalid or missing TOTP verification code.");
+    }
+  }
+
+  const rawSessionToken = `agt_sess_${randomBytes(32).toString("hex")}`;
+  const tokenHash = sha256Hex(rawSessionToken);
+  const expiresAt = new Date(Date.now() + OFFICE_SESSION_TTL_MS);
+
+  await withDomainTransaction(db, { userId: user.id }, async (ctx) => {
+    await ctx.tx.insert(sessions).values({
+      id: createUuidV7(),
+      tokenHash,
+      userId: user.id,
+      deviceId: null,
+      authMethod: "OFFICE_PASSWORD_TOTP",
+      ipAddress: input.ipAddress ?? null,
+      userAgent: input.userAgent ?? null,
+      expiresAt
+    });
+
+    await ctx.recordAudit({
+      action: "USER_LOGIN_OFFICE",
+      entityType: "user",
+      entityId: user.id,
+      after: { role: user.role, authMethod: "OFFICE_PASSWORD_TOTP" }
+    });
+  });
+
+  const principal = await loadPrincipalByUserId(db, user.id, "OFFICE_PASSWORD_TOTP", null);
+  return { sessionToken: rawSessionToken, principal };
+}
+
+/**
+ * Device Registration & Revocation by ADMIN for shared warehouse phones (§13.2).
+ */
+export async function registerWarehouseDevice(
+  db: AppDatabase,
+  adminPrincipal: AuthenticatedPrincipal,
+  input: { deviceName: string }
+): Promise<{ deviceId: string; deviceName: string; rawDeviceToken: string }> {
+  assertRoleAllowed(adminPrincipal, ["ADMIN"]);
+
+  const rawDeviceToken = `agt_dev_${randomBytes(32).toString("hex")}`;
+  const deviceTokenHash = sha256Hex(rawDeviceToken);
+  const deviceId = createUuidV7();
+
+  await withDomainTransaction(db, { userId: adminPrincipal.userId }, async (ctx) => {
+    await ctx.tx.insert(registeredDevices).values({
+      id: deviceId,
+      deviceName: input.deviceName.trim(),
+      deviceTokenHash,
+      registeredBy: adminPrincipal.userId,
+      active: true
+    });
+
+    await ctx.recordAudit({
+      action: "WAREHOUSE_DEVICE_REGISTERED",
+      entityType: "registered_device",
+      entityId: deviceId,
+      after: { deviceName: input.deviceName.trim() }
+    });
+  });
+
+  return { deviceId, deviceName: input.deviceName.trim(), rawDeviceToken };
+}
+
+export async function revokeWarehouseDevice(
+  db: AppDatabase,
+  adminPrincipal: AuthenticatedPrincipal,
+  input: { deviceId: string; reason: string }
+): Promise<void> {
+  assertRoleAllowed(adminPrincipal, ["ADMIN"]);
+
+  await withDomainTransaction(db, { userId: adminPrincipal.userId }, async (ctx) => {
+    await ctx.tx
+      .update(registeredDevices)
+      .set({ active: false, revokedAt: new Date() })
+      .where(eq(registeredDevices.id, input.deviceId));
+
+    await ctx.tx.delete(sessions).where(eq(sessions.deviceId, input.deviceId));
+
+    await ctx.recordAudit({
+      action: "WAREHOUSE_DEVICE_REVOKED",
+      entityType: "registered_device",
+      entityId: input.deviceId,
+      reason: input.reason
+    });
+  });
+}
+
+/**
+ * Warehouse Shared-Device PIN Login & Quick User Switch (§13.2).
+ */
+export async function loginWithWarehousePin(
+  db: AppDatabase,
+  input: {
+    rawDeviceToken: string;
+    userId: string;
+    pin: string;
+    ipAddress?: string;
+    userAgent?: string;
+  }
+): Promise<{ sessionToken: string; principal: AuthenticatedPrincipal }> {
+  const deviceTokenHash = sha256Hex(input.rawDeviceToken);
+  const [device] = await db
+    .select()
+    .from(registeredDevices)
+    .where(eq(registeredDevices.deviceTokenHash, deviceTokenHash))
+    .limit(1);
+
+  if (!device || !device.active || device.revokedAt) {
+    throw new AppError(
+      "UNAUTHORIZED",
+      "This device is not registered or has been revoked by an administrator."
+    );
+  }
+
+  const [user] = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
+  if (!user || !user.active || !user.pinHash) {
+    throw new AppError("UNAUTHORIZED", "Warehouse PIN is not enabled for this user.");
+  }
+
+  if (user.pinLockedUntil && user.pinLockedUntil > new Date()) {
+    throw new AppError("UNAUTHORIZED", "PIN is temporarily locked due to failed attempts.");
+  }
+
+  const pinValid = await verifySecret(input.pin, user.pinHash);
+  if (!pinValid) {
+    const attempts = user.failedPinAttempts + 1;
+    const lockUntil = attempts >= MAX_PIN_ATTEMPTS ? new Date(Date.now() + PIN_LOCKOUT_MS) : null;
+    await db
+      .update(users)
+      .set({
+        failedPinAttempts: attempts,
+        pinLockedUntil: lockUntil
+      })
+      .where(eq(users.id, user.id));
+
+    throw new AppError("UNAUTHORIZED", "Invalid personal PIN.");
+  }
+
+  const rawSessionToken = `agt_wsess_${randomBytes(32).toString("hex")}`;
+  const tokenHash = sha256Hex(rawSessionToken);
+  const expiresAt = new Date(Date.now() + WAREHOUSE_PIN_SESSION_TTL_MS);
+
+  await withDomainTransaction(db, { userId: user.id }, async (ctx) => {
+    await ctx.tx
+      .update(users)
+      .set({ failedPinAttempts: 0, pinLockedUntil: null })
+      .where(eq(users.id, user.id));
+
+    await ctx.tx
+      .update(registeredDevices)
+      .set({ lastSeenAt: new Date() })
+      .where(eq(registeredDevices.id, device.id));
+
+    await ctx.tx.insert(sessions).values({
+      id: createUuidV7(),
+      tokenHash,
+      userId: user.id,
+      deviceId: device.id,
+      authMethod: "WAREHOUSE_PIN",
+      ipAddress: input.ipAddress ?? null,
+      userAgent: input.userAgent ?? null,
+      expiresAt
+    });
+
+    await ctx.recordAudit({
+      action: "USER_LOGIN_WAREHOUSE_PIN",
+      entityType: "user",
+      entityId: user.id,
+      after: { deviceId: device.id, deviceName: device.deviceName }
+    });
+  });
+
+  const principal = await loadPrincipalByUserId(db, user.id, "WAREHOUSE_PIN", device.id);
+  return { sessionToken: rawSessionToken, principal };
+}
+
+export async function verifySessionToken(
+  db: AppDatabase,
+  rawSessionToken: string
+): Promise<AuthenticatedPrincipal> {
+  const tokenHash = sha256Hex(rawSessionToken);
+  const [session] = await db
+    .select()
+    .from(sessions)
+    .where(eq(sessions.tokenHash, tokenHash))
+    .limit(1);
+
+  if (!session || session.expiresAt <= new Date()) {
+    throw new AppError("UNAUTHORIZED", "Session expired or invalid.");
+  }
+
+  if (session.deviceId) {
+    const [device] = await db
+      .select()
+      .from(registeredDevices)
+      .where(eq(registeredDevices.id, session.deviceId))
+      .limit(1);
+    if (!device || !device.active || device.revokedAt) {
+      throw new AppError("UNAUTHORIZED", "Registered device has been revoked.");
+    }
+  }
+
+  return loadPrincipalByUserId(
+    db,
+    session.userId,
+    session.authMethod as "OFFICE_PASSWORD_TOTP" | "WAREHOUSE_PIN",
+    session.deviceId
+  );
+}
+
+/**
+ * Scoped Storefront Service Key issuance and verification (§12.1, §16.2).
+ */
+export async function issueStorefrontApiKey(
+  db: AppDatabase,
+  adminPrincipal: AuthenticatedPrincipal,
+  input: {
+    storefrontId: string;
+    name: string;
+    allowedIps?: string[];
+  }
+): Promise<{ id: string; keyPrefix: string; rawApiKey: string }> {
+  assertRoleAllowed(adminPrincipal, ["ADMIN"]);
+
+  const [storefront] = await db
+    .select()
+    .from(storefronts)
+    .where(eq(storefronts.id, input.storefrontId))
+    .limit(1);
+
+  if (!storefront) {
+    throw new AppError("NOT_FOUND", `Storefront ${input.storefrontId} not found.`);
+  }
+
+  const randomPart = randomBytes(24).toString("hex");
+  const keyPrefix = `sf_${storefront.key.replace(/[^a-z0-9]/g, "").slice(0, 10)}`;
+  const rawApiKey = `${keyPrefix}_${randomPart}`;
+  const keyHash = sha256Hex(rawApiKey);
+  const id = createUuidV7();
+
+  await withDomainTransaction(db, { userId: adminPrincipal.userId }, async (ctx) => {
+    await ctx.tx.insert(storefrontApiKeys).values({
+      id,
+      storefrontId: storefront.id,
+      name: input.name.trim(),
+      keyPrefix,
+      keyHash,
+      allowedIps: input.allowedIps ?? null,
+      active: true,
+      createdBy: adminPrincipal.userId
+    });
+
+    await ctx.recordAudit({
+      action: "STOREFRONT_API_KEY_ISSUED",
+      entityType: "storefront_api_key",
+      entityId: id,
+      after: { storefrontId: storefront.id, name: input.name.trim(), keyPrefix }
+    });
+  });
+
+  return { id, keyPrefix, rawApiKey };
+}
+
+export async function verifyStorefrontServiceCredential(
+  db: AppDatabase,
+  input: {
+    requestedStorefrontKey: string;
+    rawApiKey: string;
+    clientIp?: string;
+  }
+): Promise<{ storefrontId: string; storefrontKey: string; sellerEntityId: string }> {
+  const keyHash = sha256Hex(input.rawApiKey);
+
+  const [keyRow] = await db
+    .select({
+      keyId: storefrontApiKeys.id,
+      keyActive: storefrontApiKeys.active,
+      revokedAt: storefrontApiKeys.revokedAt,
+      expiresAt: storefrontApiKeys.expiresAt,
+      allowedIps: storefrontApiKeys.allowedIps,
+      storefrontId: storefronts.id,
+      storefrontKey: storefronts.key,
+      storefrontActive: storefronts.active,
+      sellerEntityId: storefronts.sellerEntityId
+    })
+    .from(storefrontApiKeys)
+    .innerJoin(storefronts, eq(storefrontApiKeys.storefrontId, storefronts.id))
+    .where(eq(storefrontApiKeys.keyHash, keyHash))
+    .limit(1);
+
+  if (!keyRow || !keyRow.keyActive || keyRow.revokedAt || !keyRow.storefrontActive) {
+    throw new AppError("UNAUTHORIZED", "Invalid or revoked storefront service credential.");
+  }
+
+  if (keyRow.expiresAt && keyRow.expiresAt <= new Date()) {
+    throw new AppError("UNAUTHORIZED", "Storefront service credential has expired.");
+  }
+
+  // Strict storefront scope check: credential for Storefront A can never access Storefront B (§12, §17.1)
+  if (keyRow.storefrontKey !== input.requestedStorefrontKey) {
+    throw new AppError(
+      "FORBIDDEN",
+      `Storefront credential is scoped to "${keyRow.storefrontKey}" and cannot access "${input.requestedStorefrontKey}".`
+    );
+  }
+
+  if (keyRow.allowedIps && keyRow.allowedIps.length > 0) {
+    if (!input.clientIp || !keyRow.allowedIps.includes(input.clientIp)) {
+      throw new AppError("FORBIDDEN", "Client IP is not on the storefront credential allowlist.");
+    }
+  }
+
+  await db
+    .update(storefrontApiKeys)
+    .set({ lastUsedAt: new Date() })
+    .where(eq(storefrontApiKeys.id, keyRow.keyId));
+
+  return {
+    storefrontId: keyRow.storefrontId,
+    storefrontKey: keyRow.storefrontKey,
+    sellerEntityId: keyRow.sellerEntityId
+  };
+}
+
+export async function listUsersWithMemberships(db: AppDatabase) {
+  const allUsers = await db.select().from(users).orderBy(users.fullName);
+  const allMemberships = await db.select().from(userEntityMemberships);
+  const allPermissions = await db.select().from(userPermissions);
+
+  return allUsers.map((u) => ({
+    id: u.id,
+    email: u.email,
+    fullName: u.fullName,
+    role: u.role as UserRole,
+    locale: u.locale as SupportedLocale,
+    totpEnabled: u.totpEnabled,
+    hasPin: Boolean(u.pinHash),
+    active: u.active,
+    entityIds: allMemberships.filter((m) => m.userId === u.id).map((m) => m.legalEntityId),
+    permissions: allPermissions
+      .filter((p) => p.userId === u.id)
+      .map((p) => p.permissionKey as GranularPermission),
+    createdAt: u.createdAt
+  }));
+}

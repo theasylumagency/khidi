@@ -1,0 +1,25 @@
+{
+  "name": "@agrotrade/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "build": "tsc --noEmit",
+    "migrate": "tsx src/migrate.ts",
+    "seed": "tsx src/seed.ts"
+  },
+  "dependencies": {
+    "@agrotrade/shared": "workspace:*",
+    "bcryptjs": "3.0.2",
+    "drizzle-orm": "0.40.0",
+    "pg": "8.13.3"
+  },
+  "devDependencies": {
+    "@types/pg": "8.11.11"
+  }
+}

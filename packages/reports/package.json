@@ -1,0 +1,21 @@
+{
+  "name": "@agrotrade/reports",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agrotrade/domain": "workspace:*",
+    "@agrotrade/entities": "workspace:*",
+    "@agrotrade/inventory": "workspace:*",
+    "@agrotrade/products": "workspace:*",
+    "@agrotrade/shared": "workspace:*"
+  }
+}

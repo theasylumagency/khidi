@@ -1,0 +1,24 @@
+{
+  "name": "@agrotrade/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agrotrade/ai": "workspace:*",
+    "@agrotrade/db": "workspace:*",
+    "@agrotrade/domain": "workspace:*",
+    "@agrotrade/fulfillment": "workspace:*",
+    "@agrotrade/inventory": "workspace:*",
+    "@agrotrade/media": "workspace:*",
+    "@agrotrade/notifications": "workspace:*",
+    "@agrotrade/publishing": "workspace:*",
+    "@agrotrade/reports": "workspace:*",
+    "@agrotrade/shared": "workspace:*"
+  }
+}
