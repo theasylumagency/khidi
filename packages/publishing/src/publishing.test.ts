@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { evaluateStorefrontSellability } from "./index.ts";
 
-describe("@agrotrade/publishing — Sellability Evaluator [C5, C8, C9, C18]", () => {
+describe("@khidi/publishing — Sellability Evaluator [C5, C8, C9, C18]", () => {
   it("returns sellable=true only when all §15.2 + C8 + C9 conditions hold", () => {
     const res = evaluateStorefrontSellability({
       lifecycleState: "READY",

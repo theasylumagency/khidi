@@ -1,5 +1,5 @@
 {
-  "name": "@agrotrade/auth",
+  "name": "@khidi/auth",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,10 +12,10 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
-    "@agrotrade/db": "workspace:*",
-    "@agrotrade/domain": "workspace:*",
-    "@agrotrade/entities": "workspace:*",
-    "@agrotrade/shared": "workspace:*",
+    "@khidi/db": "workspace:*",
+    "@khidi/domain": "workspace:*",
+    "@khidi/entities": "workspace:*",
+    "@khidi/shared": "workspace:*",
     "bcryptjs": "3.0.2",
     "drizzle-orm": "0.40.0",
     "otpauth": "9.3.6",

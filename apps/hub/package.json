@@ -1,5 +1,5 @@
 {
-  "name": "@agrotrade/hub",
+  "name": "@khidi/hub",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,29 +11,29 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@agrotrade/auth": "workspace:*",
-    "@agrotrade/db": "workspace:*",
-    "@agrotrade/domain": "workspace:*",
-    "@agrotrade/entities": "workspace:*",
-    "@agrotrade/evidence": "workspace:*",
-    "@agrotrade/fulfillment": "workspace:*",
-    "@agrotrade/i18n": "workspace:*",
-    "@agrotrade/inventory": "workspace:*",
-    "@agrotrade/media": "workspace:*",
-    "@agrotrade/notifications": "workspace:*",
-    "@agrotrade/pricing": "workspace:*",
-    "@agrotrade/products": "workspace:*",
-    "@agrotrade/publishing": "workspace:*",
-    "@agrotrade/reports": "workspace:*",
-    "@agrotrade/scanning": "workspace:*",
-    "@agrotrade/shared": "workspace:*",
-    "@agrotrade/ui": "workspace:*",
-    "next": "15.2.1",
-    "react": "19.0.0",
-    "react-dom": "19.0.0"
+    "@khidi/auth": "workspace:*",
+    "@khidi/db": "workspace:*",
+    "@khidi/domain": "workspace:*",
+    "@khidi/entities": "workspace:*",
+    "@khidi/evidence": "workspace:*",
+    "@khidi/fulfillment": "workspace:*",
+    "@khidi/i18n": "workspace:*",
+    "@khidi/inventory": "workspace:*",
+    "@khidi/media": "workspace:*",
+    "@khidi/notifications": "workspace:*",
+    "@khidi/pricing": "workspace:*",
+    "@khidi/products": "workspace:*",
+    "@khidi/publishing": "workspace:*",
+    "@khidi/reports": "workspace:*",
+    "@khidi/scanning": "workspace:*",
+    "@khidi/shared": "workspace:*",
+    "@khidi/ui": "workspace:*",
+    "next": "16.4.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
-    "@types/react": "19.0.10",
-    "@types/react-dom": "19.0.4"
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0"
   }
 }

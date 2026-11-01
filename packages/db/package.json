@@ -1,5 +1,5 @@
 {
-  "name": "@agrotrade/db",
+  "name": "@khidi/db",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
     "seed": "tsx src/seed.ts"
   },
   "dependencies": {
-    "@agrotrade/shared": "workspace:*",
+    "@khidi/shared": "workspace:*",
     "bcryptjs": "3.0.2",
     "drizzle-orm": "0.40.0",
     "pg": "8.13.3"

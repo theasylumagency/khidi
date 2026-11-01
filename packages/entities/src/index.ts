@@ -6,14 +6,14 @@ import {
   legalEntities,
   storefronts,
   entityRelationships
-} from "@agrotrade/db";
-import { type DomainActor, withDomainTransaction } from "@agrotrade/domain";
+} from "@khidi/db";
+import { type DomainActor, withDomainTransaction } from "@khidi/domain";
 import {
   AppError,
   createUuidV7,
   relationshipModeSchema,
   type RelationshipMode
-} from "@agrotrade/shared";
+} from "@khidi/shared";
 
 export const createLegalEntitySchema = z.object({
   key: z.string().trim().min(2).max(32).regex(/^[A-Z0-9_]+$/),

@@ -34,6 +34,8 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash"),
   totpSecretEncrypted: text("totp_secret_encrypted"),
   totpEnabled: boolean("totp_enabled").notNull().default(false),
+  failedLoginAttempts: integer("failed_login_attempts").notNull().default(0),
+  loginLockedUntil: timestamp("login_locked_until", { withTimezone: true }),
   pinHash: text("pin_hash"),
   failedPinAttempts: integer("failed_pin_attempts").notNull().default(0),
   pinLockedUntil: timestamp("pin_locked_until", { withTimezone: true }),
@@ -223,8 +225,9 @@ export const idempotencyKeys = pgTable(
     scope: text("scope").notNull(),
     idempotencyKey: text("idempotency_key").notNull(),
     requestHash: text("request_hash").notNull(),
-    responseStatus: integer("response_status").notNull(),
-    responseBodyJson: jsonb("response_body_json").$type<Record<string, unknown>>().notNull(),
+    status: text("status").notNull().default("IN_PROGRESS"), // 'IN_PROGRESS' | 'COMPLETED'
+    responseStatus: integer("response_status"),
+    responseBodyJson: jsonb("response_body_json").$type<Record<string, unknown> | null>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull()
   },

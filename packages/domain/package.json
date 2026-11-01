@@ -1,5 +1,5 @@
 {
-  "name": "@agrotrade/domain",
+  "name": "@khidi/domain",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,8 +12,8 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
-    "@agrotrade/db": "workspace:*",
-    "@agrotrade/shared": "workspace:*",
+    "@khidi/db": "workspace:*",
+    "@khidi/shared": "workspace:*",
     "drizzle-orm": "0.40.0"
   }
 }

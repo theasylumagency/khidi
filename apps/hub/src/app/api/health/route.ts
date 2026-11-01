@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { checkDatabaseHealth } from "@agrotrade/db";
-import { nowUtc } from "@agrotrade/shared";
+import { checkDatabaseHealth } from "@khidi/db";
+import { nowUtc } from "@khidi/shared";
 
 export async function GET() {
   await checkDatabaseHealth();

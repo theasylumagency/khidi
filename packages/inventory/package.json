@@ -1,5 +1,5 @@
 {
-  "name": "@agrotrade/inventory",
+  "name": "@khidi/inventory",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,9 +12,9 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
-    "@agrotrade/domain": "workspace:*",
-    "@agrotrade/entities": "workspace:*",
-    "@agrotrade/products": "workspace:*",
-    "@agrotrade/shared": "workspace:*"
+    "@khidi/domain": "workspace:*",
+    "@khidi/entities": "workspace:*",
+    "@khidi/products": "workspace:*",
+    "@khidi/shared": "workspace:*"
   }
 }

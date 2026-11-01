@@ -1,4 +1,4 @@
-import type { SupportedLocale, UserRole } from "@agrotrade/shared";
+import type { SupportedLocale, UserRole } from "@khidi/shared";
 
 export interface NavItem {
   key: string;
@@ -10,7 +10,7 @@ export interface NavItem {
 }
 
 /**
- * Primary navigation items matching §13.4 exactly.
+ * Primary navigation items matching §13.4.
  * Core: პროდუქტები · მარაგი · ფასები · დავალებები · მიწოდება · შეტყობინებები · ისტორია · პარამეტრები
  * Admin additionally: მტკიცებულებები, მომხმარებლები, იურიდიული პირები, მაღაზიები, ანგარიშები
  */
@@ -69,7 +69,8 @@ export const NAVIGATION_ITEMS: readonly NavItem[] = [
     href: "/settings",
     labelKa: "პარამეტრები",
     labelEn: "Settings",
-    allowedRoles: ["ADMIN", "OPERATOR", "STOCK_MANAGER"]
+    adminOnly: true,
+    allowedRoles: ["ADMIN"]
   },
   // Admin-only navigation items (§13.4)
   {
@@ -120,7 +121,7 @@ export function getNavigationForRole(role: UserRole): NavItem[] {
 
 export const DICTIONARY = {
   ka: {
-    "app.title": "AgroTrade Hub — ონლაინ საწყობი",
+    "app.title": "Khidi — სასაწყობო და კატალოგის ჰაბი",
     "app.subtitle": "კანონიკური პროდუქტების, მარაგების, ფასებისა და შესრულების ცენტრი",
     "auth.office_login": "ოფისის შესვლა (ელ-ფოსტა + TOTP)",
     "auth.warehouse_pin": "საწყობის სწრაფი შესვლა (PIN)",
@@ -130,12 +131,12 @@ export const DICTIONARY = {
     "warehouse.photo_blurry": "⚠ ფოტო ბუნდოვანია, გადაიღეთ თავიდან",
     "warehouse.offline_pending": "ოფლაინ რიგშია სინქრონიზაციისთვის",
     "settings.operating_model_title": "ონლაინ საწყობის ოპერაციული მოდელი (§10.1, C1, C13)",
-    "settings.operating_model_rule1": "1. AgroTrade-ის ბუღალტერიაში იქმნება გამოყოფილი ონლაინ საწყობი/ლოკაცია, სადაც შიდა გადაადგილებით გადადის ონლაინ გასაყიდი მარაგი.",
+    "settings.operating_model_rule1": "1. ბუღალტერიაში იქმნება გამოყოფილი ონლაინ საწყობი/ლოკაცია, სადაც შიდა გადაადგილებით გადადის ონლაინ გასაყიდი მარაგი.",
     "settings.operating_model_rule2": "2. თითოეული პულის SHELF (თარო) და STAGING (აგროვებული შეკვეთების ზონა) ფიზიკურად მარკირებულია, რათა პერსონალმა მკაფიოდ გაარჩიოს მფლობელი იურიდიული პირები (PURCHASE რეჟიმში) [C13].",
     "settings.operating_model_rule3": "3. გადაცემის (HANDED_OVER) შემდეგ დაბრუნებული პროდუქცია მიდის მხოლოდ მთავარ საწყობში და არასდროს ბრუნდება პირდაპირ ონლაინ თაროზე. ხელახალი ონლაინ გაყიდვისთვის საჭიროა ახალი STOCK_IN დოკუმენტის ნომრით [C1]."
   },
   en: {
-    "app.title": "AgroTrade Hub — Online Warehouse",
+    "app.title": "Khidi — Online Warehouse & Catalog Hub",
     "app.subtitle": "Canonical Product Master, Inventory, Pricing & Fulfillment Hub",
     "auth.office_login": "Office Login (Email + TOTP)",
     "auth.warehouse_pin": "Warehouse Quick Switch (PIN)",
@@ -145,7 +146,7 @@ export const DICTIONARY = {
     "warehouse.photo_blurry": "⚠ ფოტო ბუნდოვანია, გადაიღეთ თავიდან",
     "warehouse.offline_pending": "Pending offline sync",
     "settings.operating_model_title": "Online Warehouse Operating Model (§10.1, C1, C13)",
-    "settings.operating_model_rule1": "1. AgroTrade maintains a dedicated online warehouse in accounting and transfers online units there.",
+    "settings.operating_model_rule1": "1. A dedicated online warehouse is maintained in accounting and online units are transferred there.",
     "settings.operating_model_rule2": "2. Each pool's SHELF and STAGING zones are physically marked so staff can distinguish legal entity owners [C13].",
     "settings.operating_model_rule3": "3. Returned goods after HANDED_OVER go to the main warehouse, never directly back to the online shelf without a new STOCK_IN document reference [C1]."
   }

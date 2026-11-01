@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
-import { createUuidV7, sha256Hex } from "@agrotrade/shared";
+import { createUuidV7, encryptSecretAes256Gcm, sha256Hex } from "@khidi/shared";
 import { getDb, closeAppPool } from "./client.ts";
 import {
   legalEntities,
@@ -19,7 +19,7 @@ export const SEED_CONSTANTS = {
   STOCK_MANAGER_TOTP_SECRET: "JBSWY3DPEHPK3PXQ",
   DEFAULT_PASSWORD: "AgroTrade#2026!",
   WAREHOUSE_PIN: "1482",
-  WAREHOUSE_DEVICE_TOKEN: "agt_dev_seed_scanner_01_token_998877665544332211"
+  WAREHOUSE_DEVICE_TOKEN: "khidi_dev_seed_scanner_01_token_998877665544332211"
 } as const;
 
 export async function runSeed() {
@@ -38,6 +38,10 @@ export async function runSeed() {
 
   const passwordHash = await bcrypt.hash(SEED_CONSTANTS.DEFAULT_PASSWORD, 10);
   const pinHash = await bcrypt.hash(SEED_CONSTANTS.WAREHOUSE_PIN, 10);
+
+  // Encrypt TOTP secrets using AES-256-GCM before storing in totp_secret_encrypted
+  const adminTotpEncrypted = encryptSecretAes256Gcm(SEED_CONSTANTS.ADMIN_TOTP_SECRET);
+  const stockMgrTotpEncrypted = encryptSecretAes256Gcm(SEED_CONSTANTS.STOCK_MANAGER_TOTP_SECRET);
 
   const agroEntityId = createUuidV7();
   const newBrandEntityId = createUuidV7();
@@ -74,7 +78,7 @@ export async function runSeed() {
       email: "admin@agrotrade.local",
       fullName: "გიორგი ბერიძე (Admin)",
       passwordHash,
-      totpSecretEncrypted: SEED_CONSTANTS.ADMIN_TOTP_SECRET,
+      totpSecretEncrypted: adminTotpEncrypted,
       totpEnabled: true,
       pinHash,
       role: "ADMIN",
@@ -94,9 +98,9 @@ export async function runSeed() {
     {
       id: agroStockMgrId,
       email: "stock.agro@agrotrade.local",
-      fullName: "ლიკა მaisuradze (AgroTrade Stock Manager)",
+      fullName: "ლიკა მაისურაძე (AgroTrade Stock Manager)",
       passwordHash,
-      totpSecretEncrypted: SEED_CONSTANTS.STOCK_MANAGER_TOTP_SECRET,
+      totpSecretEncrypted: stockMgrTotpEncrypted,
       totpEnabled: true,
       role: "STOCK_MANAGER",
       locale: "ka",
@@ -107,7 +111,7 @@ export async function runSeed() {
       email: "stock.newbrand@agrotrade.local",
       fullName: "დავით გელაშვილი (NewBrand Stock Manager)",
       passwordHash,
-      totpSecretEncrypted: SEED_CONSTANTS.STOCK_MANAGER_TOTP_SECRET,
+      totpSecretEncrypted: stockMgrTotpEncrypted,
       totpEnabled: true,
       role: "STOCK_MANAGER",
       locale: "ka",
@@ -285,7 +289,10 @@ export async function runSeed() {
   return { skipped: false };
 }
 
-if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, "/")}` || process.argv[1]?.endsWith("seed.ts")) {
+if (
+  import.meta.url === `file://${process.argv[1]?.replace(/\\/g, "/")}` ||
+  process.argv[1]?.endsWith("seed.ts")
+) {
   runSeed()
     .then(async (res) => {
       console.log("Seed completed:", res);

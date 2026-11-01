@@ -8,7 +8,7 @@ import {
   runMigrations,
   runSeed,
   SEED_CONSTANTS
-} from "@agrotrade/db";
+} from "@khidi/db";
 import {
   assertEntityStockManagement,
   assertPriceEditAccess,
@@ -16,20 +16,58 @@ import {
   canAccessAdminScreens,
   canViewCommercialInvoices,
   canViewPrices,
+  decryptTotpSecret,
+  encryptTotpSecret,
   generateCurrentTotpToken,
+  generateTotpSecret,
   issueStorefrontApiKey,
+  listPinEnabledUsersForRegisteredDevice,
+  listUsersWithMemberships,
   loginOfficeUser,
   loginWithWarehousePin,
   registerWarehouseDevice,
+  revokeSessionToken,
   revokeWarehouseDevice,
   verifySessionToken,
   verifyStorefrontServiceCredential
 } from "./index.ts";
 
-describe("@agrotrade/auth — Office TOTP, Warehouse PIN, RBAC & Storefront Isolation (§13, §17.1)", () => {
+describe("@khidi/auth — AES-256-GCM TOTP, Atomic Lockouts, Warehouse PIN, RBAC & Storefront Isolation (§13, §17.1)", () => {
   beforeAll(async () => {
     await runMigrations();
     await runSeed();
+  });
+
+  it("encrypts TOTP secrets at rest with AES-256-GCM and uses Khidi issuer", async () => {
+    const db = getDb();
+    const [adminRow] = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, "admin@agrotrade.local"))
+      .limit(1);
+
+    expect(adminRow?.totpSecretEncrypted).toBeDefined();
+    // Must not be stored as plaintext Base32
+    expect(adminRow?.totpSecretEncrypted).not.toBe(SEED_CONSTANTS.ADMIN_TOTP_SECRET);
+    expect(adminRow?.totpSecretEncrypted?.startsWith("v1:")).toBe(true);
+
+    // Decrypts back to the exact Base32 secret with valid key
+    const decrypted = decryptTotpSecret(adminRow!.totpSecretEncrypted!);
+    expect(decrypted).toBe(SEED_CONSTANTS.ADMIN_TOTP_SECRET);
+
+    // Fails decryption with a wrong key
+    expect(() =>
+      decryptTotpSecret(
+        adminRow!.totpSecretEncrypted!,
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      )
+    ).toThrow(/Failed to decrypt/);
+
+    // Generated TOTP URI uses neutral "Khidi" issuer
+    const enrolled = generateTotpSecret("test@khidi.local");
+    expect(enrolled.otpauthUri).toContain("issuer=Khidi");
+    expect(decryptTotpSecret(enrolled.encryptedSecret)).toBe(enrolled.base32Secret);
+    expect(encryptTotpSecret(enrolled.base32Secret)).not.toBe(enrolled.encryptedSecret); // random IV
   });
 
   it("enforces mandatory TOTP for ADMIN and STOCK_MANAGER and allows valid TOTP login (§13.2)", async () => {
@@ -43,7 +81,7 @@ describe("@agrotrade/auth — Office TOTP, Warehouse PIN, RBAC & Storefront Isol
       })
     ).rejects.toThrow(/TOTP/);
 
-    // Valid TOTP must succeed
+    // Valid TOTP must succeed and reset failed_login_attempts to 0
     const validTotp = generateCurrentTotpToken(SEED_CONSTANTS.ADMIN_TOTP_SECRET);
     const { sessionToken, principal } = await loginOfficeUser(db, {
       email: "admin@agrotrade.local",
@@ -59,7 +97,43 @@ describe("@agrotrade/auth — Office TOTP, Warehouse PIN, RBAC & Storefront Isol
     expect(verified.userId).toBe(principal.userId);
   });
 
-  it("restricts WAREHOUSE role from admin, price data, and commercial invoices (§13.1, §17.1)", async () => {
+  it("enforces atomic brute-force lockout after 5 failed office logins and supports session logout", async () => {
+    const db = getDb();
+
+    // 5 failed password attempts for orders@agrotrade.local
+    for (let i = 0; i < 5; i++) {
+      await expect(
+        loginOfficeUser(db, {
+          email: "orders@agrotrade.local",
+          password: "WrongPassword#123"
+        })
+      ).rejects.toThrow(/Invalid email or password/);
+    }
+
+    // Even with the correct password, the 6th attempt must be blocked by login_locked_until
+    await expect(
+      loginOfficeUser(db, {
+        email: "orders@agrotrade.local",
+        password: SEED_CONSTANTS.DEFAULT_PASSWORD
+      })
+    ).rejects.toThrow(/temporarily locked/);
+
+    // Clear lockout for subsequent tests and verify logout revokes session
+    await db
+      .update(users)
+      .set({ failedLoginAttempts: 0, loginLockedUntil: null })
+      .where(eq(users.email, "orders@agrotrade.local"));
+
+    const { sessionToken } = await loginOfficeUser(db, {
+      email: "orders@agrotrade.local",
+      password: SEED_CONSTANTS.DEFAULT_PASSWORD
+    });
+
+    await revokeSessionToken(db, sessionToken);
+    await expect(verifySessionToken(db, sessionToken)).rejects.toThrow(/Session expired or invalid/);
+  });
+
+  it("restricts WAREHOUSE role from admin, price data, user list, and commercial invoices (§13.1, §17.1)", async () => {
     const db = getDb();
     const [warehouseUser] = await db
       .select()
@@ -79,6 +153,19 @@ describe("@agrotrade/auth — Office TOTP, Warehouse PIN, RBAC & Storefront Isol
     expect(canViewCommercialInvoices(principal)).toBe(false);
     expect(() => assertPriceViewAccess(principal)).toThrow();
     expect(() => assertPriceEditAccess(principal)).toThrow();
+    await expect(listUsersWithMemberships(db, principal)).rejects.toThrow(/not permitted/);
+
+    // Registered device user listing never leaks emails and returns null for unknown device tokens
+    const unreg = await listPinEnabledUsersForRegisteredDevice(db, "unknown_device_token");
+    expect(unreg).toBeNull();
+
+    const regContext = await listPinEnabledUsersForRegisteredDevice(
+      db,
+      SEED_CONSTANTS.WAREHOUSE_DEVICE_TOKEN
+    );
+    expect(regContext).not.toBeNull();
+    expect(regContext!.users.length).toBeGreaterThan(0);
+    expect("email" in (regContext!.users[0] as Record<string, unknown>)).toBe(false);
   });
 
   it("limits STOCK_MANAGER strictly to their own legal entity (§13.1, §17.1)", async () => {

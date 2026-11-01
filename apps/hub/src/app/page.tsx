@@ -1,88 +1,160 @@
 import Link from "next/link";
-import { t } from "@agrotrade/i18n";
+import { getDb } from "@khidi/db";
+import { listLegalEntities, listStorefronts, listEntityRelationships } from "@khidi/entities";
+import { listUsersWithMemberships } from "@khidi/auth";
+import { t } from "@khidi/i18n";
+import { requirePageAuth } from "../lib/session.ts";
 
-export default function HomePage() {
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  const principal = await requirePageAuth();
+  const db = getDb();
+
+  const [entities, storefronts, relationships] = await Promise.all([
+    listLegalEntities(db),
+    listStorefronts(db),
+    listEntityRelationships(db)
+  ]);
+
+  const users =
+    principal.role === "ADMIN" ? await listUsersWithMemberships(db, principal) : [];
+
   return (
-    <div style={{ display: "grid", gap: "1.25rem" }}>
+    <div style={{ display: "grid", gap: "1.5rem" }}>
       <section
         style={{
-          backgroundColor: "#ffffff",
-          border: "1px solid #cbd5e1",
-          borderRadius: "6px",
-          padding: "1.25rem"
+          background: "#ffffff",
+          border: "1px solid #e2e8f0",
+          borderRadius: "12px",
+          padding: "1.5rem"
         }}
       >
-        <h1 style={{ margin: "0 0 0.5rem 0", fontSize: "1.35rem" }}>
-          {t("app.title", "ka")}
-        </h1>
-        <p style={{ margin: 0, color: "#475569", fontSize: "0.95rem" }}>
-          {t("app.subtitle", "ka")}
-        </p>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <h1 style={{ margin: "0 0 0.5rem 0", fontSize: "1.5rem" }}>
+              {t("app.title", "ka")} — Milestone 1 (Foundation)
+            </h1>
+            <p style={{ margin: 0, color: "#475569" }}>{t("app.subtitle", "ka")}</p>
+          </div>
+          <span
+            style={{
+              background: "#dcfce7",
+              color: "#166534",
+              padding: "0.35rem 0.75rem",
+              borderRadius: "999px",
+              fontSize: "0.8rem",
+              fontWeight: 700
+            }}
+          >
+            PostgreSQL 18 + Append-Only [C7] Active
+          </span>
+        </div>
+
+        <div
+          style={{
+            marginTop: "1.25rem",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "1rem"
+          }}
+        >
+          <div
+            style={{
+              padding: "1rem",
+              borderRadius: "10px",
+              background: "#f8fafc",
+              border: "1px solid #cbd5e1"
+            }}
+          >
+            <div style={{ fontSize: "0.8rem", color: "#64748b" }}>იურიდიული პირები (§4.1, C11)</div>
+            <div style={{ fontSize: "1.75rem", fontWeight: 800, marginTop: "0.25rem" }}>
+              {entities.length}
+            </div>
+            {principal.role === "ADMIN" && (
+              <Link href="/entities" style={{ fontSize: "0.85rem", color: "#15803d" }}>
+                მართვა →
+              </Link>
+            )}
+          </div>
+
+          <div
+            style={{
+              padding: "1rem",
+              borderRadius: "10px",
+              background: "#f8fafc",
+              border: "1px solid #cbd5e1"
+            }}
+          >
+            <div style={{ fontSize: "0.8rem", color: "#64748b" }}>ონლაინ მაღაზიები (§4.2)</div>
+            <div style={{ fontSize: "1.75rem", fontWeight: 800, marginTop: "0.25rem" }}>
+              {storefronts.length}
+            </div>
+            {principal.role === "ADMIN" && (
+              <Link href="/storefronts" style={{ fontSize: "0.85rem", color: "#15803d" }}>
+                მართვა →
+              </Link>
+            )}
+          </div>
+
+          {principal.role === "ADMIN" && (
+            <div
+              style={{
+                padding: "1rem",
+                borderRadius: "10px",
+                background: "#f8fafc",
+                border: "1px solid #cbd5e1"
+              }}
+            >
+              <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
+                მომხმარებლები და როლები (§13.1, C12)
+              </div>
+              <div style={{ fontSize: "1.75rem", fontWeight: 800, marginTop: "0.25rem" }}>
+                {users.length}
+              </div>
+              <Link href="/users" style={{ fontSize: "0.85rem", color: "#15803d" }}>
+                მართვა →
+              </Link>
+            </div>
+          )}
+
+          <div
+            style={{
+              padding: "1rem",
+              borderRadius: "10px",
+              background: "#f0fdf4",
+              border: "1px solid #86efac"
+            }}
+          >
+            <div style={{ fontSize: "0.8rem", color: "#166534" }}>
+              კომერციული რეჟიმი (§4.4, C17)
+            </div>
+            <div style={{ fontSize: "1.35rem", fontWeight: 800, marginTop: "0.25rem" }}>
+              {relationships[0]?.mode ?? "CONSIGNMENT"}
+            </div>
+            <Link href="/diagnostics/pwa-spike" style={{ fontSize: "0.85rem", color: "#15803d" }}>
+              Access Gateway PWA Spike [C6] →
+            </Link>
+          </div>
+        </div>
       </section>
 
       <section
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-          gap: "1rem"
+          background: "#ffffff",
+          border: "1px solid #e2e8f0",
+          borderRadius: "12px",
+          padding: "1.5rem"
         }}
       >
-        <div
-          style={{
-            backgroundColor: "#ffffff",
-            border: "1px solid #cbd5e1",
-            borderRadius: "6px",
-            padding: "1rem"
-          }}
-        >
-          <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>
-            1. იურიდიული პირები და მაღაზიები (§4, C11, C17)
-          </h2>
-          <p style={{ fontSize: "0.9rem", color: "#334155" }}>
-            ორი იურიდიული პირი (<strong>AGROTRADE</strong> და <strong>NEWBRAND</strong>) საკუთარი დღგ-ს პარამეტრით (<code>prices_include_vat</code>) და კონფიგურირებადი ურთიერთობის რეჟიმით (<code>PURCHASE</code> | <code>CONSIGNMENT</code>).
-          </p>
-          <Link href="/settings" style={{ color: "#0284c7", fontWeight: 600, fontSize: "0.9rem" }}>
-            ოპერაციული მოდელის და პარამეტრების ნახვა →
-          </Link>
-        </div>
-
-        <div
-          style={{
-            backgroundColor: "#ffffff",
-            border: "1px solid #cbd5e1",
-            borderRadius: "6px",
-            padding: "1rem"
-          }}
-        >
-          <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>
-            2. ავთენტიფიკაცია და როლები (§13, C12)
-          </h2>
-          <p style={{ fontSize: "0.9rem", color: "#334155" }}>
-            ოფისის მომხმარებლები (Email + Password + სავალდებულო TOTP <code>ADMIN</code> და <code>STOCK_MANAGER</code> როლებისთვის) და საწყობის რეგისტრირებული ტელეფონის სწრაფი PIN გადართვა.
-          </p>
-        </div>
-
-        <div
-          style={{
-            backgroundColor: "#ffffff",
-            border: "1px solid #cbd5e1",
-            borderRadius: "6px",
-            padding: "1rem"
-          }}
-        >
-          <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>
-            3. Access Gateway + PWA Spike (§16.3, C6)
-          </h2>
-          <p style={{ fontSize: "0.9rem", color: "#334155" }}>
-            რეალურ Android და iOS მოწყობილობებზე Gateway-ს უკან PWA ინსტალაციის, Service Worker-ის, კამერის, IndexedDB ოფლაინ რიგისა და Web Push-ის შემოწმება.
-          </p>
-          <Link
-            href="/diagnostics/pwa-spike"
-            style={{ color: "#0284c7", fontWeight: 600, fontSize: "0.9rem" }}
-          >
-            გახსენით PWA Spike დიაგნოსტიკა →
-          </Link>
-        </div>
+        <h2 style={{ margin: "0 0 0.75rem 0", fontSize: "1.15rem" }}>
+          {t("settings.operating_model_title", "ka")}
+        </h2>
+        <ul style={{ margin: 0, paddingLeft: "1.25rem", color: "#334155", lineHeight: 1.6 }}>
+          <li>{t("settings.operating_model_rule1", "ka")}</li>
+          <li>{t("settings.operating_model_rule2", "ka")}</li>
+          <li>{t("settings.operating_model_rule3", "ka")}</li>
+        </ul>
       </section>
     </div>
   );

@@ -1,127 +1,163 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import Link from "next/link";
-import { NAVIGATION_ITEMS, t } from "@agrotrade/i18n";
+import type { ReactNode } from "react";
+import { getNavigationForRole, t } from "@khidi/i18n";
+import { PwaRegister } from "../components/pwa-register.tsx";
+import { LogoutButton } from "../components/logout-button.tsx";
+import { getCurrentPrincipal } from "../lib/session.ts";
 
 export const metadata: Metadata = {
-  title: "AgroTrade Hub — ონლაინ საწყობი",
-  description: "შიდა ონლაინ საწყობის, კატალოგის, მარაგებისა და შესრულების მართვის სისტემა",
+  title: "Khidi — სასაწყობო და კატალოგის ჰაბი",
+  description: "Khidi — კანონიკური პროდუქტების, მარაგების, ფასებისა და შესრულების ცენტრი",
   robots: {
     index: false,
     follow: false
   }
 };
 
-export default function RootLayout({
-  children
-}: {
-  children: React.ReactNode;
-}) {
+export const viewport: Viewport = {
+  themeColor: "#15803d",
+  width: "device-width",
+  initialScale: 1
+};
+
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const principal = await getCurrentPrincipal();
+  const navItems = principal ? getNavigationForRole(principal.role) : [];
+
   return (
     <html lang="ka">
       <head>
-        {/* [C6] ADR-002: Load manifest with use-credentials so Access Gateway cookies are sent */}
-        <link
-          rel="manifest"
-          href="/manifest.webmanifest"
-          crossOrigin="use-credentials"
-        />
-        <meta name="theme-color" content="#0f172a" />
+        {/* [C6] crossorigin="use-credentials" ensures PWA manifest fetches pass Access Gateway cookies */}
+        <link rel="manifest" href="/manifest.webmanifest" crossOrigin="use-credentials" />
+        {/* iOS Home Screen PNG icon */}
+        <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
       </head>
       <body
         style={{
           margin: 0,
-          fontFamily: "'Noto Sans Georgian', system-ui, -apple-system, sans-serif",
+          fontFamily:
+            "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans Georgian', sans-serif",
           backgroundColor: "#f8fafc",
           color: "#0f172a"
         }}
       >
+        <PwaRegister />
         <header
           style={{
             backgroundColor: "#0f172a",
             color: "#f8fafc",
             padding: "0.75rem 1.25rem",
-            borderBottom: "2px solid #1e293b"
+            borderBottom: "2px solid #15803d"
           }}
         >
           <div
             style={{
+              maxWidth: "1280px",
+              margin: "0 auto",
               display: "flex",
+              flexWrap: "wrap",
               alignItems: "center",
               justifyContent: "space-between",
-              flexWrap: "wrap",
-              gap: "0.75rem"
+              gap: "1rem"
             }}
           >
-            <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
               <Link
-                href="/"
+                href={principal ? "/" : "/login"}
                 style={{
-                  color: "#f8fafc",
+                  color: "#ffffff",
                   textDecoration: "none",
                   fontWeight: 700,
-                  fontSize: "1.05rem"
+                  fontSize: "1.1rem",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem"
                 }}
               >
-                {t("app.title", "ka")}
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: "32px",
+                    height: "32px",
+                    borderRadius: "8px",
+                    background: "#15803d",
+                    color: "#fff",
+                    fontWeight: 800,
+                    fontSize: "0.85rem"
+                  }}
+                >
+                  KH
+                </span>
+                <span>{t("app.title", "ka")}</span>
               </Link>
-              <span
+              {principal && (
+                <Link
+                  href="/diagnostics/pwa-spike"
+                  style={{
+                    padding: "0.25rem 0.6rem",
+                    borderRadius: "999px",
+                    background: "#14532d",
+                    color: "#bbf7d0",
+                    fontSize: "0.75rem",
+                    textDecoration: "none",
+                    fontWeight: 600
+                  }}
+                >
+                  PWA Spike [C6]
+                </Link>
+              )}
+            </div>
+
+            {principal ? (
+              <nav
                 style={{
-                  marginLeft: "0.75rem",
-                  fontSize: "0.75rem",
-                  backgroundColor: "#166534",
-                  color: "#dcfce7",
-                  padding: "0.15rem 0.5rem",
-                  borderRadius: "4px"
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "0.5rem",
+                  alignItems: "center"
                 }}
               >
-                INTERNAL HUB · NOINDEX
-              </span>
-            </div>
-            <div style={{ display: "flex", gap: "0.75rem", fontSize: "0.85rem" }}>
-              <Link
-                href="/diagnostics/pwa-spike"
-                style={{ color: "#38bdf8", textDecoration: "none", fontWeight: 600 }}
-              >
-                PWA & Gateway Spike [C6]
-              </Link>
-              <Link
-                href="/settings"
-                style={{ color: "#cbd5e1", textDecoration: "none" }}
-              >
-                ოპერაციული მოდელი
-              </Link>
-            </div>
+                {navItems.map((item) => (
+                  <Link
+                    key={item.key}
+                    href={item.href}
+                    style={{
+                      color: item.adminOnly ? "#fde047" : "#e2e8f0",
+                      textDecoration: "none",
+                      fontSize: "0.85rem",
+                      padding: "0.35rem 0.6rem",
+                      borderRadius: "6px",
+                      background: "rgba(255,255,255,0.06)"
+                    }}
+                  >
+                    {item.labelKa}
+                  </Link>
+                ))}
+                <span
+                  style={{
+                    padding: "0.25rem 0.55rem",
+                    borderRadius: "6px",
+                    background: "#1e293b",
+                    color: "#86efac",
+                    fontSize: "0.75rem",
+                    fontWeight: 600
+                  }}
+                >
+                  {principal.fullName} ({principal.role})
+                </span>
+                <LogoutButton />
+              </nav>
+            ) : (
+              <div style={{ fontSize: "0.82rem", color: "#94a3b8" }}>
+                დაცული შიდა სისტემა — საჭიროა ავტორიზაცია
+              </div>
+            )}
           </div>
-
-          <nav
-            aria-label="მთავარი ნავიგაცია"
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "0.5rem 1rem",
-              marginTop: "0.65rem",
-              paddingTop: "0.5rem",
-              borderTop: "1px solid #1e293b",
-              fontSize: "0.875rem"
-            }}
-          >
-            {NAVIGATION_ITEMS.map((item) => (
-              <Link
-                key={item.key}
-                href={item.href}
-                style={{
-                  color: item.adminOnly ? "#fcd34d" : "#e2e8f0",
-                  textDecoration: "none",
-                  fontWeight: 500
-                }}
-              >
-                {item.labelKa}
-              </Link>
-            ))}
-          </nav>
         </header>
-
-        <main style={{ maxWidth: "1360px", margin: "0 auto", padding: "1.25rem" }}>
+        <main style={{ maxWidth: "1280px", margin: "0 auto", padding: "1.5rem 1.25rem" }}>
           {children}
         </main>
       </body>

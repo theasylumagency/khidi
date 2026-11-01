@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { getDb, runMigrations, runSeed } from "@agrotrade/db";
+import { getDb, runMigrations, runSeed } from "@khidi/db";
 import {
   getActiveEntityRelationship,
   listLegalEntities,
@@ -7,7 +7,7 @@ import {
   setEntityRelationship
 } from "./index.ts";
 
-describe("@agrotrade/entities — VAT Defaults [C11] & Relationship Mode Guard [C17]", () => {
+describe("@khidi/entities — VAT Defaults [C11] & Relationship Mode Guard [C17]", () => {
   beforeAll(async () => {
     await runMigrations();
     await runSeed();

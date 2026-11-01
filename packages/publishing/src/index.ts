@@ -1,8 +1,8 @@
-import type { SkuLifecycleState } from "@agrotrade/products";
+import type { SkuLifecycleState } from "@khidi/products";
 
 /**
  * [C5, C8, C9, C18] Storefront Sellability Evaluator contract (§15.2).
- * Lives in @agrotrade/publishing above catalog and commerce layers to avoid dependency cycles.
+ * Lives in @khidi/publishing above catalog and commerce layers to avoid dependency cycles.
  * Checked only at RESERVE ([C18]).
  */
 export interface SellabilityEvaluationInput {

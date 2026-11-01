@@ -1,5 +1,5 @@
 {
-  "name": "@agrotrade/notifications",
+  "name": "@khidi/notifications",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
-    "@agrotrade/domain": "workspace:*",
-    "@agrotrade/shared": "workspace:*"
+    "@khidi/domain": "workspace:*",
+    "@khidi/shared": "workspace:*"
   }
 }

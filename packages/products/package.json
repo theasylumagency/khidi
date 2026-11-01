@@ -1,5 +1,5 @@
 {
-  "name": "@agrotrade/products",
+  "name": "@khidi/products",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,10 +12,10 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
-    "@agrotrade/domain": "workspace:*",
-    "@agrotrade/entities": "workspace:*",
-    "@agrotrade/evidence": "workspace:*",
-    "@agrotrade/media": "workspace:*",
-    "@agrotrade/shared": "workspace:*"
+    "@khidi/domain": "workspace:*",
+    "@khidi/entities": "workspace:*",
+    "@khidi/evidence": "workspace:*",
+    "@khidi/media": "workspace:*",
+    "@khidi/shared": "workspace:*"
   }
 }

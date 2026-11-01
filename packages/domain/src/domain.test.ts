@@ -1,141 +1,157 @@
-import { beforeAll, describe, expect, it } from "vitest";
-import { eq, and } from "drizzle-orm";
+import { describe, it, expect } from "vitest";
+import { eq } from "drizzle-orm";
+import { getDb, auditLogs, outboxEvents, outboxDeliveries } from "@khidi/db";
+import { createUuidV7 } from "@khidi/shared";
 import {
-  getDb,
-  auditLogs,
-  outboxDeliveries,
-  runMigrations,
-  runSeed
-} from "@agrotrade/db";
-import { AppError, createUuidV7 } from "@agrotrade/shared";
-import { executeIdempotent, withDomainTransaction } from "./index.ts";
+  withDomainTransaction,
+  executeIdempotent,
+  createDomainTransactionContext
+} from "./index.ts";
 
-describe("@agrotrade/domain — Transactions, Per-Consumer Outbox [C10] & Idempotency", () => {
-  beforeAll(async () => {
-    await runMigrations();
-    await runSeed();
-  });
+describe("Domain Transaction, Per-Consumer Outbox ([C10]) & Atomic Idempotency", () => {
+  const db = getDb();
 
-  it("creates one immutable outbox_event and independent outbox_deliveries per consumer [C10]", async () => {
-    const db = getDb();
+  it("commits domain state, audit_logs, outbox_events, and per-consumer outbox_deliveries in one transaction ([C10])", async () => {
     const aggregateId = createUuidV7();
-    const consumerA = "storefront:store-a";
-    const consumerB = "storefront:store-b";
+    const storefrontA = `storefront:${createUuidV7()}`;
+    const storefrontB = `storefront:${createUuidV7()}`;
 
-    const result = await withDomainTransaction(
-      db,
-      { correlationId: "cor_outbox_c10" },
-      async (ctx) => {
-        await ctx.recordAudit({
-          action: "TEST_OUTBOX_FANOUT",
-          entityType: "sku",
-          entityId: aggregateId
-        });
+    const result = await withDomainTransaction(db, {}, async (ctx) => {
+      const auditId = await ctx.recordAudit({
+        action: "TEST_DOMAIN_ACTION",
+        entityType: "product",
+        entityId: aggregateId,
+        after: { status: "READY" }
+      });
 
-        return ctx.emitOutboxEvent({
-          eventType: "PRICE_CHANGED",
-          aggregateType: "sku",
-          aggregateId,
-          payload: { skuId: aggregateId, priceMinor: 150000 },
-          consumers: [consumerA, consumerB, "notifications"]
-        });
-      }
-    );
+      const outbox = await ctx.emitOutboxEvent({
+        eventType: "PRODUCT_APPROVED",
+        aggregateType: "product",
+        aggregateId,
+        payload: { productId: aggregateId },
+        consumers: [storefrontA, storefrontB, "notifications"]
+      });
 
-    expect(result.deliveryIds).toHaveLength(3);
+      return { auditId, outbox };
+    });
 
-    // Simulate consumerA failing (retry scheduled) while consumerB succeeds independently [C10]
-    await db
-      .update(outboxDeliveries)
-      .set({ status: "DELIVERED", attempts: 1, deliveredAt: new Date() })
-      .where(
-        and(
-          eq(outboxDeliveries.outboxEventId, result.eventId),
-          eq(outboxDeliveries.consumer, consumerB)
-        )
-      );
+    const savedAudit = await db
+      .select()
+      .from(auditLogs)
+      .where(eq(auditLogs.id, result.auditId));
+    expect(savedAudit).toHaveLength(1);
 
-    await db
-      .update(outboxDeliveries)
-      .set({ status: "PENDING", attempts: 2 })
-      .where(
-        and(
-          eq(outboxDeliveries.outboxEventId, result.eventId),
-          eq(outboxDeliveries.consumer, consumerA)
-        )
-      );
+    const savedEvent = await db
+      .select()
+      .from(outboxEvents)
+      .where(eq(outboxEvents.id, result.outbox.eventId));
+    expect(savedEvent).toHaveLength(1);
 
-    const rows = await db
+    const deliveries = await db
       .select()
       .from(outboxDeliveries)
-      .where(eq(outboxDeliveries.outboxEventId, result.eventId));
-
-    const rowA = rows.find((r) => r.consumer === consumerA);
-    const rowB = rows.find((r) => r.consumer === consumerB);
-
-    expect(rowA?.status).toBe("PENDING");
-    expect(rowA?.attempts).toBe(2);
-    expect(rowB?.status).toBe("DELIVERED");
-    expect(rowB?.attempts).toBe(1);
+      .where(eq(outboxDeliveries.outboxEventId, result.outbox.eventId));
+    expect(deliveries).toHaveLength(3);
+    expect(deliveries.map((d) => d.consumer).sort()).toEqual(
+      [storefrontA, storefrontB, "notifications"].sort()
+    );
+    expect(deliveries.every((d) => d.status === "PENDING")).toBe(true);
   });
 
-  it("rolls back audit and outbox writes atomically when the domain operation fails (§3.4)", async () => {
-    const db = getDb();
-    const entityId = createUuidV7();
+  it("rolls back audit and outbox rows if the domain transaction throws", async () => {
+    let capturedAuditId = "";
 
     await expect(
-      withDomainTransaction(db, { correlationId: "cor_rollback" }, async (ctx) => {
-        await ctx.recordAudit({
-          action: "SHOULD_ROLL_BACK",
-          entityType: "test",
-          entityId
+      withDomainTransaction(db, {}, async (ctx) => {
+        capturedAuditId = await ctx.recordAudit({
+          action: "SHOULD_ROLLBACK",
+          entityType: "product",
+          entityId: createUuidV7()
         });
-        throw new AppError("PRECONDITION_FAILED", "Simulated domain failure");
+        throw new Error("Simulated domain failure");
       })
     ).rejects.toThrow("Simulated domain failure");
 
-    const found = await db
-      .select()
-      .from(auditLogs)
-      .where(eq(auditLogs.entityId, entityId));
-
-    expect(found).toHaveLength(0);
+    const rows = await db.select().from(auditLogs).where(eq(auditLogs.id, capturedAuditId));
+    expect(rows).toHaveLength(0);
   });
 
-  it("replays identical idempotent requests and rejects conflicting payloads with the same key (§3.4)", async () => {
-    const db = getDb();
+  it("claims idempotency key atomically inside the handler transaction and prevents concurrent duplicate execution", async () => {
+    const scope = "test:concurrent_reserve";
     const key = `idem_${createUuidV7()}`;
-    let counter = 0;
+    let executionCount = 0;
 
-    const first = await executeIdempotent(
-      db,
-      { scope: "test-scope", idempotencyKey: key, payload: { qty: 5 } },
-      async () => {
-        counter += 1;
-        return { status: 201, body: { createdCount: counter } };
-      }
-    );
+    const runHandler = () =>
+      executeIdempotent(
+        db,
+        { scope, idempotencyKey: key, payload: { sku: "SKU-001", qty: 2 } },
+        async (tx) => {
+          executionCount += 1;
+          // Simulate async work inside the transaction while holding the IN_PROGRESS key claim
+          await new Promise((resolve) => setTimeout(resolve, 60));
+          const ctx = createDomainTransactionContext(tx, {});
+          const auditId = await ctx.recordAudit({
+            action: "IDEMPOTENT_RESERVE_EXECUTED",
+            entityType: "reservation",
+            entityId: key
+          });
+          return {
+            status: 201,
+            body: { reservationId: "res_123", qty: 2, auditId }
+          };
+        }
+      );
 
-    const second = await executeIdempotent(
-      db,
-      { scope: "test-scope", idempotencyKey: key, payload: { qty: 5 } },
-      async () => {
-        counter += 1;
-        return { status: 201, body: { createdCount: counter } };
-      }
-    );
+    // Launch two concurrent requests with the exact same (scope, idempotencyKey)
+    const [res1, res2] = await Promise.all([runHandler(), runHandler()]);
 
-    expect(first.replayed).toBe(false);
-    expect(second.replayed).toBe(true);
-    expect(second.body.createdCount).toBe(1);
-    expect(counter).toBe(1);
+    // Handler must have executed strictly ONCE!
+    expect(executionCount).toBe(1);
+    expect([res1.replayed, res2.replayed].sort()).toEqual([false, true]);
+    expect(res1.body.reservationId).toBe("res_123");
+    expect(res2.body.reservationId).toBe("res_123");
+    expect(res1.body.auditId).toBe(res2.body.auditId);
+
+    // Different payload with the same idempotency key must throw IDEMPOTENCY_CONFLICT
+    await expect(
+      executeIdempotent(
+        db,
+        { scope, idempotencyKey: key, payload: { sku: "SKU-001", qty: 99 } },
+        async () => ({
+          status: 201,
+          body: { reservationId: "res_999", qty: 99 }
+        })
+      )
+    ).rejects.toThrow(/different payload/);
+  });
+
+  it("rolls back the IN_PROGRESS idempotency key claim if the handler fails, allowing a clean retry", async () => {
+    const scope = "test:rollback_retry";
+    const key = `idem_${createUuidV7()}`;
+    let attempts = 0;
 
     await expect(
       executeIdempotent(
         db,
-        { scope: "test-scope", idempotencyKey: key, payload: { qty: 99 } },
-        async () => ({ status: 201, body: { createdCount: 2 } })
+        { scope, idempotencyKey: key, payload: { qty: 5 } },
+        async () => {
+          attempts += 1;
+          throw new Error("Transient failure inside handler");
+        }
       )
-    ).rejects.toThrow(AppError);
+    ).rejects.toThrow("Transient failure inside handler");
+
+    const retryResult = await executeIdempotent(
+      db,
+      { scope, idempotencyKey: key, payload: { qty: 5 } },
+      async () => {
+        attempts += 1;
+        return { status: 200, body: { ok: true } };
+      }
+    );
+
+    expect(attempts).toBe(2);
+    expect(retryResult.replayed).toBe(false);
+    expect(retryResult.body.ok).toBe(true);
   });
 });

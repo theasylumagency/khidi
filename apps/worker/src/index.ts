@@ -1,5 +1,5 @@
-import { AI_JOB_NAMES } from "@agrotrade/ai";
-import { nowUtc } from "@agrotrade/shared";
+import { AI_JOB_NAMES } from "@khidi/ai";
+import { nowUtc } from "@khidi/shared";
 
 export function getWorkerHealthStatus() {
   return {

@@ -1,10 +1,11 @@
 -- Milestone 1: Foundation Migration (0001_foundation.sql)
--- Runs under hub_migrator role. Grants restricted runtime privileges to hub_app ([C7]).
+-- Runs under hub_migrator role.
+-- Infrastructure must provision hub_app role before migrations run; migrations never embed passwords or create roles.
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'hub_app') THEN
-    CREATE ROLE hub_app WITH LOGIN PASSWORD 'hub_app_dev_password';
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'hub_app') THEN
+    RAISE EXCEPTION 'Database role "hub_app" does not exist. Provision roles via infrastructure (init-roles.sh / IaC) before running migrations.';
   END IF;
 END
 $$;
@@ -56,6 +57,8 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT,
   totp_secret_encrypted TEXT,
   totp_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+  login_locked_until TIMESTAMPTZ,
   pin_hash TEXT,
   failed_pin_attempts INTEGER NOT NULL DEFAULT 0,
   pin_locked_until TIMESTAMPTZ,
@@ -140,7 +143,7 @@ CREATE TABLE IF NOT EXISTS registered_devices (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 9. Sessions (§13.2)
+-- 9. Sessions (§13.2, ADR-003)
 CREATE TABLE IF NOT EXISTS sessions (
   id UUID PRIMARY KEY,
   token_hash TEXT NOT NULL UNIQUE,
@@ -209,16 +212,21 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 14. Idempotency Keys (§3.4, §12.1, §16.5)
+-- 14. Idempotency Keys (§3.4, §12.1, §16.5) — Atomic IN_PROGRESS / COMPLETED claim
 CREATE TABLE IF NOT EXISTS idempotency_keys (
   scope TEXT NOT NULL,
   idempotency_key TEXT NOT NULL,
   request_hash TEXT NOT NULL,
-  response_status INTEGER NOT NULL,
-  response_body_json JSONB NOT NULL,
+  status TEXT NOT NULL DEFAULT 'IN_PROGRESS' CHECK (status IN ('IN_PROGRESS', 'COMPLETED')),
+  response_status INTEGER,
+  response_body_json JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ NOT NULL,
-  PRIMARY KEY (scope, idempotency_key)
+  PRIMARY KEY (scope, idempotency_key),
+  CHECK (
+    (status = 'IN_PROGRESS') OR
+    (status = 'COMPLETED' AND response_status IS NOT NULL AND response_body_json IS NOT NULL)
+  )
 );
 
 -- 15. System Settings (§10.1, §18)

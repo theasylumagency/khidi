@@ -1,64 +1,90 @@
 import type { NextConfig } from "next";
 
-export const SECURITY_HEADERS = [
-  {
-    key: "X-Robots-Tag",
-    value: "noindex, nofollow, noarchive, nosnippet"
-  },
-  {
-    key: "X-Frame-Options",
-    value: "DENY"
-  },
-  {
-    key: "X-Content-Type-Options",
-    value: "nosniff"
-  },
-  {
-    key: "Referrer-Policy",
-    value: "no-referrer"
-  },
-  {
-    key: "Strict-Transport-Security",
-    value: "max-age=63072000; includeSubDomains; preload"
-  },
-  {
-    key: "Permissions-Policy",
-    value: "camera=(self), geolocation=(), microphone=()"
-  },
-  {
-    key: "Content-Security-Policy",
-    value:
-      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-  }
-] as const;
+export function buildContentSecurityPolicy(
+  isProduction: boolean = process.env.NODE_ENV === "production"
+): string {
+  const scriptSrc = isProduction
+    ? "script-src 'self' 'unsafe-inline'"
+    : "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
+
+  return [
+    "default-src 'self'",
+    scriptSrc,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "connect-src 'self'",
+    "worker-src 'self'",
+    "manifest-src 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'"
+  ].join("; ");
+}
+
+export function getSecurityHeaders(
+  isProduction: boolean = process.env.NODE_ENV === "production"
+) {
+  return [
+    {
+      key: "X-Robots-Tag",
+      value: "noindex, nofollow, noarchive, nosnippet"
+    },
+    {
+      key: "X-Frame-Options",
+      value: "DENY"
+    },
+    {
+      key: "X-Content-Type-Options",
+      value: "nosniff"
+    },
+    {
+      key: "Referrer-Policy",
+      value: "no-referrer"
+    },
+    {
+      key: "Strict-Transport-Security",
+      value: "max-age=63072000; includeSubDomains; preload"
+    },
+    {
+      key: "Permissions-Policy",
+      value: "camera=(self), geolocation=(), microphone=()"
+    },
+    {
+      key: "Content-Security-Policy",
+      value: buildContentSecurityPolicy(isProduction)
+    }
+  ] as const;
+}
+
+export const SECURITY_HEADERS = getSecurityHeaders(true);
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   transpilePackages: [
-    "@agrotrade/shared",
-    "@agrotrade/db",
-    "@agrotrade/domain",
-    "@agrotrade/auth",
-    "@agrotrade/entities",
-    "@agrotrade/products",
-    "@agrotrade/publishing",
-    "@agrotrade/evidence",
-    "@agrotrade/media",
-    "@agrotrade/scanning",
-    "@agrotrade/ai",
-    "@agrotrade/pricing",
-    "@agrotrade/inventory",
-    "@agrotrade/fulfillment",
-    "@agrotrade/reports",
-    "@agrotrade/notifications",
-    "@agrotrade/i18n",
-    "@agrotrade/ui"
+    "@khidi/shared",
+    "@khidi/db",
+    "@khidi/domain",
+    "@khidi/auth",
+    "@khidi/entities",
+    "@khidi/products",
+    "@khidi/publishing",
+    "@khidi/evidence",
+    "@khidi/media",
+    "@khidi/scanning",
+    "@khidi/ai",
+    "@khidi/pricing",
+    "@khidi/inventory",
+    "@khidi/fulfillment",
+    "@khidi/reports",
+    "@khidi/notifications",
+    "@khidi/i18n",
+    "@khidi/ui"
   ],
   async headers() {
     return [
       {
         source: "/(.*)",
-        headers: [...SECURITY_HEADERS]
+        headers: [...getSecurityHeaders(process.env.NODE_ENV === "production")]
       }
     ];
   }

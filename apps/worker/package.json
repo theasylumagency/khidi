@@ -1,5 +1,5 @@
 {
-  "name": "@agrotrade/worker",
+  "name": "@khidi/worker",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,15 +10,15 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
-    "@agrotrade/ai": "workspace:*",
-    "@agrotrade/db": "workspace:*",
-    "@agrotrade/domain": "workspace:*",
-    "@agrotrade/fulfillment": "workspace:*",
-    "@agrotrade/inventory": "workspace:*",
-    "@agrotrade/media": "workspace:*",
-    "@agrotrade/notifications": "workspace:*",
-    "@agrotrade/publishing": "workspace:*",
-    "@agrotrade/reports": "workspace:*",
-    "@agrotrade/shared": "workspace:*"
+    "@khidi/ai": "workspace:*",
+    "@khidi/db": "workspace:*",
+    "@khidi/domain": "workspace:*",
+    "@khidi/fulfillment": "workspace:*",
+    "@khidi/inventory": "workspace:*",
+    "@khidi/media": "workspace:*",
+    "@khidi/notifications": "workspace:*",
+    "@khidi/publishing": "workspace:*",
+    "@khidi/reports": "workspace:*",
+    "@khidi/shared": "workspace:*"
   }
 }

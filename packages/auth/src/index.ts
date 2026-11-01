@@ -1,7 +1,7 @@
-import { randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import * as OTPAuth from "otpauth";
-import { and, eq, inArray } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   type AppDatabase,
   users,
@@ -11,8 +11,8 @@ import {
   sessions,
   storefronts,
   storefrontApiKeys
-} from "@agrotrade/db";
-import { type DomainActor, withDomainTransaction } from "@agrotrade/domain";
+} from "@khidi/db";
+import { withDomainTransaction } from "@khidi/domain";
 import {
   AppError,
   createUuidV7,
@@ -20,13 +20,16 @@ import {
   type GranularPermission,
   type SupportedLocale,
   type UserRole
-} from "@agrotrade/shared";
+} from "@khidi/shared";
 
 const BCRYPT_ROUNDS = 10;
 const OFFICE_SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const WAREHOUSE_PIN_SESSION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours short session (§13.2)
 const MAX_PIN_ATTEMPTS = 5;
-const PIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
+const MAX_LOGIN_ATTEMPTS = 5;
+const TOTP_ISSUER = "Khidi";
+const DEFAULT_DEV_TOTP_KEY_HEX =
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 export interface AuthenticatedPrincipal {
   userId: string;
@@ -48,10 +51,72 @@ export async function verifySecret(plain: string, hash: string): Promise<boolean
   return bcrypt.compare(plain, hash);
 }
 
-export function generateTotpSecret(email: string): { base32Secret: string; otpauthUri: string } {
+function resolveTotpEncryptionKey(explicitKey?: string): Buffer {
+  const rawKey = explicitKey ?? process.env.HUB_TOTP_ENCRYPTION_KEY ?? DEFAULT_DEV_TOTP_KEY_HEX;
+  if (/^[0-9a-fA-F]{64}$/.test(rawKey)) {
+    return Buffer.from(rawKey, "hex");
+  }
+  return createHash("sha256").update(rawKey, "utf8").digest();
+}
+
+/**
+ * Encrypts a Base32 TOTP secret using AES-256-GCM before storing in `users.totp_secret_encrypted`.
+ * Format: `v1:<iv_hex>:<auth_tag_hex>:<ciphertext_hex>`
+ */
+export function encryptTotpSecret(plainBase32Secret: string, explicitKey?: string): string {
+  const key = resolveTotpEncryptionKey(explicitKey);
+  const iv = randomBytes(12); // 96-bit IV for AES-GCM
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([
+    cipher.update(plainBase32Secret.trim(), "utf8"),
+    cipher.final()
+  ]);
+  const authTag = cipher.getAuthTag();
+  return `v1:${iv.toString("hex")}:${authTag.toString("hex")}:${encrypted.toString("hex")}`;
+}
+
+/**
+ * Decrypts `users.totp_secret_encrypted` using AES-256-GCM.
+ */
+export function decryptTotpSecret(encryptedPayload: string, explicitKey?: string): string {
+  const parts = encryptedPayload.split(":");
+  if (parts.length !== 4 || parts[0] !== "v1") {
+    throw new AppError(
+      "UNAUTHORIZED",
+      "Stored TOTP secret is not in valid v1 AES-256-GCM encrypted format."
+    );
+  }
+  const [, ivHex, tagHex, cipherHex] = parts;
+  if (!ivHex || !tagHex || !cipherHex) {
+    throw new AppError("UNAUTHORIZED", "Malformed encrypted TOTP secret payload.");
+  }
+
+  try {
+    const key = resolveTotpEncryptionKey(explicitKey);
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      key,
+      Buffer.from(ivHex, "hex")
+    );
+    decipher.setAuthTag(Buffer.from(tagHex, "hex"));
+    const decrypted = Buffer.concat([
+      decipher.update(Buffer.from(cipherHex, "hex")),
+      decipher.final()
+    ]);
+    return decrypted.toString("utf8");
+  } catch {
+    throw new AppError("UNAUTHORIZED", "Failed to decrypt TOTP secret (invalid encryption key or corrupted tag).");
+  }
+}
+
+export function generateTotpSecret(email: string): {
+  base32Secret: string;
+  encryptedSecret: string;
+  otpauthUri: string;
+} {
   const secret = new OTPAuth.Secret({ size: 20 });
   const totp = new OTPAuth.TOTP({
-    issuer: "AgroTrade Hub",
+    issuer: TOTP_ISSUER,
     label: email,
     algorithm: "SHA1",
     digits: 6,
@@ -60,13 +125,14 @@ export function generateTotpSecret(email: string): { base32Secret: string; otpau
   });
   return {
     base32Secret: secret.base32,
+    encryptedSecret: encryptTotpSecret(secret.base32),
     otpauthUri: totp.toString()
   };
 }
 
 export function generateCurrentTotpToken(base32Secret: string, timestampMs: number = Date.now()): string {
   const totp = new OTPAuth.TOTP({
-    issuer: "AgroTrade Hub",
+    issuer: TOTP_ISSUER,
     algorithm: "SHA1",
     digits: 6,
     period: 30,
@@ -77,7 +143,7 @@ export function generateCurrentTotpToken(base32Secret: string, timestampMs: numb
 
 export function verifyTotpCode(base32Secret: string, code: string, timestampMs: number = Date.now()): boolean {
   const totp = new OTPAuth.TOTP({
-    issuer: "AgroTrade Hub",
+    issuer: TOTP_ISSUER,
     algorithm: "SHA1",
     digits: 6,
     period: 30,
@@ -217,8 +283,19 @@ export async function loadPrincipalByUserId(
   };
 }
 
+async function recordAtomicOfficeLoginFailure(db: AppDatabase, userId: string): Promise<void> {
+  await db
+    .update(users)
+    .set({
+      failedLoginAttempts: sql`${users.failedLoginAttempts} + 1`,
+      loginLockedUntil: sql`CASE WHEN ${users.failedLoginAttempts} + 1 >= ${MAX_LOGIN_ATTEMPTS} THEN NOW() + INTERVAL '15 minutes' ELSE ${users.loginLockedUntil} END`
+    })
+    .where(eq(users.id, userId));
+}
+
 /**
  * Office Login: Email + Password + Mandatory TOTP for ADMIN and STOCK_MANAGER (§13.2).
+ * Enforces atomic brute-force lockout (`failed_login_attempts`, `login_locked_until`) and AES-256-GCM TOTP decryption.
  */
 export async function loginOfficeUser(
   db: AppDatabase,
@@ -241,8 +318,16 @@ export async function loginOfficeUser(
     throw new AppError("UNAUTHORIZED", "Invalid email or password.");
   }
 
+  if (user.loginLockedUntil && user.loginLockedUntil > new Date()) {
+    throw new AppError(
+      "UNAUTHORIZED",
+      "Account login is temporarily locked due to repeated failed attempts."
+    );
+  }
+
   const passwordValid = await verifySecret(input.password, user.passwordHash);
   if (!passwordValid) {
+    await recordAtomicOfficeLoginFailure(db, user.id);
     throw new AppError("UNAUTHORIZED", "Invalid email or password.");
   }
 
@@ -254,16 +339,23 @@ export async function loginOfficeUser(
         `Mandatory TOTP is required for role ${role}, but TOTP is not configured.`
       );
     }
-    if (!input.totpCode || !verifyTotpCode(user.totpSecretEncrypted, input.totpCode)) {
+    const decryptedBase32 = decryptTotpSecret(user.totpSecretEncrypted);
+    if (!input.totpCode || !verifyTotpCode(decryptedBase32, input.totpCode)) {
+      await recordAtomicOfficeLoginFailure(db, user.id);
       throw new AppError("UNAUTHORIZED", "Invalid or missing TOTP verification code.");
     }
   }
 
-  const rawSessionToken = `agt_sess_${randomBytes(32).toString("hex")}`;
+  const rawSessionToken = `khidi_sess_${randomBytes(32).toString("hex")}`;
   const tokenHash = sha256Hex(rawSessionToken);
   const expiresAt = new Date(Date.now() + OFFICE_SESSION_TTL_MS);
 
   await withDomainTransaction(db, { userId: user.id }, async (ctx) => {
+    await ctx.tx
+      .update(users)
+      .set({ failedLoginAttempts: 0, loginLockedUntil: null })
+      .where(eq(users.id, user.id));
+
     await ctx.tx.insert(sessions).values({
       id: createUuidV7(),
       tokenHash,
@@ -297,7 +389,7 @@ export async function registerWarehouseDevice(
 ): Promise<{ deviceId: string; deviceName: string; rawDeviceToken: string }> {
   assertRoleAllowed(adminPrincipal, ["ADMIN"]);
 
-  const rawDeviceToken = `agt_dev_${randomBytes(32).toString("hex")}`;
+  const rawDeviceToken = `khidi_dev_${randomBytes(32).toString("hex")}`;
   const deviceTokenHash = sha256Hex(rawDeviceToken);
   const deviceId = createUuidV7();
 
@@ -347,6 +439,7 @@ export async function revokeWarehouseDevice(
 
 /**
  * Warehouse Shared-Device PIN Login & Quick User Switch (§13.2).
+ * Uses atomic SQL increment for `failed_pin_attempts` and `pin_locked_until`.
  */
 export async function loginWithWarehousePin(
   db: AppDatabase,
@@ -383,20 +476,19 @@ export async function loginWithWarehousePin(
 
   const pinValid = await verifySecret(input.pin, user.pinHash);
   if (!pinValid) {
-    const attempts = user.failedPinAttempts + 1;
-    const lockUntil = attempts >= MAX_PIN_ATTEMPTS ? new Date(Date.now() + PIN_LOCKOUT_MS) : null;
+    // Atomic increment in PostgreSQL (no read-modify-write race)
     await db
       .update(users)
       .set({
-        failedPinAttempts: attempts,
-        pinLockedUntil: lockUntil
+        failedPinAttempts: sql`${users.failedPinAttempts} + 1`,
+        pinLockedUntil: sql`CASE WHEN ${users.failedPinAttempts} + 1 >= ${MAX_PIN_ATTEMPTS} THEN NOW() + INTERVAL '15 minutes' ELSE ${users.pinLockedUntil} END`
       })
       .where(eq(users.id, user.id));
 
     throw new AppError("UNAUTHORIZED", "Invalid personal PIN.");
   }
 
-  const rawSessionToken = `agt_wsess_${randomBytes(32).toString("hex")}`;
+  const rawSessionToken = `khidi_wsess_${randomBytes(32).toString("hex")}`;
   const tokenHash = sha256Hex(rawSessionToken);
   const expiresAt = new Date(Date.now() + WAREHOUSE_PIN_SESSION_TTL_MS);
 
@@ -466,6 +558,69 @@ export async function verifySessionToken(
     session.authMethod as "OFFICE_PASSWORD_TOTP" | "WAREHOUSE_PIN",
     session.deviceId
   );
+}
+
+export async function revokeSessionToken(
+  db: AppDatabase,
+  rawSessionToken: string
+): Promise<void> {
+  const tokenHash = sha256Hex(rawSessionToken);
+  const [session] = await db
+    .select()
+    .from(sessions)
+    .where(eq(sessions.tokenHash, tokenHash))
+    .limit(1);
+
+  if (!session) {
+    return;
+  }
+
+  await withDomainTransaction(db, { userId: session.userId }, async (ctx) => {
+    await ctx.tx.delete(sessions).where(eq(sessions.id, session.id));
+    await ctx.recordAudit({
+      action: "USER_LOGOUT",
+      entityType: "user",
+      entityId: session.userId,
+      after: { sessionId: session.id, authMethod: session.authMethod }
+    });
+  });
+}
+
+/**
+ * Returns minimal PIN-switcher user cards (id, fullName, role — never email) ONLY when
+ * the request presents a valid, active registered warehouse device token.
+ */
+export async function listPinEnabledUsersForRegisteredDevice(
+  db: AppDatabase,
+  rawDeviceToken: string
+): Promise<{
+  device: { id: string; deviceName: string };
+  users: Array<{ id: string; fullName: string; role: UserRole }>;
+} | null> {
+  const deviceTokenHash = sha256Hex(rawDeviceToken);
+  const [device] = await db
+    .select()
+    .from(registeredDevices)
+    .where(eq(registeredDevices.deviceTokenHash, deviceTokenHash))
+    .limit(1);
+
+  if (!device || !device.active || device.revokedAt) {
+    return null;
+  }
+
+  const allUsers = await db.select().from(users).orderBy(users.fullName);
+  const pinUsers = allUsers
+    .filter((u) => u.active && Boolean(u.pinHash))
+    .map((u) => ({
+      id: u.id,
+      fullName: u.fullName,
+      role: u.role as UserRole
+    }));
+
+  return {
+    device: { id: device.id, deviceName: device.deviceName },
+    users: pinUsers
+  };
 }
 
 /**
@@ -582,7 +737,12 @@ export async function verifyStorefrontServiceCredential(
   };
 }
 
-export async function listUsersWithMemberships(db: AppDatabase) {
+export async function listUsersWithMemberships(
+  db: AppDatabase,
+  adminPrincipal: AuthenticatedPrincipal
+) {
+  assertRoleAllowed(adminPrincipal, ["ADMIN"]);
+
   const allUsers = await db.select().from(users).orderBy(users.fullName);
   const allMemberships = await db.select().from(userEntityMemberships);
   const allPermissions = await db.select().from(userPermissions);

@@ -2,13 +2,22 @@ import { describe, expect, it } from "vitest";
 import {
   AppError,
   createUuidV7,
+  decryptSecretAes256Gcm,
+  encryptSecretAes256Gcm,
   formatTbilisiDateTime,
   formatTetri,
   parseLariToTetri,
   tetri
 } from "./index.ts";
 
-describe("@agrotrade/shared", () => {
+describe("@khidi/shared", () => {
+  it("encrypts and decrypts secrets using AES-256-GCM", () => {
+    const key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const cipher = encryptSecretAes256Gcm("JBSWY3DPEHPK3PXP", key);
+    expect(cipher.startsWith("v1:")).toBe(true);
+    expect(decryptSecretAes256Gcm(cipher, key)).toBe("JBSWY3DPEHPK3PXP");
+    expect(() => decryptSecretAes256Gcm("JBSWY3DPEHPK3PXP", key)).toThrow(AppError);
+  });
   it("generates monotonic UUIDv7 identifiers", () => {
     const id1 = createUuidV7(1762000000000);
     const id2 = createUuidV7(1762000000000);

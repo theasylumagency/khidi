@@ -1,5 +1,62 @@
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes, createHash, createCipheriv, createDecipheriv } from "node:crypto";
 import { z } from "zod";
+
+const DEFAULT_DEV_TOTP_KEY_HEX =
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+function resolveEncryptionKeyBuffer(explicitKey?: string): Buffer {
+  const rawKey = explicitKey ?? process.env.HUB_TOTP_ENCRYPTION_KEY ?? DEFAULT_DEV_TOTP_KEY_HEX;
+  if (/^[0-9a-fA-F]{64}$/.test(rawKey)) {
+    return Buffer.from(rawKey, "hex");
+  }
+  return createHash("sha256").update(rawKey, "utf8").digest();
+}
+
+/**
+ * Encrypts a sensitive secret using AES-256-GCM (`HUB_TOTP_ENCRYPTION_KEY`).
+ * Output format: `v1:<iv_hex>:<auth_tag_hex>:<ciphertext_hex>`
+ */
+export function encryptSecretAes256Gcm(plaintext: string, explicitKey?: string): string {
+  const key = resolveEncryptionKeyBuffer(explicitKey);
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext.trim(), "utf8"), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return `v1:${iv.toString("hex")}:${authTag.toString("hex")}:${encrypted.toString("hex")}`;
+}
+
+/**
+ * Decrypts a `v1:<iv_hex>:<auth_tag_hex>:<ciphertext_hex>` AES-256-GCM payload.
+ */
+export function decryptSecretAes256Gcm(encryptedPayload: string, explicitKey?: string): string {
+  const parts = encryptedPayload.split(":");
+  if (parts.length !== 4 || parts[0] !== "v1") {
+    throw new AppError(
+      "UNAUTHORIZED",
+      "Stored secret is not in valid v1 AES-256-GCM encrypted format."
+    );
+  }
+  const [, ivHex, tagHex, cipherHex] = parts;
+  if (!ivHex || !tagHex || !cipherHex) {
+    throw new AppError("UNAUTHORIZED", "Malformed encrypted secret payload.");
+  }
+
+  try {
+    const key = resolveEncryptionKeyBuffer(explicitKey);
+    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivHex, "hex"));
+    decipher.setAuthTag(Buffer.from(tagHex, "hex"));
+    const decrypted = Buffer.concat([
+      decipher.update(Buffer.from(cipherHex, "hex")),
+      decipher.final()
+    ]);
+    return decrypted.toString("utf8");
+  } catch {
+    throw new AppError(
+      "UNAUTHORIZED",
+      "Failed to decrypt secret (invalid encryption key or corrupted authentication tag)."
+    );
+  }
+}
 
 /**
  * RFC 9562 UUIDv7 generator (monotonic millisecond timestamp + cryptographic random bits).

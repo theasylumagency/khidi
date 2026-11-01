@@ -1,4 +1,4 @@
-import type { UserRole } from "@agrotrade/shared";
+import type { UserRole } from "@khidi/shared";
 
 export interface StatusBadgeDescriptor {
   label: string;
