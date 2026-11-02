@@ -78,7 +78,7 @@ describe("M3 S5 durable per-user offline queue", () => {
     const send = vi.fn().mockResolvedValueOnce({ accepted: false, status: 400 }).mockResolvedValueOnce({ accepted: false, status: 401 });
     const queue = new OfflineScanQueue(store, { currentUserId: async () => userA, send });
     await queue.flush();
-    expect(await store.summary()).toEqual([{ userId: userA, userName: "A", count: 2, blocked: 1 }]);
+    expect(await store.summary()).toEqual([{ userId: userA, userName: "A", count: 2, blocked: 2 }]);
     send.mockResolvedValue(accepted); await queue.retry(); expect(await store.list()).toEqual([]); store.close();
   });
   it("resumes on app start, online and focus without Background Sync", async () => {
@@ -105,5 +105,57 @@ describe("M3 S5 durable per-user offline queue", () => {
     const queue = new OfflineScanQueue(store, { currentUserId: async () => userA, send });
     await expect(queue.enqueue(scan(), "A")).rejects.toThrow("Quota exceeded");
     expect(send).not.toHaveBeenCalled(); expect(await store.list()).toEqual([]); store.close();
+  });
+});
+
+describe("S8 confirmed discard outbox", () => {
+  it("atomically retains a discard trace offline, sends it only as its owner, and retries until accepted", async () => {
+    const factory = new IDBFactory(); let store = await openScanQueue(factory);
+    const original = scan(); await store.add(original, "A");
+    await store.recordFailure(original.idempotencyKey, 0, 409, true, "IDEMPOTENCY_CONFLICT");
+    const offline = new OfflineScanQueue(store, { localUserId: userA, currentUserId: async () => { throw new Error("offline"); }, send: async () => accepted });
+    await expect(offline.discard(original.idempotencyKey, "Incorrect entry", false)).rejects.toThrow(/confirmation/);
+    const other = new OfflineScanQueue(store, { localUserId: userB, currentUserId: async () => userB, send: async () => accepted });
+    await expect(other.discard(original.idempotencyKey, "Not mine", true)).rejects.toThrow();
+    expect(await store.list()).toHaveLength(1);
+    await offline.discard(original.idempotencyKey, "Wrong physical code", true); await offline.flush();
+    expect(await store.list()).toEqual([]);
+    expect(await store.summary()).toEqual([{ userId: userA, userName: "A", count: 1, blocked: 0 }]);
+    store.close(); store = await openScanQueue(factory);
+    const [report] = await store.listDiscards(userA);
+    expect(report!.input).toMatchObject({ scanIdempotencyKey: original.idempotencyKey, userId: userA,
+      deviceId: original.deviceId, scannedValue: original.scannedValue, scannedAt: original.scannedAt, reason: "Wrong physical code" });
+    let current = userB;
+    const reportDiscard = vi.fn().mockResolvedValueOnce({ accepted: false, status: 503 }).mockResolvedValue(accepted);
+    const sender = new OfflineScanQueue(store, { currentUserId: async () => current, send: async () => accepted, reportDiscard });
+    await sender.flush(); expect(reportDiscard).not.toHaveBeenCalled();
+    current = userA; await sender.flush(); expect(await store.listDiscards()).toHaveLength(1);
+    await sender.retry(); expect(await store.listDiscards()).toEqual([]);
+    expect(reportDiscard).toHaveBeenCalledTimes(2); store.close();
+  });
+  it("upgrades an existing v1 phone queue without losing its scans or device identity", async () => {
+    const factory = new IDBFactory(); const original = scan();
+    await new Promise<void>((resolve, reject) => {
+      const request = factory.open("khidi-scan-queue", 1);
+      request.onupgradeneeded = () => { request.result.createObjectStore("scans", { keyPath: "idempotencyKey" }).createIndex("userId", "userId"); request.result.createObjectStore("meta"); };
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const tx = request.result.transaction(["scans", "meta"], "readwrite");
+        tx.objectStore("scans").add({ idempotencyKey: original.idempotencyKey, userId: userA, userName: "A", input: original, blocked: true, attempts: 1, nextAttemptAt: 0, lastStatus: 400 });
+        tx.objectStore("meta").put(deviceId, "deviceId");
+        tx.oncomplete = () => { request.result.close(); resolve(); };
+      };
+    });
+    const store = await openScanQueue(factory);
+    expect((await store.list())[0]!.input).toEqual(original);
+    expect(await store.clientDeviceId()).toBe(deviceId); expect(await store.listDiscards()).toEqual([]); store.close();
+  });
+  it("delivers the Class A review outcome and removes the locally accepted scan only after server acceptance", async () => {
+    const store = await openScanQueue(new IDBFactory()); const original = scan(); await store.add(original, "A");
+    const delivered = vi.fn();
+    const queue = new OfflineScanQueue(store, { currentUserId: async () => userA,
+      send: async () => ({ accepted: true, status: 201, reviewReason: "UNKNOWN_INTERNAL_LABEL" }), delivered });
+    await queue.flush(); expect(await store.list()).toEqual([]);
+    expect(delivered).toHaveBeenCalledWith(original, { accepted: true, status: 201, reviewReason: "UNKNOWN_INTERNAL_LABEL" }); store.close();
   });
 });

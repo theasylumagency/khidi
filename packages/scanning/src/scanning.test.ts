@@ -90,7 +90,7 @@ describe("M3 S2 intake transactions", () => {
     const result = await receiveIntake(db, admin, scan);
     expect(result.body.resultState).toBe("NEW_DRAFT");
     expect(result.body.matchedSkuId).not.toBe(draft.id);
-    await expect(receiveIntake(db, admin, input({ scannedValue: draft.internalSku }))).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect((await receiveIntake(db, admin, input({ scannedValue: draft.internalSku }))).body).toMatchObject({ reviewReason: "ARCHIVED_INTERNAL_LABEL", matchedSkuId: null });
   });
   it("checks owner, assignment, device and Quick Scan permission before accepting an intake", async () => {
     await expect(receiveIntake(db, warehouse, input())).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -99,7 +99,7 @@ describe("M3 S2 intake transactions", () => {
     const accepted = await receiveIntake(db, warehouse, input({ userId: warehouse.userId, sourceMode: "TASK", taskId: assigned.id }));
     expect(accepted.status).toBe(201);
     await db.update(scanTasks).set({ assigneeRole: null, assigneeUserId: admin.userId }).where(eq(scanTasks.id, assigned.id));
-    await expect(receiveIntake(db, warehouse, input({ userId: warehouse.userId, sourceMode: "TASK", taskId: assigned.id }))).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect((await receiveIntake(db, warehouse, input({ userId: warehouse.userId, sourceMode: "TASK", taskId: assigned.id }))).body.reviewReason).toBe("TASK_NOT_ASSIGNED");
     await expect(receiveIntake(db, { ...warehouse, authMethod: "WAREHOUSE_PIN", deviceId: key() }, input({ userId: warehouse.userId, sourceMode: "TASK", taskId: assigned.id }))).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(receiveIntake(db, { ...warehouse, role: "ADMIN" }, input({ userId: warehouse.userId }))).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });

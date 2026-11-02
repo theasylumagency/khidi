@@ -552,6 +552,25 @@ export const productIntakes = pgTable("product_intakes", {
   idempotencyKey: text("idempotency_key").notNull().unique(),
   requestHash: text("request_hash").notNull(),
   scannedAt: timestamp("scanned_at", { withTimezone: true }).notNull(),
+  reviewReason: text("review_reason"),
+  reviewOriginalReason: text("review_original_reason"),
+  reviewReferenceSkuId: uuid("review_reference_sku_id").references(() => skus.id),
+  scannedIdentifierType: text("scanned_identifier_type"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewedBy: uuid("reviewed_by").references(() => users.id),
+  reviewResolution: text("review_resolution"),
+  reviewNote: text("review_note"),
+  replacementLabelRequested: boolean("replacement_label_requested").notNull().default(false),
+  acceptanceResponseJson: jsonb("acceptance_response_json").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const intakeReviewActions = pgTable("intake_review_actions", {
+  id: uuid("id").primaryKey(),
+  intakeId: uuid("intake_id").notNull().references(() => productIntakes.id),
+  actorUserId: uuid("actor_user_id").notNull().references(() => users.id),
+  requestHash: text("request_hash").notNull(),
+  responseJson: jsonb("response_json").$type<Record<string, unknown>>().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
 });
 

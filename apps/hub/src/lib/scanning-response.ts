@@ -9,7 +9,7 @@ export function scanningErrorResponse(error: unknown) {
     const message = typeof error.details?.milestone === "number"
       ? t("scanning.available_from").replace("{milestone}", String(error.details.milestone))
       : t(`scanning.error.${error.code}`);
-    return NextResponse.json({ error: message, code: error.code, milestone: error.details?.milestone }, { status });
+    return NextResponse.json({ error: message, code: error.code, blockedReason: error.details?.blockedReason, milestone: error.details?.milestone }, { status });
   }
   return NextResponse.json({ error: t(error instanceof SyntaxError ? "scanning.error.VALIDATION_ERROR" : "scanning.error") }, { status: error instanceof SyntaxError ? 400 : 500 });
 }

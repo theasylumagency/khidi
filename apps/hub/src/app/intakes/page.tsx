@@ -19,13 +19,14 @@ export default async function IntakesPage({ searchParams }: { searchParams: Prom
     <nav className="scanning-actions"><Link href="/tasks">{t("scanning.tasks")}</Link><Link href="/scanning/quick">{t("scanning.quick_scan")}</Link><Link href="/labels">{t("scanning.labels")}</Link></nav>
     <form method="get"><div className="scanning-fields">
       {filters.taskId ? <input type="hidden" name="taskId" value={filters.taskId} /> : null}
+      <label>{t("scanning.needs_review")}<select name="needsReview" defaultValue={filters.needsReview ?? ""}><option value="">{t("scanning.all")}</option><option value="yes">{t("scanning.needs_review")}</option><option value="no">{t("scanning.no_review_needed")}</option></select></label>
       <label>{t("scanning.result")}<select name="resultState" defaultValue={filters.resultState ?? ""}><option value="">{t("scanning.all")}</option>{RESULT_STATES.map((state) => <option key={state} value={state}>{t(`scanning.result.${state}`)}</option>)}</select></label>
       <label>{t("scanning.label_status")}<select name="labelStatus" defaultValue={filters.labelStatus ?? ""}><option value="">{t("scanning.all")}</option>{LABEL_STATUSES.map((status) => <option key={status} value={status}>{t(`scanning.label.${status}`)}</option>)}</select></label>
     </div><button type="submit">{t("scanning.filter")}</button></form>
     <div className="scanning-table-wrap"><table><thead><tr><th>{t("scanning.date")}</th><th>{t("scanning.sku")}</th><th>{t("scanning.result")}</th><th>{t("scanning.label_status")}</th><th>{t("scanning.scanner")}</th><th>{t("scanning.photos_pending")}</th></tr></thead>
       <tbody>{result.rows.map(({ intake, internalSku, scannedByName }) => <tr key={intake.id}>
-        <td>{formatTbilisiDateTime(intake.scannedAt)}</td><td>{intake.matchedSkuId ? <Link href={`/products/${intake.matchedSkuId}`}>{internalSku}</Link> : "—"}</td>
-        <td>{t(`scanning.result.${intake.resultState}` as TranslationKey)}{intake.duplicateOfIntakeId ? ` · ${t("scanning.duplicate")}` : ""}</td>
+        <td><Link href={`/intakes/${intake.id}/review`}>{formatTbilisiDateTime(intake.scannedAt)}</Link></td><td>{intake.matchedSkuId ? <Link href={`/products/${intake.matchedSkuId}`}>{internalSku}</Link> : "—"}</td>
+        <td>{t(`scanning.result.${intake.resultState}` as TranslationKey)}{intake.duplicateOfIntakeId ? ` · ${t("scanning.duplicate")}` : ""}{intake.reviewReason && !intake.reviewedAt ? ` · ${t("scanning.needs_review")}` : ""}</td>
         <td>{t(`scanning.label.${intake.labelStatus}` as TranslationKey)}</td><td>{formatStaffName(scannedByName)}</td><td>{t("scanning.photos_pending")}</td>
       </tr>)}</tbody></table></div>
     {!result.rows.length ? <p>{t("scanning.empty")}</p> : null}

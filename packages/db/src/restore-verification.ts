@@ -7,7 +7,7 @@ import pg from "pg";
 export const CORE_RESTORE_TABLES = [
   "legal_entities", "storefronts", "users", "product_families", "product_types", "skus",
   "sku_identifiers", "accounting_mappings", "storefront_listings", "sku_slug_history",
-  "scan_tasks", "product_intakes", "label_events", "audit_logs", "outbox_events", "outbox_deliveries"
+  "scan_tasks", "product_intakes", "label_events", "intake_review_actions", "audit_logs", "outbox_events", "outbox_deliveries"
 ] as const;
 export interface RestoreSnapshot {
   database: string;

@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull, isNotNull, or } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
 import { type DbExecutor, productIntakes, productTypes, scanTasks, skus, users } from "@khidi/db";
 import { executeIdempotent, withDomainTransaction } from "@khidi/domain";
@@ -58,8 +58,12 @@ export async function listIntakes(db: DbExecutor, principal: AuthenticatedPrinci
   if (filters.resultState) conditions.push(eq(productIntakes.resultState, filters.resultState));
   if (filters.labelStatus) conditions.push(eq(productIntakes.labelStatus, filters.labelStatus));
   if (filters.taskId) conditions.push(eq(productIntakes.taskId, filters.taskId));
+  if (filters.needsReview === "yes") conditions.push(isNotNull(productIntakes.reviewReason), isNull(productIntakes.reviewedAt));
+  if (filters.needsReview === "no") conditions.push(sqlNoReview());
   const rows = await db.select({ intake: productIntakes, internalSku: skus.internalSku, scannedByName: users.fullName }).from(productIntakes)
     .leftJoin(skus, eq(skus.id, productIntakes.matchedSkuId)).innerJoin(users, eq(users.id, productIntakes.scannedBy))
     .where(and(...conditions)).orderBy(desc(productIntakes.createdAt), desc(productIntakes.id)).limit(101).offset((filters.page - 1) * 100);
   return { rows: rows.slice(0, 100), hasMore: rows.length > 100 };
 }
+
+function sqlNoReview() { return or(isNull(productIntakes.reviewReason), isNotNull(productIntakes.reviewedAt)); }

@@ -16,3 +16,10 @@
 .scan-queue-status { background: #eff6ff; border: 1px solid #93c5fd; border-radius: 6px; margin-bottom: 16px; padding: 10px 14px; font-size: .875rem; }
 .scan-queue-status p { margin: 6px 0; }
 .scan-queue-status button { margin-left: 12px; font: inherit; min-height: 44px; cursor: pointer; }
+.blocked-scan { border-top: 1px solid #93c5fd; padding: 12px 0; overflow-wrap: anywhere; }
+.blocked-scan form { display: grid; gap: 8px; }
+.blocked-scan input, .blocked-scan button { min-height: 44px; font: inherit; }
+.review-metadata { display: grid; grid-template-columns: minmax(120px, 200px) 1fr; gap: 10px; overflow-wrap: anywhere; }
+.review-metadata dd { margin: 0; }
+.scanning-checkbox { display: flex !important; align-items: center; gap: 10px; }
+.scanning-panel textarea { font: inherit; padding: 10px; border: 1px solid #94a3b8; border-radius: 5px; }

@@ -10,12 +10,14 @@ import { POST as printLabels } from "./labels/route.ts";
 import { POST as intake } from "./intakes/route.ts";
 import { GET as currentSession } from "./session/route.ts";
 import { GET as printableLabels } from "./labels/print/route.ts";
+import { POST as resolveReview } from "./review/route.ts";
+import { POST as discard } from "./discards/route.ts";
 
 describe("M3 scanning route authorization", () => {
   const request = () => new Request("http://localhost:3100/api/scanning/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
   it("requires a verified session for all scanning writes", async () => {
     session.principal = null;
-    for (const handler of [createTask, printLabels, intake]) expect((await handler(request())).status).toBe(401);
+    for (const handler of [createTask, printLabels, intake, resolveReview, discard]) expect((await handler(request())).status).toBe(401);
     expect((await currentSession()).status).toBe(401);
     expect((await printableLabels(request())).status).toBe(401);
   });
@@ -24,6 +26,7 @@ describe("M3 scanning route authorization", () => {
     expect((await createTask(request())).status).toBe(403);
     expect((await printLabels(request())).status).toBe(403);
     expect((await printableLabels(request())).status).toBe(403);
+    expect((await resolveReview(request())).status).toBe(403);
   });
   it("serves an authenticated standalone 58 × 40 mm print document without the admin page chrome", async () => {
     const db = getDb();

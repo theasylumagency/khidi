@@ -24,7 +24,7 @@ describe("M3 S1 scanning schema", () => {
     const intake = {
       id: createUuidV7(), sourceMode: "QUICK_SCAN", scannedBy: admin!.id,
       clientDeviceId: createUuidV7(), isNoBarcode: true, resultState: "PROCESSING",
-      idempotencyKey: createUuidV7(), requestHash: "test", scannedAt: new Date()
+      idempotencyKey: createUuidV7(), requestHash: "test", scannedAt: new Date(), acceptanceResponseJson: {}
     };
     await expect(db.insert(productIntakes).values({ ...intake, taskId: task.id })).rejects.toThrow();
     await db.insert(productIntakes).values(intake);
