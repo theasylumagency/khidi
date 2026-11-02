@@ -16,6 +16,6 @@ export async function queueMediaJob(ctx: DomainTransactionContext, jobType: "pro
   if (existing) return existing.id;
   const id = createUuidV7();
   await ctx.tx.insert(mediaJobs).values({ id, jobType, ...target, dedupeKey: key });
-  await ctx.emitOutboxEvent({ eventType: "MEDIA_JOB_REQUESTED", aggregateType: "media_job", aggregateId: id, payload: { jobId: id, jobType }, consumers: ["media-jobs"] });
+  await ctx.emitOutboxEvent({ eventType: "MEDIA_JOB_REQUESTED", aggregateType: "media_job", aggregateId: id, payload: { jobId: id, jobType, generation: 0 }, consumers: ["media-jobs"] });
   return id;
 }

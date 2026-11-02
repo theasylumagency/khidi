@@ -126,6 +126,21 @@ export function formatStaffName(fullName: string): string {
 }
 
 const SCANNING_LABELS = {
+  "media.jobs": "ფოტოების დამუშავება",
+  "media.job_type": "სამუშაო",
+  "media.attempts": "მცდელობები",
+  "media.updated_at": "განახლდა",
+  "media.failure": "შეცდომა",
+  "media.actions": "ქმედებები",
+  "media.retry_job": "ხელახლა გაშვება",
+  "media.job.process-image": "ასლების შექმნა",
+  "media.job.tier2-image-check": "ხარისხის შემოწმება",
+  "media.job.publish-sku-media": "საჯარო ასლების განახლება",
+  "media.job_status.PENDING": "მოლოდინში",
+  "media.job_status.PROCESSING": "მუშავდება",
+  "media.job_status.RETRY": "განმეორებით ცდას ელოდება",
+  "media.job_status.COMPLETED": "დასრულებულია",
+  "media.job_status.DEAD_LETTER": "შეჩერებულია — საჭიროებს შემოწმებას",
   "media.pending_photos": "გასაგზავნი ფოტოები",
   "media.storage_used": "საცავი: {used} / {quota} მბ",
   "media.quota_warning": "საცავის 80% შევსებულია. დაუკავშირდით ქსელს ფოტოების გასაგზავნად.",

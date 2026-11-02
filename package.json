@@ -16,7 +16,8 @@
     "db:migrate": "corepack pnpm --filter @khidi/db migrate",
     "db:seed": "corepack pnpm --filter @khidi/db seed && corepack pnpm --filter @khidi/products seed",
     "dev:hub": "corepack pnpm --filter @khidi/hub dev",
-    "dev:worker": "corepack pnpm --filter @khidi/worker dev"
+    "dev:worker": "corepack pnpm --filter @khidi/worker dev",
+    "media:jobs:deploy": "node --env-file-if-exists=.env --import tsx ops/media-jobs-deploy.ts"
   },
   "devDependencies": {
     "@types/node": "24.0.0",

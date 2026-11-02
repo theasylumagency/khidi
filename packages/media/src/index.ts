@@ -3,3 +3,6 @@ export * from "./upload.ts";
 export * from "./targets.ts";
 export * from "./capture.ts";
 export * from "./discard.ts";
+export * from "./jobs.ts";
+export * from "./jobs-runtime.ts";
+export { getMediaStorage } from "./storage-config.ts";

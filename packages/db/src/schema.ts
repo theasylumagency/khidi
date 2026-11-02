@@ -633,6 +633,7 @@ export const mediaJobs = pgTable("media_jobs", {
   id: uuid("id").primaryKey(), imageId: uuid("image_id").references(() => productImages.id, { onDelete: "restrict" }),
   skuId: uuid("sku_id").references(() => skus.id, { onDelete: "restrict" }), jobType: text("job_type").notNull(), imageVersion: integer("image_version"),
   dedupeKey: text("dedupe_key").notNull().unique(), status: text("status").notNull().default("PENDING"),
+  generation: integer("generation").notNull().default(0),
   attempts: integer("attempts").notNull().default(0), maxAttempts: integer("max_attempts").notNull().default(3), lastError: text("last_error"),
   nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()

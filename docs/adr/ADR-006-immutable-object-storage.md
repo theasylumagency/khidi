@@ -42,3 +42,28 @@ Dependency setup is pinned to registry releases at least two weeks old on this d
 `@aws-sdk/client-s3` 3.1152.0 (2026-10-14), `sharp` 0.35.5 (2026-09-27), and
 `pg-boss` 12.38.0 (2026-10-13). No signed S3 URL dependency is needed: private downloads
 will use short-lived authenticated Hub URL signatures and the storage adapter.
+### Deterministic processing and durable execution (P6)
+
+The deployment command `corepack pnpm media:jobs:deploy` installs the pinned pg-boss
+schema `khidi_jobs` as `hub_migrator`, creates the three media queues and their dead-letter
+queue, and explicitly grants runtime DML, schema USAGE and function EXECUTE to `hub_app`.
+It does not grant schema CREATE. Run it after application migrations and before starting
+`corepack pnpm dev:worker` (or the production worker process). Runtime schema migration is
+disabled. Re-run the deploy command after an explicitly reviewed pg-boss upgrade.
+Automatic index rebuilding is disabled in the runtime; an operator uses pg-boss's
+`getReindexCommands()` and the migrator role during a maintenance window if needed.
+
+The outbox dispatcher inserts pg-boss jobs in the same PostgreSQL transaction that marks
+their delivery complete. Processing retains its state in `media_jobs`, including three
+attempts with exponential backoff and terminal failures. An audited ADMIN retry increments
+a generation, so old executions and delayed dead-letter notifications cannot cancel it.
+An expired worker lease is recovered by pg-boss supervision. Permanent media records and
+master versions do not depend on pg-boss's operational job retention.
+
+The master is a square JPEG in sRGB, at most 4096 px, with 5% padding on each side on
+`#f5f5f4`. Sharp auto-orients the source and strips all metadata. The private derivatives
+are 400/800/1600 square WebP (quality 85) and AVIF (quality 65). The 64-bit difference hash
+flags nearby candidates within the same SKU (default Hamming distance 6); it never rejects,
+verifies, identifies or replaces a photo. Class A photos wait for a SKU resolution before
+comparison. The filesystem adapter resolves its development root from the repository,
+so the Hub and worker share originals even when their working directories differ.

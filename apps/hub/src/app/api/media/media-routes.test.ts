@@ -9,6 +9,8 @@ vi.mock("../../../lib/session.ts", () => ({ getCurrentPrincipal: async () => ses
 import { POST as upload } from "./uploads/route.ts";
 import { GET as capture } from "./capture/route.ts";
 import { POST as attention } from "./attention/route.ts";
+import { GET as jobs, POST as retry } from "./jobs/route.ts";
+import { POST as discard } from "./discards/route.ts";
 
 describe("P3 photo upload HTTP boundary", () => {
   it("requires an authenticated principal before reading a photo body", async () => {
@@ -16,6 +18,9 @@ describe("P3 photo upload HTTP boundary", () => {
     expect((await upload(new Request("http://localhost/api/media/uploads", { method: "POST", body: "invalid" }))).status).toBe(401);
     expect((await capture(new Request("http://localhost/api/media/capture"))).status).toBe(401);
     expect((await attention(new Request("http://localhost/api/media/attention", { method: "POST", body: "{}" }))).status).toBe(401);
+    expect((await jobs(new Request("http://localhost/api/media/jobs"))).status).toBe(401);
+    expect((await retry(new Request("http://localhost/api/media/jobs", { method: "POST", body: "{}" }))).status).toBe(401);
+    expect((await discard(new Request("http://localhost/api/media/discards", { method: "POST", body: "{}" }))).status).toBe(401);
   });
   it("rejects an oversized actual stream even without Content-Length", async () => {
     const admin = await getDb().query.users.findFirst({ where: (user, { eq }) => eq(user.role, "ADMIN") });
@@ -27,5 +32,11 @@ describe("P3 photo upload HTTP boundary", () => {
     const form = new FormData(); form.set("metadata", JSON.stringify({ idempotencyKey: createUuidV7() }));
     form.set("file", new File([new Uint8Array([1])], "photo.jpg", { type: "image/jpeg" }));
     await expect(parsePhotoUpload(new Request("http://localhost/api/media/uploads", { method: "POST", headers: { "Idempotency-Key": createUuidV7() }, body: form }))).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+  it("refuses job administration to a warehouse session before reading a retry body", async () => {
+    const user = await getDb().query.users.findFirst({ where: (user, { eq }) => eq(user.role, "WAREHOUSE") });
+    session.principal = await loadPrincipalByUserId(getDb(), user!.id);
+    expect((await jobs(new Request("http://localhost/api/media/jobs"))).status).toBe(403);
+    expect((await retry(new Request("http://localhost/api/media/jobs", { method: "POST", body: "invalid" }))).status).toBe(403);
   });
 });
