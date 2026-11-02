@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./contracts": "./src/contracts.ts",
+    "./offline": "./src/offline.ts",
+    "./camera": "./src/camera.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -12,10 +15,18 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@khidi/auth": "workspace:*",
+    "@khidi/db": "workspace:*",
     "@khidi/domain": "workspace:*",
     "@khidi/evidence": "workspace:*",
     "@khidi/media": "workspace:*",
     "@khidi/products": "workspace:*",
-    "@khidi/shared": "workspace:*"
+    "@khidi/shared": "workspace:*",
+    "@zxing/library": "0.21.3",
+    "drizzle-orm": "0.40.0",
+    "zod": "3.24.2"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "6.2.4"
   }
 }

@@ -513,3 +513,73 @@ export const legacyUrls = pgTable(
   },
   (table) => [unique().on(table.oldHost, table.oldPathNormalized)]
 );
+
+// M3. SQL migrations additionally enforce checks and partial uniqueness.
+export const scanTasks = pgTable("scan_tasks", {
+  id: uuid("id").primaryKey(),
+  taskType: text("task_type").notNull(),
+  title: text("title").notNull(),
+  assigneeUserId: uuid("assignee_user_id").references(() => users.id),
+  assigneeRole: text("assignee_role"),
+  productTypeId: uuid("product_type_id").references(() => productTypes.id),
+  targetSkuId: uuid("target_sku_id").references(() => skus.id),
+  poolId: uuid("pool_id"),
+  fulfillmentRequestId: uuid("fulfillment_request_id"),
+  photosRequired: boolean("photos_required").notNull().default(true),
+  dueDate: timestamp("due_date", { withTimezone: true }),
+  status: text("status").notNull().default("OPEN"),
+  targetCount: integer("target_count"),
+  completedCount: integer("completed_count").notNull().default(0),
+  createdBy: uuid("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true })
+});
+
+export const productIntakes = pgTable("product_intakes", {
+  id: uuid("id").primaryKey(),
+  taskId: uuid("task_id").references(() => scanTasks.id),
+  sourceMode: text("source_mode").notNull(),
+  scannedBy: uuid("scanned_by").notNull().references(() => users.id),
+  deviceId: uuid("device_id").references(() => registeredDevices.id),
+  clientDeviceId: uuid("client_device_id").notNull(),
+  scannedIdentifiersJson: jsonb("scanned_identifiers_json").$type<string[]>().notNull().default([]),
+  normalizedIdentifier: text("normalized_identifier"),
+  isNoBarcode: boolean("is_no_barcode").notNull().default(false),
+  matchedSkuId: uuid("matched_sku_id").references(() => skus.id),
+  duplicateOfIntakeId: uuid("duplicate_of_intake_id").references((): AnyPgColumn => productIntakes.id),
+  labelStatus: text("label_status").notNull().default("NOT_REQUIRED"),
+  resultState: text("result_state").notNull(),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  requestHash: text("request_hash").notNull(),
+  scannedAt: timestamp("scanned_at", { withTimezone: true }).notNull(),
+  reviewReason: text("review_reason"),
+  reviewOriginalReason: text("review_original_reason"),
+  reviewReferenceSkuId: uuid("review_reference_sku_id").references(() => skus.id),
+  scannedIdentifierType: text("scanned_identifier_type"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewedBy: uuid("reviewed_by").references(() => users.id),
+  reviewResolution: text("review_resolution"),
+  reviewNote: text("review_note"),
+  replacementLabelRequested: boolean("replacement_label_requested").notNull().default(false),
+  acceptanceResponseJson: jsonb("acceptance_response_json").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const intakeReviewActions = pgTable("intake_review_actions", {
+  id: uuid("id").primaryKey(),
+  intakeId: uuid("intake_id").notNull().references(() => productIntakes.id),
+  actorUserId: uuid("actor_user_id").notNull().references(() => users.id),
+  requestHash: text("request_hash").notNull(),
+  responseJson: jsonb("response_json").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const labelEvents = pgTable("label_events", {
+  id: uuid("id").primaryKey(),
+  intakeId: uuid("intake_id").notNull().references(() => productIntakes.id),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status").notNull(),
+  actorUserId: uuid("actor_user_id").notNull().references(() => users.id),
+  scanIntakeId: uuid("scan_intake_id").references(() => productIntakes.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+});

@@ -1,0 +1,49 @@
+.scanning-panel { background: white; border: 1px solid #cbd5e1; border-radius: 8px; padding: 20px; }
+.scanning-panel h1 { font-size: 1.3rem; margin-top: 0; }
+.scanning-panel form, .scanning-fields { display: grid; gap: 12px; }
+.scanning-fields { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.scanning-panel label { display: grid; gap: 5px; }
+.scanning-panel input, .scanning-panel select, .scanning-panel button { font: inherit; padding: 9px 12px; border: 1px solid #94a3b8; border-radius: 5px; }
+.scanning-panel input[type=checkbox] { width: 20px; height: 20px; }
+.scanning-panel button { color: white; background: #166534; cursor: pointer; min-height: 44px; }
+.scanning-panel button:disabled { opacity: .5; cursor: default; }
+.scanning-panel :focus-visible { outline: 3px solid #2563eb; outline-offset: 2px; }
+.scanning-table-wrap { overflow-x: auto; }
+.scanning-panel table { width: 100%; border-collapse: collapse; font-size: .875rem; text-align: left; }
+.scanning-panel th, .scanning-panel td { padding: 10px 8px; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+.scanning-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+.scanning-panel [role=alert] { color: #991b1b; }
+.scan-queue-status { background: #eff6ff; border: 1px solid #93c5fd; border-radius: 6px; margin-bottom: 16px; padding: 10px 14px; font-size: .875rem; }
+.scan-queue-status p { margin: 6px 0; }
+.scan-queue-status button { margin-left: 12px; font: inherit; min-height: 44px; cursor: pointer; }
+.blocked-scan { border-top: 1px solid #93c5fd; padding: 12px 0; overflow-wrap: anywhere; }
+.blocked-scan form { display: grid; gap: 8px; }
+.blocked-scan input, .blocked-scan button { min-height: 44px; font: inherit; }
+.review-metadata { display: grid; grid-template-columns: minmax(120px, 200px) 1fr; gap: 10px; overflow-wrap: anywhere; }
+.review-metadata dd { margin: 0; }
+.scanning-checkbox { display: flex !important; align-items: center; gap: 10px; }
+.scanning-panel textarea { font: inherit; padding: 10px; border: 1px solid #94a3b8; border-radius: 5px; }
+.warehouse-scanner { max-width: 640px; margin: auto; }
+.warehouse-scanner button, .warehouse-scanner input, .scanner-back { min-height: 52px; font-size: 1rem; box-sizing: border-box; }
+.warehouse-scanner input { width: 100%; }
+.warehouse-scanner .scanning-actions > button { flex: 1 1 180px; }
+.scanner-back { display: inline-flex; align-items: center; color: #166534; }
+.scanner-progress { display: flex; align-items: center; gap: 12px; font-size: 2rem; font-weight: 700; margin: 12px 0 4px; }
+.scanner-progress span { font-size: 1rem; font-weight: 400; }
+.scanner-hint { color: #475569; font-size: .9rem; }
+.scanner-viewfinder { position: relative; background: #0f172a; color: white; aspect-ratio: 4 / 3; border-radius: 8px; overflow: hidden; }
+.scanner-viewfinder video { width: 100%; height: 100%; object-fit: contain; }
+.scanner-viewfinder > p { position: absolute; inset: 0; display: grid; place-content: center; padding: 24px; margin: 0; text-align: center; }
+.scanner-frame { position: absolute; inset: 22% 10%; border: 3px solid #4ade80; border-radius: 12px; pointer-events: none; }
+.scanner-received { min-height: 64px; background: #f1f5f9; padding: 16px; border-radius: 8px; margin: 12px 0; }
+.scanner-received:has(strong) { background: #dcfce7; color: #14532d; }
+.scanner-received.scanner-review { background: #fef3c7; color: #78350f; }
+.scanner-received p { margin: 6px 0 0; }
+.warehouse-tasks { max-width: 640px; margin: auto; }
+.warehouse-tasks ul { list-style: none; padding: 0; display: grid; gap: 16px; }
+.warehouse-tasks li a { display: grid; gap: 12px; padding: 18px; border: 1px solid #94a3b8; border-radius: 8px; color: #14532d; text-decoration: none; }
+@media (max-width: 600px) {
+  .scanning-panel { padding: 14px; }
+  .scanner-progress { font-size: 1.75rem; }
+  .scan-queue-status { font-size: 1rem; }
+}

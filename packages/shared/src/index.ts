@@ -1,5 +1,7 @@
 import { randomBytes, createHash, createCipheriv, createDecipheriv } from "node:crypto";
 import { z } from "zod";
+import { createUuidV7 } from "./uuid.ts";
+export { createUuidV7 } from "./uuid.ts";
 
 export const DEFAULT_DEV_TOTP_KEY_HEX =
   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -88,41 +90,6 @@ export function decryptSecretAes256Gcm(
 /**
  * RFC 9562 UUIDv7 generator (monotonic millisecond timestamp + cryptographic random bits).
  */
-let lastTimestampMs = 0n;
-let sequenceCounter = 0;
-
-export function createUuidV7(nowMs: number = Date.now()): string {
-  let ts = BigInt(Math.floor(nowMs));
-  if (ts === lastTimestampMs) {
-    sequenceCounter = (sequenceCounter + 1) & 0x0fff;
-    if (sequenceCounter === 0) {
-      ts += 1n;
-    }
-  } else {
-    lastTimestampMs = ts;
-    sequenceCounter = randomBytes(2).readUInt16BE(0) & 0x0fff;
-  }
-
-  const bytes = randomBytes(16);
-  // 48-bit big-endian timestamp
-  bytes[0] = Number((ts >> 40n) & 0xffn);
-  bytes[1] = Number((ts >> 32n) & 0xffn);
-  bytes[2] = Number((ts >> 24n) & 0xffn);
-  bytes[3] = Number((ts >> 16n) & 0xffn);
-  bytes[4] = Number((ts >> 8n) & 0xffn);
-  bytes[5] = Number(ts & 0xffn);
-
-  // Version 7 (0111) + 12-bit sequence counter
-  bytes[6] = 0x70 | ((sequenceCounter >> 8) & 0x0f);
-  bytes[7] = sequenceCounter & 0xff;
-
-  // Variant 10xx
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
-
-  const hex = bytes.toString("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-}
-
 export function createCorrelationId(): string {
   return `cor_${createUuidV7()}`;
 }

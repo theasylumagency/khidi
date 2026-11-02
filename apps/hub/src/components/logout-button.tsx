@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { t } from "@khidi/i18n";
 
 export function LogoutButton() {
   const [loading, setLoading] = useState(false);
@@ -34,6 +35,7 @@ export function LogoutButton() {
       disabled={loading}
       style={{
         padding: "0.35rem 0.7rem",
+        minHeight: "48px",
         borderRadius: "6px",
         background: "#1e293b",
         color: "#f8fafc",
@@ -43,7 +45,7 @@ export function LogoutButton() {
         fontWeight: 600
       }}
     >
-      {loading ? "გასვლა..." : "გასვლა"}
+      {t(loading ? "scanner.logging_out" : "scanner.logout")}
     </button>
   );
 }

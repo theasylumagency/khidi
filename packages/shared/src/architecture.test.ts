@@ -180,7 +180,7 @@ describe("Architecture, Security & Concealment Verification ([C5, C6, C12], CVE-
       }
     }
 
-    const adminPages = ["users", "entities", "storefronts", "settings"];
+    const adminPages = ["users", "entities", "storefronts", "settings", "tasks", "labels", "labels/print", "intakes", "intakes/[intakeId]/review", "scanning/quick"];
     for (const page of adminPages) {
       const content = readFileSync(
         join(repoRoot, "apps", "hub", "src", "app", page, "page.tsx"),

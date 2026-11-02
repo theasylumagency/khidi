@@ -1,4 +1,9 @@
 import { AppError } from "@khidi/shared";
+import { BarcodeFormat, QRCodeWriter } from "@zxing/library";
+
+function escapeLabelText(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
+}
 
 /**
  * Standard Code 128 pattern table (values 0..106).
@@ -67,64 +72,21 @@ export function renderCode128Svg(value: string, heightPx = 42): string {
 }
 
 /**
- * Generates a deterministic Finder-Pattern 2D QR-style SVG encoding `khidi://sku/<internalSku>`
- * with embedded `data-qr-payload` for thermal label printing and scanner resolution (§5.4).
+ * Generates a standards-compliant QR including error correction and quiet zones.
  */
 export function renderInternalQrSvg(qrPayload: string, sizePx = 76): string {
-  const gridSize = 21;
-  const matrix: boolean[][] = Array.from({ length: gridSize }, () =>
-    Array.from({ length: gridSize }, () => false)
-  );
-
-  const drawFinder = (r0: number, c0: number) => {
-    for (let r = 0; r < 7; r += 1) {
-      for (let c = 0; c < 7; c += 1) {
-        const isBorder = r === 0 || r === 6 || c === 0 || c === 6;
-        const isCenter = r >= 2 && r <= 4 && c >= 2 && c <= 4;
-        const row = matrix[r0 + r];
-        if (row) {
-          row[c0 + c] = isBorder || isCenter;
-        }
-      }
-    }
-  };
-
-  drawFinder(0, 0);
-  drawFinder(0, gridSize - 7);
-  drawFinder(gridSize - 7, 0);
-
-  // Deterministic bit fill from payload bytes
-  let bitIndex = 0;
-  const bytes = Buffer.from(qrPayload, "utf8");
-  for (let r = 0; r < gridSize; r += 1) {
-    for (let c = 0; c < gridSize; c += 1) {
-      const inFinder =
-        (r < 8 && c < 8) ||
-        (r < 8 && c >= gridSize - 8) ||
-        (r >= gridSize - 8 && c < 8);
-      if (inFinder) continue;
-
-      const byte = bytes[bitIndex % bytes.length] ?? 0;
-      const bit = ((byte >> (bitIndex % 8)) & 1) === 1;
-      const row = matrix[r];
-      if (row) {
-        row[c] = bit !== ((r + c) % 3 === 0);
-      }
-      bitIndex += 1;
-    }
-  }
-
+  const matrix = new QRCodeWriter().encode(qrPayload, BarcodeFormat.QR_CODE, 0, 0, new Map());
+  const width = matrix.getWidth();
   const cells: string[] = [];
-  for (let r = 0; r < gridSize; r += 1) {
-    for (let c = 0; c < gridSize; c += 1) {
-      if (matrix[r]?.[c]) {
-        cells.push(`<rect x="${c + 1}" y="${r + 1}" width="1" height="1" fill="#000000" />`);
+  for (let r = 0; r < matrix.getHeight(); r += 1) {
+    for (let c = 0; c < width; c += 1) {
+      if (matrix.get(c, r)) {
+        cells.push(`<rect x="${c}" y="${r}" width="1" height="1" fill="#000000" />`);
       }
     }
   }
 
-  const viewSize = gridSize + 2;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${viewSize} ${viewSize}" width="${sizePx}" height="${sizePx}" role="img" aria-label="QR ${qrPayload}" data-qr-payload="${qrPayload}"><rect width="${viewSize}" height="${viewSize}" fill="#ffffff" />${cells.join("")}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${width}" width="${sizePx}" height="${sizePx}" shape-rendering="crispEdges" role="img" aria-label="QR ${escapeLabelText(qrPayload)}" data-qr-payload="${escapeLabelText(qrPayload)}"><rect width="${width}" height="${width}" fill="#ffffff" />${cells.join("")}</svg>`;
 }
 
 export interface ThermalLabelPayload {
@@ -154,8 +116,8 @@ export function buildThermalLabelSpec(input: ThermalLabelPayload): {
   const heightMm = input.heightMm ?? 40;
   const code128Svg = renderCode128Svg(input.internalSku, 36);
   const qrSvg = renderInternalQrSvg(input.qrValue, 68);
-  const safeTitle = input.titleKa.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const subline = [input.brand, input.modelCode].filter(Boolean).join(" · ");
+  const safeTitle = escapeLabelText(input.titleKa);
+  const subline = escapeLabelText([input.brand, input.modelCode].filter(Boolean).join(" · "));
 
   const printableHtml = `<!doctype html>
 <html lang="ka">
@@ -266,4 +228,16 @@ export function buildThermalLabelSpec(input: ThermalLabelPayload): {
     qrSvg,
     printableHtml
   };
+}
+
+/** Reuses the fixed thermal template; each label occupies one physical page. */
+export function buildThermalLabelBatchHtml(inputs: ThermalLabelPayload[]): string {
+  if (inputs.length === 0 || inputs.length > 100) throw new AppError("VALIDATION_ERROR", "Select 1–100 labels.");
+  const labels = inputs.map(buildThermalLabelSpec);
+  const style = labels[0]!.printableHtml.match(/<style>([\s\S]*?)<\/style>/)![1];
+  const bodies = labels.map((label) => label.printableHtml.match(/<body>([\s\S]*?)<\/body>/)![1]);
+  return `<!doctype html><html lang="ka"><head><meta charset="utf-8"><title>Khidi</title><style>${style}
+    .thermal-label { break-after: page; page-break-after: always; }
+    .thermal-label:last-child { break-after: auto; page-break-after: auto; }
+  </style></head><body>${bodies.join("")}</body></html>`;
 }

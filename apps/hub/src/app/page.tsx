@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getDb } from "@khidi/db";
 import { listLegalEntities, listStorefronts, listEntityRelationships } from "@khidi/entities";
 import { listUsersWithMemberships } from "@khidi/auth";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const principal = await requirePageAuth();
+  if (principal.role === "WAREHOUSE") redirect("/warehouse/tasks");
   const db = getDb();
 
   const [entities, storefronts, relationships] = await Promise.all([

@@ -56,6 +56,17 @@ describe("@khidi/shared", () => {
     expect(id1).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 
+  it("keeps offline UUIDs ordered through sequence overflow and a backward device clock", () => {
+    const timestamp = Date.now() + 1000;
+    let previous = createUuidV7(timestamp);
+    for (let i = 0; i < 5000; i++) {
+      const current = createUuidV7(timestamp);
+      expect(current > previous).toBe(true);
+      previous = current;
+    }
+    expect(createUuidV7(timestamp - 1000) > previous).toBe(true);
+  });
+
   it("enforces integer minor units (tetri) and rejects floats (§3.4)", () => {
     expect(tetri(185000)).toEqual({ amountMinor: 185000, currency: "GEL" });
     expect(() => tetri(18.5)).toThrow(AppError);

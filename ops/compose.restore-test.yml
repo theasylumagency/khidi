@@ -1,0 +1,30 @@
+services:
+  restore-source:
+    build: ./pgbackrest
+    image: khidi-pgbackrest-test:18.4-2.60.0
+    container_name: khidi-m3-restore-source
+    environment:
+      PGDATA: /var/lib/postgresql/18/khidi
+      POSTGRES_USER: hub_migrator
+      POSTGRES_PASSWORD: hub_migrator_dev_password
+      POSTGRES_DB: agrotrade_hub
+      HUB_APP_DB_PASSWORD: hub_app_dev_password
+      PGBACKREST_REPO1_CIPHER_PASS: ${PGBACKREST_REPO1_CIPHER_PASS:?Set a temporary local backup encryption key}
+    command:
+      - postgres
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=pgbackrest --config=/etc/pgbackrest/pgbackrest.conf --stanza=khidi archive-push %p
+    ports:
+      - "127.0.0.1:5436:5432"
+      - "127.0.0.1:5437:5433"
+    volumes:
+      - restore_source:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hub_migrator -d agrotrade_hub"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+volumes:
+  restore_source:
