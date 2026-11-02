@@ -120,6 +120,13 @@ export function getNavigationForRole(role: UserRole): NavItem[] {
 }
 
 const SCANNING_LABELS = {
+  "scanning.pending": "გასაგზავნი სკანები",
+  "scanning.waiting_for": "{name}-ის რიგში დარჩენილია {count} სკანი. გაიგზავნება მისი ანგარიშით შესვლის შემდეგ.",
+  "scanning.needs_attention": "სკანები საჭიროებს შემოწმებას",
+  "scanning.retry": "გაგზავნის ხელახლა ცდა",
+  "scanning.storage_error": "სკანი ვერ შეინახა მოწყობილობამ. შეამოწმეთ ბრაუზერის საცავი და სცადეთ ხელახლა.",
+  "scanning.session_changed": "აქტიური მომხმარებელი შეიცვალა ან სესია დასრულდა. განაახლეთ გვერდი.",
+  "scanning.refresh": "გვერდის განახლება",
   "scanning.tasks": "მიღების დავალებები",
   "scanning.intakes": "მიღებების ისტორია",
   "scanning.quick_scan": "სწრაფი სკანირება",

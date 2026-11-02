@@ -13,3 +13,6 @@
 .scanning-panel th, .scanning-panel td { padding: 10px 8px; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
 .scanning-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
 .scanning-panel [role=alert] { color: #991b1b; }
+.scan-queue-status { background: #eff6ff; border: 1px solid #93c5fd; border-radius: 6px; margin-bottom: 16px; padding: 10px 14px; font-size: .875rem; }
+.scan-queue-status p { margin: 6px 0; }
+.scan-queue-status button { margin-left: 12px; font: inherit; min-height: 44px; cursor: pointer; }

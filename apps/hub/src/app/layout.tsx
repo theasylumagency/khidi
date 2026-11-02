@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
+import { ScanQueueProvider } from "../components/scan-queue-provider.tsx";
+import "../components/scanning.css";
 import type { ReactNode } from "react";
 import { getNavigationForRole, t } from "@khidi/i18n";
 import { PwaRegister } from "../components/pwa-register.tsx";
@@ -158,7 +160,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           </div>
         </header>
         <main style={{ maxWidth: "1280px", margin: "0 auto", padding: "1.5rem 1.25rem" }}>
-          {children}
+          <ScanQueueProvider user={principal ? { userId: principal.userId, fullName: principal.fullName, deviceId: principal.deviceId } : null}>
+            {children}
+          </ScanQueueProvider>
         </main>
       </body>
     </html>
