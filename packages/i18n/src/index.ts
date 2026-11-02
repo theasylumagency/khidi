@@ -119,6 +119,11 @@ export function getNavigationForRole(role: UserRole): NavItem[] {
   return NAVIGATION_ITEMS.filter((item) => item.allowedRoles.includes(role));
 }
 
+/** Legacy seed names may include a role/affiliation annotation; display the person's name. */
+export function formatStaffName(fullName: string): string {
+  return fullName.replace(/\s+\([^()]*\)\s*$/u, "").trim();
+}
+
 const SCANNING_LABELS = {
   "scanning.pending": "გასაგზავნი სკანები",
   "scanning.waiting_for": "{name}-ის რიგში დარჩენილია {count} სკანი. გაიგზავნება მისი ანგარიშით შესვლის შემდეგ.",

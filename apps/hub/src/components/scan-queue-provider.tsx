@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { OfflineScanQueue, openScanQueue, type PendingUser, type ScanQueueStore } from "@khidi/scanning/offline";
 import { RESULT_STATES, type IntakeInput } from "@khidi/scanning/contracts";
 import { createUuidV7 } from "@khidi/shared/uuid";
-import { t } from "@khidi/i18n";
+import { formatStaffName, t } from "@khidi/i18n";
 
 type ScanDraft = Pick<IntakeInput, "sourceMode" | "taskId" | "scannedValue" | "isNoBarcode">;
 interface QueueContextValue { ready: boolean; enqueue: (draft: ScanDraft) => Promise<void> }
@@ -69,7 +69,7 @@ export function ScanQueueProvider({ user, children }: {
   return <QueueContext.Provider value={{ ready: ready && !sessionChanged, enqueue }}>
     {user ? <aside aria-live="polite" className="scan-queue-status">
       <span>{t("scanning.pending")}: {own?.count ?? 0}</span>
-      {pending.filter((row) => row.userId !== userId).map((row) => <p key={row.userId}>{t("scanning.waiting_for").replace("{name}", row.userName).replace("{count}", String(row.count))}</p>)}
+      {pending.filter((row) => row.userId !== userId).map((row) => <p key={row.userId}>{t("scanning.waiting_for").replace("{name}", formatStaffName(row.userName)).replace("{count}", String(row.count))}</p>)}
       {own?.blocked ? <p role="alert">{t("scanning.needs_attention")}: {own.blocked}</p> : null}
       {own?.count && !sessionChanged ? <button type="button" onClick={() => { void queue.current?.retry().catch(() => setStorageError(true)); }}>{t("scanning.retry")}</button> : null}
       {storageError ? <p role="alert">{t("scanning.storage_error")}</p> : null}

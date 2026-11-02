@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getDb } from "@khidi/db";
 import { intakeFiltersSchema, LABEL_STATUSES, listIntakes, RESULT_STATES } from "@khidi/scanning";
-import { t, type TranslationKey } from "@khidi/i18n";
+import { formatStaffName, t, type TranslationKey } from "@khidi/i18n";
 import { formatTbilisiDateTime } from "@khidi/shared";
 import { requirePageAuth } from "../../lib/session.ts";
 import "../../components/scanning.css";
@@ -26,7 +26,7 @@ export default async function IntakesPage({ searchParams }: { searchParams: Prom
       <tbody>{result.rows.map(({ intake, internalSku, scannedByName }) => <tr key={intake.id}>
         <td>{formatTbilisiDateTime(intake.scannedAt)}</td><td>{intake.matchedSkuId ? <Link href={`/products/${intake.matchedSkuId}`}>{internalSku}</Link> : "—"}</td>
         <td>{t(`scanning.result.${intake.resultState}` as TranslationKey)}{intake.duplicateOfIntakeId ? ` · ${t("scanning.duplicate")}` : ""}</td>
-        <td>{t(`scanning.label.${intake.labelStatus}` as TranslationKey)}</td><td>{scannedByName}</td><td>{t("scanning.photos_pending")}</td>
+        <td>{t(`scanning.label.${intake.labelStatus}` as TranslationKey)}</td><td>{formatStaffName(scannedByName)}</td><td>{t("scanning.photos_pending")}</td>
       </tr>)}</tbody></table></div>
     {!result.rows.length ? <p>{t("scanning.empty")}</p> : null}
     <nav className="scanning-actions">{filters.page > 1 ? <Link href={pageHref(filters.page - 1)}>{t("scanning.previous")}</Link> : null}{result.hasMore ? <Link href={pageHref(filters.page + 1)}>{t("scanning.next")}</Link> : null}</nav>

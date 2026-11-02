@@ -1,0 +1,11 @@
+[Unit]
+Description=Khidi nightly backup schedule
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 Asia/Tbilisi
+RandomizedDelaySec=5m
+Persistent=true
+Unit=khidi-backup.service
+
+[Install]
+WantedBy=timers.target

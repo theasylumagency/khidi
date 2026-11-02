@@ -35,13 +35,23 @@ If two sources conflict and this list does not resolve it, stop and ask. Do not 
 | Milestone | Status |
 | --- | --- |
 | M1 Foundation, auth, PWA shell | Done |
-| M2 Product model | Done (F1–F7 and G1–G2 done) |
-| M3 Scanning, offline queue, backups | Not started — ready after `m2-close` review |
+| M2 Product model | Done (F1–F7, G1–G2 closed) |
+| M3 Scanning, intake, labels, offline queue, backup tooling | **S1–S5 and S7 implemented; S6 gated by the real-device spike — see §10** |
 | M4–M11 | Not started |
+
+Real-device gateway spike (ADR-002 checks on a real Android phone and a real iPhone):
+**not yet confirmed**. The human owner updates this line.
 
 Shared deployments (any database outside a developer machine): **none yet**.
 Record the date here the first time a database is deployed to a shared or staging server;
 from that moment §6 "Migration squash window" is closed.
+
+M3 local verification (2026-11-02): typecheck and dependency boundaries passed;
+76 tests passed on a fresh isolated PostgreSQL 18.4 database and on its re-run.
+A pgBackRest 2.60.0 local encrypted backup was restored into a separate cluster:
+migration checksums and 16 core-table row counts matched; all 76 tests passed there.
+This is not the first shared-deployment restore test; off-server storage and that
+human-run test remain pending. See `docs/milestones/m3-scanning.md` and ADR-004/005.
 
 Update this table at the end of every milestone.
 
@@ -70,6 +80,24 @@ corepack pnpm test                     # run twice: tests must pass on a fresh D
 
 Reset a dev database when a migration needs a clean start: drop and recreate the database,
 re-run `init-roles.sh`, then migrate and seed. Never "fix" a dev DB by editing applied migrations.
+
+### Running without Docker (e.g. Codex cloud environments)
+
+If Docker is not available, install PostgreSQL in the setup script and provision roles with
+the repository script. PostgreSQL 16 or newer is acceptable for running tests; production is 18.
+
+```bash
+apt-get update && apt-get install -y postgresql
+# start a cluster listening on 127.0.0.1:5435 with superuser hub_migrator
+# (password from .env.example), create database agrotrade_hub, then:
+POSTGRES_USER=hub_migrator POSTGRES_DB=agrotrade_hub \
+HUB_APP_DB_PASSWORD=hub_app_dev_password PGHOST=127.0.0.1 PGPORT=5435 \
+sh docker/postgres/init-roles.sh
+corepack pnpm test                     # global setup migrates and seeds
+```
+
+Network access is only needed during setup (package install). Do not add dependencies at
+task time unless the task explicitly allows it (§7).
 
 ## 5. Architecture rules
 
@@ -146,38 +174,97 @@ re-run `init-roles.sh`, then migrate and seed. Never "fix" a dev DB by editing a
   M5 must replace manual confidence with the computed value and decide in an ADR whether a
   manual override remains at all.
 
-## 10. Open items before M3
+## 10. Current task: Milestone 3
 
-Work on branch `m2-close`. One commit per item, message prefixed with the item ID.
-Each item needs tests.
+Branch: `m3-scanning`. Never commit to `main`. One commit per step, message prefixed with the
+step ID (S1…S7). Each step needs tests. Schema changes go into new migrations (`0003_…`).
 
-**Done (M2 fix list):** F1 lifecycle state machine and READY preconditions · F2 neutral
-`KH-` internal SKU · F3 differentiator in variant slugs · F4 status and provenance for
-universal fields · F5 GTIN-14 normalization, system-only internal identifiers, advisory lock ·
-F6 Vitest global setup · F7 no DELETE on core catalog tables.
+**Done before M3:** F1–F7 and G1–G2 (lifecycle, neutral `KH-` SKUs, variant slugs,
+field provenance, GTIN-14, test isolation, no DELETE on catalog, audited manual confidence).
 
-**G1 — Identity confidence as a separate audited action.**
-`/api/products/ready` currently accepts `identityConfidence` in the request body, so an admin
-can set HIGH and pass the READY gate in the same call.
-- Remove `identityConfidence` from the READY request and from `transitionSkuLifecycle` options.
-- Add `setSkuIdentityConfidence(db, actor, skuId, level, reason)` in `packages/products`:
-  ADMIN only, `reason` mandatory (non-empty), not allowed on ARCHIVED SKUs.
-- Audit it as `IDENTITY_CONFIDENCE_SET_MANUALLY` with before/after values and the reason.
-- Expose it as its own route and its own UI control on the SKU page, with the reason field.
-- Tests: READY request with a confidence field is rejected or ignored; non-admin is rejected;
-  missing reason is rejected; audit row is written.
+### Scope boundaries (read first)
 
-**G2 — Sequential test files.**
-The M2 fixes removed `fileParallelism: false`, so test files now run in parallel against one
-shared database. Restore it in `vitest.config.ts` (keep `globalSetup`), and keep an explicit
-`include` for `packages/**/*.test.ts` and `apps/**/*.test.ts`.
-Acceptance: fresh database → `pnpm test` passes twice in a row.
+- **No photos in M3.** Guided photo capture and storage are M4. The warehouse flow ends after
+  the scan with a "photos pending" state; design the flow so M4 can insert the photo step.
+- **Task types:** the schema accepts all five (`INTAKE_UNIQUE`, `PHYSICAL_COUNT`,
+  `PHOTO_REQUEST`, `EVIDENCE_REQUEST`, `PICK`), but only **`INTAKE_UNIQUE`** is implemented.
+  Creating any other type returns a clear "available from milestone X" error
+  (PHYSICAL_COUNT → M8, PICK → M9, PHOTO_REQUEST → M4, EVIDENCE_REQUEST → M5).
+  Columns that will reference tables not yet existing (`pool_id`, `fulfillment_request_id`)
+  are nullable without foreign keys; M8/M9 add the constraints.
+- **No AI, no worker jobs.** Identification stays manual until M5.
+- Dependencies: you may add exactly one barcode library (ZXing for the browser, exact pinned
+  version at least two weeks old) and `fake-indexeddb` as a dev dependency for tests.
 
-**Deferred to M6 (do not do now):** include the slug differentiator whenever it exists,
-not only when a sibling SKU already exists at approval time. Today the first variant of a
-family keeps a generic slug.
+### Steps
 
-When G1 and G2 are done: all checks in §4 green, update §3, open a PR from `m2-close`, and stop.
+**S1 — Schema.** Migration `0003_scanning.sql`: `scan_tasks` and `product_intakes` as in the
+plan §2.3, plus `label_events` if you need label history. `product_intakes.idempotency_key`
+is unique. Grants for `hub_app` explicit; no DELETE on either table.
+
+**S2 — Intake domain service** (`packages/scanning`), all inside `executeIdempotent` +
+`withDomainTransaction`:
+- Normalize the scanned value with the M2 identifier functions (GTIN-14, internal labels).
+- Exactly one matching SKU → `MATCHED_EXISTING`.
+- Several matching SKUs (collision) → `MANUAL_IDENTIFICATION_REQUIRED`, no SKU created.
+- No match → create a SKU draft (`INTAKE`, `LOW`) with the scanned identifier attached as
+  unverified → `NEW_DRAFT`.
+- **Duplicate in an `INTAKE_UNIQUE` task:** a second scan of an identifier already taken in
+  the same task records the intake as a duplicate of the first and creates no new SKU.
+- Archived SKUs never match.
+- The client-supplied `scannedAt` and device id are stored; the server time is stored too.
+
+**S3 — No-barcode flow and labels.**
+- "No barcode" creates a provisional SKU draft with an internal SKU immediately and puts the
+  intake in `label_status = TO_PRINT`.
+- "Labels to print" queue page (desktop): select, print in batch with the existing
+  58 × 40 mm template, mark `PRINTED`.
+- Attaching is confirmed by scanning the printed label on the product → `ATTACHED`.
+  Scanning an internal label resolves directly to its SKU everywhere.
+
+**S4 — Tasks and Admin Quick Scan.**
+- Admin creates an `INTAKE_UNIQUE` task (title, assignee user or role, optional Product Type,
+  target count, due date); progress = distinct intakes / target.
+- Quick Scan: admin scans without a task (`source_mode = QUICK_SCAN`).
+- Task and intake lists for admin (desktop, table-first), with filters by result and label status.
+
+**S5 — Offline queue** (client module, framework-independent, unit-tested with `fake-indexeddb`):
+- Every scan is first written to IndexedDB with a client UUIDv7 idempotency key, the user id,
+  device id and `scannedAt`, then sent. The UI never waits for the server to show "✓ კოდი მიღებულია".
+- Visible pending counter; retry with backoff; resume on `online`, on app start and on focus.
+  Do not depend on Background Sync.
+- **Shared phones:** each entry belongs to the user who scanned it and is sent only with that
+  user's session. After a PIN user switch, entries of the previous user stay queued and a
+  banner shows how many are waiting for whom. Never re-attribute an entry to another user.
+- Entries are removed only after a successful server response or an idempotent replay.
+- The service worker still never caches HTML or API responses.
+
+**S6 — Warehouse scanner UI** (mobile, Georgian only, large targets, spec §7.3):
+camera scanning with `BarcodeDetector` where available and ZXing fallback; manual entry;
+torch toggle where supported; task progress "12 / 27"; immediate next scan.
+**Before starting S6, check §3: if the real-device spike is not confirmed, finish S1–S5 and S7,
+open the PR, and stop.** The camera and offline behaviour behind the gateway must be proven
+first.
+
+**S7 — Backup and restore tooling** (no live server exists yet, so this is tooling + runbook):
+- `docs/ops/backup-restore.md`: PostgreSQL WAL archiving with point-in-time recovery,
+  nightly full backup, 30-day retention, encrypted off-server storage. Pick one tool
+  (pgBackRest or WAL-G) and justify it in an ADR.
+- Scripts in `ops/` to take a backup and to restore into a clean database.
+- A restore verification script: restore → run migrations check (checksums match) →
+  compare row counts of core tables with the source → run the test suite against it.
+- Object storage versioning is documented here but configured in M4 with media.
+- The first real restore test is performed by the human on the first shared deployment,
+  before any pilot intake. Note this in §3 when done.
+
+### Acceptance
+
+- Fresh database: §4 checks pass twice in a row.
+- Tests cover: idempotent replay creates no duplicate intake or SKU; duplicate in a unique
+  task; collision → manual identification; archived SKU not matched; no-barcode → label queue
+  → printed → attached by scan; offline queue per-user behaviour and retry; non-admin cannot
+  create tasks; warehouse user cannot see task administration.
+- Update §3, open a PR from `m3-scanning` listing deviations, ADRs and `docs/` changes, and stop.
 
 ## 11. Working agreement
 

@@ -1,0 +1,12 @@
+[Unit]
+Description=Khidi nightly full PostgreSQL backup
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=postgres
+WorkingDirectory=/srv/khidi
+EnvironmentFile=/etc/khidi/backup.env
+ExecStart=/usr/local/bin/corepack pnpm exec tsx ops/backup.ts
+UMask=0077
