@@ -87,17 +87,19 @@ export function generateDeterministicDisplayNames(input: DeterministicNamingInpu
 
 /**
  * §5.11 & [C8] Canonical ASCII Slug Generator:
- * Generates a deterministic ASCII slug (e.g. `hiromiki-d178e-df900q`) from verified brand and model.
- * Only called when a SKU transitions to `READY` or when an admin explicitly updates the slug on a READY SKU.
+ * Generates a deterministic ASCII slug from verified brand, model, and optional variant differentiator
+ * (e.g. `hiromiki-d178e-df900q` or `hiromiki-d178e-df900q-9-hp-rubber-wheels`).
+ * Including `keyDifferentiator` whenever present ensures variant slugs are deterministic and independent of approval order.
  */
 export function generateCanonicalSlug(
   brand: string | null | undefined,
   modelCode: string | null | undefined,
-  differentiatorOrInternalSku?: string | null
+  keyDifferentiator?: string | null,
+  fallback?: string | null
 ): string {
-  const rawParts = [brand?.trim(), modelCode?.trim()].filter(Boolean);
-  if (rawParts.length === 0 && differentiatorOrInternalSku?.trim()) {
-    rawParts.push(differentiatorOrInternalSku.trim());
+  const rawParts = [brand?.trim(), modelCode?.trim(), keyDifferentiator?.trim()].filter(Boolean);
+  if (rawParts.length === 0 && fallback?.trim()) {
+    rawParts.push(fallback.trim());
   }
 
   const combined = transliterateGeorgianToAscii(rawParts.join("-"))

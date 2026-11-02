@@ -1,3 +1,4 @@
+import type { SkuUnitMetadataEntry } from "@khidi/db";
 import { AppError } from "@khidi/shared";
 
 export const UNIVERSAL_UNIT_KEYS = [
@@ -18,20 +19,31 @@ export const UNIVERSAL_UNIT_KEYS = [
 
 export type UniversalUnitKey = (typeof UNIVERSAL_UNIT_KEYS)[number];
 
+export interface UniversalUnitStructuredInput {
+  value: string | number | null;
+  status: "VERIFIED" | "UNVERIFIED" | "NOT_FOUND" | "CONFLICT";
+  sourceType?: string;
+  evidenceId?: string;
+  verifiedBy?: string;
+  verifiedAt?: string;
+}
+
+export type UniversalUnitFieldInput = string | number | UniversalUnitStructuredInput | null | undefined;
+
 export interface UniversalUnitsInput {
-  power?: string | number | null;
-  engineDisplacement?: string | number | null;
-  length?: string | number | null;
-  width?: string | number | null;
-  height?: string | number | null;
-  workingWidth?: string | number | null;
-  workingDepth?: string | number | null;
-  weight?: string | number | null;
-  volume?: string | number | null;
-  pressure?: string | number | null;
-  flow?: string | number | null;
-  voltage?: string | number | null;
-  current?: string | number | null;
+  power?: UniversalUnitFieldInput;
+  engineDisplacement?: UniversalUnitFieldInput;
+  length?: UniversalUnitFieldInput;
+  width?: UniversalUnitFieldInput;
+  height?: UniversalUnitFieldInput;
+  workingWidth?: UniversalUnitFieldInput;
+  workingDepth?: UniversalUnitFieldInput;
+  weight?: UniversalUnitFieldInput;
+  volume?: UniversalUnitFieldInput;
+  pressure?: UniversalUnitFieldInput;
+  flow?: UniversalUnitFieldInput;
+  voltage?: UniversalUnitFieldInput;
+  current?: UniversalUnitFieldInput;
 }
 
 export interface NormalizedUniversalUnits {
@@ -49,6 +61,7 @@ export interface NormalizedUniversalUnits {
   voltageV: string | null;
   currentA: string | null;
   unitSourceStringsJson: Record<string, string>;
+  unitMetadataJson: Record<string, SkuUnitMetadataEntry>;
 }
 
 const METRIC_HP_TO_KW = 0.73549875; // §5.6: 9 HP -> 6.62 kW
@@ -292,113 +305,260 @@ export function normalizeCurrentToA(input: string | number): {
   throw new AppError("VALIDATION_ERROR", `Unsupported current unit in "${sourceString}".`);
 }
 
+function processUnitField(
+  unitKey: UniversalUnitKey,
+  fieldInput: UniversalUnitFieldInput,
+  normalizer: (val: string | number) => { numericValue: number; sourceString: string },
+  sources: Record<string, string>,
+  metadata: Record<string, SkuUnitMetadataEntry>,
+  defaultVerifiedByUserId?: string
+): string | null {
+  if (fieldInput === undefined || fieldInput === null || fieldInput === "") {
+    return null;
+  }
+
+  if (typeof fieldInput === "object") {
+    const { value, status, sourceType, evidenceId, verifiedBy, verifiedAt } = fieldInput;
+    if (status === "NOT_FOUND") {
+      if (value !== null) {
+        throw new AppError(
+          "VALIDATION_ERROR",
+          `Universal unit "${unitKey}" has status NOT_FOUND and must have value: null (§6.5).`
+        );
+      }
+      metadata[unitKey] = {
+        sourceString: null,
+        status: "NOT_FOUND",
+        ...(sourceType ? { sourceType } : {})
+      };
+      return null;
+    }
+
+    if (value === null || value === "") {
+      return null;
+    }
+
+    const effectiveVerifiedBy =
+      status === "VERIFIED" ? (verifiedBy ?? defaultVerifiedByUserId) : verifiedBy;
+
+    if (status === "VERIFIED" && !evidenceId && !effectiveVerifiedBy) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        `Universal unit "${unitKey}" cannot be marked VERIFIED without an evidenceId or verifiedBy user ID (§5.6, §5.9).`,
+        { field: unitKey }
+      );
+    }
+
+    const { numericValue, sourceString } = normalizer(value);
+    sources[unitKey] = sourceString;
+    metadata[unitKey] = {
+      sourceString,
+      status,
+      ...(sourceType ? { sourceType } : {}),
+      ...(evidenceId ? { evidenceId } : {}),
+      ...(effectiveVerifiedBy ? { verifiedBy: effectiveVerifiedBy } : {}),
+      ...(status === "VERIFIED"
+        ? { verifiedAt: verifiedAt ?? new Date().toISOString() }
+        : {})
+    };
+    return String(numericValue);
+  }
+
+  // Raw string or number defaults to UNVERIFIED so unverified/AI values are never mistaken for VERIFIED
+  const { numericValue, sourceString } = normalizer(fieldInput);
+  sources[unitKey] = sourceString;
+  metadata[unitKey] = {
+    sourceString,
+    status: "UNVERIFIED"
+  };
+  return String(numericValue);
+}
+
 /**
- * §5.6 Normalizes all universal unit inputs and builds `unit_source_strings_json`.
+ * §5.6 Normalizes all universal unit inputs, enforces verification provenance,
+ * and builds both `unit_source_strings_json` and `unit_metadata_json`.
  */
 export function normalizeUniversalUnits(
   input: UniversalUnitsInput = {},
-  existingSources: Record<string, string> = {}
+  existingSources: Record<string, string> = {},
+  existingMetadata: Record<string, SkuUnitMetadataEntry> = {},
+  options?: { defaultVerifiedByUserId?: string }
 ): NormalizedUniversalUnits {
   const sources: Record<string, string> = { ...existingSources };
+  const metadata: Record<string, SkuUnitMetadataEntry> = { ...existingMetadata };
+  const defaultVerifiedBy = options?.defaultVerifiedByUserId;
 
-  const power =
-    input.power !== undefined && input.power !== null && input.power !== ""
-      ? normalizePowerToKw(input.power)
-      : null;
-  if (power) sources.power_kw = power.sourceString;
+  const powerKw = processUnitField(
+    "power_kw",
+    input.power,
+    (v) => {
+      const r = normalizePowerToKw(v);
+      return { numericValue: r.valueKw, sourceString: r.sourceString };
+    },
+    sources,
+    metadata,
+    defaultVerifiedBy
+  );
 
-  const disp =
-    input.engineDisplacement !== undefined &&
-    input.engineDisplacement !== null &&
-    input.engineDisplacement !== ""
-      ? normalizeDisplacementToCm3(input.engineDisplacement)
-      : null;
-  if (disp) sources.engine_displacement_cm3 = disp.sourceString;
+  const engineDisplacementCm3 = processUnitField(
+    "engine_displacement_cm3",
+    input.engineDisplacement,
+    (v) => {
+      const r = normalizeDisplacementToCm3(v);
+      return { numericValue: r.valueCm3, sourceString: r.sourceString };
+    },
+    sources,
+    metadata,
+    defaultVerifiedBy
+  );
 
-  const length =
-    input.length !== undefined && input.length !== null && input.length !== ""
-      ? normalizeLengthToMm(input.length, "length_mm")
-      : null;
-  if (length) sources.length_mm = length.sourceString;
+  const lengthMm = processUnitField(
+    "length_mm",
+    input.length,
+    (v) => {
+      const r = normalizeLengthToMm(v, "length_mm");
+      return { numericValue: r.valueMm, sourceString: r.sourceString };
+    },
+    sources,
+    metadata,
+    defaultVerifiedBy
+  );
 
-  const width =
-    input.width !== undefined && input.width !== null && input.width !== ""
-      ? normalizeLengthToMm(input.width, "width_mm")
-      : null;
-  if (width) sources.width_mm = width.sourceString;
+  const widthMm = processUnitField(
+    "width_mm",
+    input.width,
+    (v) => {
+      const r = normalizeLengthToMm(v, "width_mm");
+      return { numericValue: r.valueMm, sourceString: r.sourceString };
+    },
+    sources,
+    metadata,
+    defaultVerifiedBy
+  );
 
-  const height =
-    input.height !== undefined && input.height !== null && input.height !== ""
-      ? normalizeLengthToMm(input.height, "height_mm")
-      : null;
-  if (height) sources.height_mm = height.sourceString;
+  const heightMm = processUnitField(
+    "height_mm",
+    input.height,
+    (v) => {
+      const r = normalizeLengthToMm(v, "height_mm");
+      return { numericValue: r.valueMm, sourceString: r.sourceString };
+    },
+    sources,
+    metadata,
+    defaultVerifiedBy
+  );
 
-  const workingWidth =
-    input.workingWidth !== undefined &&
-    input.workingWidth !== null &&
-    input.workingWidth !== ""
-      ? normalizeLengthToMm(input.workingWidth, "working_width_mm")
-      : null;
-  if (workingWidth) sources.working_width_mm = workingWidth.sourceString;
+  const workingWidthMm = processUnitField(
+    "working_width_mm",
+    input.workingWidth,
+    (v) => {
+      const r = normalizeLengthToMm(v, "working_width_mm");
+      return { numericValue: r.valueMm, sourceString: r.sourceString };
+    },
+    sources,
+    metadata,
+    defaultVerifiedBy
+  );
 
-  const workingDepth =
-    input.workingDepth !== undefined &&
-    input.workingDepth !== null &&
-    input.workingDepth !== ""
-      ? normalizeLengthToMm(input.workingDepth, "working_depth_mm")
-      : null;
-  if (workingDepth) sources.working_depth_mm = workingDepth.sourceString;
+  const workingDepthMm = processUnitField(
+    "working_depth_mm",
+    input.workingDepth,
+    (v) => {
+      const r = normalizeLengthToMm(v, "working_depth_mm");
+      return { numericValue: r.valueMm, sourceString: r.sourceString };
+    },
+    sources,
+    metadata,
+    defaultVerifiedBy
+  );
 
-  const weight =
-    input.weight !== undefined && input.weight !== null && input.weight !== ""
-      ? normalizeWeightToKg(input.weight)
-      : null;
-  if (weight) sources.weight_kg = weight.sourceString;
+  const weightKg = processUnitField(
+    "weight_kg",
+    input.weight,
+    (v) => {
+      const r = normalizeWeightToKg(v);
+      return { numericValue: r.valueKg, sourceString: r.sourceString };
+    },
+    sources,
+    metadata,
+    defaultVerifiedBy
+  );
 
-  const volume =
-    input.volume !== undefined && input.volume !== null && input.volume !== ""
-      ? normalizeVolumeToL(input.volume)
-      : null;
-  if (volume) sources.volume_l = volume.sourceString;
+  const volumeL = processUnitField(
+    "volume_l",
+    input.volume,
+    (v) => {
+      const r = normalizeVolumeToL(v);
+      return { numericValue: r.valueL, sourceString: r.sourceString };
+    },
+    sources,
+    metadata,
+    defaultVerifiedBy
+  );
 
-  const pressure =
-    input.pressure !== undefined && input.pressure !== null && input.pressure !== ""
-      ? normalizePressureToBar(input.pressure)
-      : null;
-  if (pressure) sources.pressure_bar = pressure.sourceString;
+  const pressureBar = processUnitField(
+    "pressure_bar",
+    input.pressure,
+    (v) => {
+      const r = normalizePressureToBar(v);
+      return { numericValue: r.valueBar, sourceString: r.sourceString };
+    },
+    sources,
+    metadata,
+    defaultVerifiedBy
+  );
 
-  const flow =
-    input.flow !== undefined && input.flow !== null && input.flow !== ""
-      ? normalizeFlowToLMin(input.flow)
-      : null;
-  if (flow) sources.flow_l_min = flow.sourceString;
+  const flowLMin = processUnitField(
+    "flow_l_min",
+    input.flow,
+    (v) => {
+      const r = normalizeFlowToLMin(v);
+      return { numericValue: r.valueLMin, sourceString: r.sourceString };
+    },
+    sources,
+    metadata,
+    defaultVerifiedBy
+  );
 
-  const voltage =
-    input.voltage !== undefined && input.voltage !== null && input.voltage !== ""
-      ? normalizeVoltageToV(input.voltage)
-      : null;
-  if (voltage) sources.voltage_v = voltage.sourceString;
+  const voltageV = processUnitField(
+    "voltage_v",
+    input.voltage,
+    (v) => {
+      const r = normalizeVoltageToV(v);
+      return { numericValue: r.valueV, sourceString: r.sourceString };
+    },
+    sources,
+    metadata,
+    defaultVerifiedBy
+  );
 
-  const current =
-    input.current !== undefined && input.current !== null && input.current !== ""
-      ? normalizeCurrentToA(input.current)
-      : null;
-  if (current) sources.current_a = current.sourceString;
+  const currentA = processUnitField(
+    "current_a",
+    input.current,
+    (v) => {
+      const r = normalizeCurrentToA(v);
+      return { numericValue: r.valueA, sourceString: r.sourceString };
+    },
+    sources,
+    metadata,
+    defaultVerifiedBy
+  );
 
   return {
-    powerKw: power ? String(power.valueKw) : null,
-    engineDisplacementCm3: disp ? String(disp.valueCm3) : null,
-    lengthMm: length ? String(length.valueMm) : null,
-    widthMm: width ? String(width.valueMm) : null,
-    heightMm: height ? String(height.valueMm) : null,
-    workingWidthMm: workingWidth ? String(workingWidth.valueMm) : null,
-    workingDepthMm: workingDepth ? String(workingDepth.valueMm) : null,
-    weightKg: weight ? String(weight.valueKg) : null,
-    volumeL: volume ? String(volume.valueL) : null,
-    pressureBar: pressure ? String(pressure.valueBar) : null,
-    flowLMin: flow ? String(flow.valueLMin) : null,
-    voltageV: voltage ? String(voltage.valueV) : null,
-    currentA: current ? String(current.valueA) : null,
-    unitSourceStringsJson: sources
+    powerKw,
+    engineDisplacementCm3,
+    lengthMm,
+    widthMm,
+    heightMm,
+    workingWidthMm,
+    workingDepthMm,
+    weightKg,
+    volumeL,
+    pressureBar,
+    flowLMin,
+    voltageV,
+    currentA,
+    unitSourceStringsJson: sources,
+    unitMetadataJson: metadata
   };
 }

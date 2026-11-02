@@ -1156,17 +1156,21 @@ export const skuAttributeEntrySchema = z.object({
   value: z.union([z.string(), z.number(), z.boolean(), z.null()]),
   status: skuAttributeStatusSchema,
   sourceType: z.string().optional(),
-  evidenceId: z.string().uuid().optional()
+  evidenceId: z.string().uuid().optional(),
+  verifiedBy: z.string().uuid().optional(),
+  verifiedAt: z.string().optional()
 });
 
 /**
  * §5.9 Hybrid Attribute Validation:
  * Validates `type_attributes_json` against a Product Type's `attribute_schema_json` definition.
- * Rejects unknown keys (no uncontrolled JSON blobs) and verifies value types & enum constraints.
+ * Rejects unknown keys (no uncontrolled JSON blobs), verifies value types & enum constraints,
+ * and requires `evidenceId` or `verifiedBy` whenever `status === "VERIFIED"`.
  */
 export function validateTypeAttributesAgainstSchema(
   schemaDefs: readonly ProductTypeAttributeFieldDef[],
-  rawAttributes: Record<string, SkuAttributeValueEntry>
+  rawAttributes: Record<string, SkuAttributeValueEntry>,
+  options?: { defaultVerifiedByUserId?: string }
 ): Record<string, SkuAttributeValueEntry> {
   const allowedByKey = new Map(schemaDefs.map((def) => [def.key, def]));
   const validated: Record<string, SkuAttributeValueEntry> = {};
@@ -1190,12 +1194,23 @@ export function validateTypeAttributesAgainstSchema(
       );
     }
 
-    const { value, status, sourceType, evidenceId } = parsedEntry.data;
+    const { value, status, sourceType, evidenceId, verifiedBy, verifiedAt } = parsedEntry.data;
 
     if (status === "NOT_FOUND" && value !== null) {
       throw new AppError(
         "VALIDATION_ERROR",
         `Attribute "${key}" has status NOT_FOUND and must have value: null (§6.5).`
+      );
+    }
+
+    const effectiveVerifiedBy =
+      status === "VERIFIED" ? (verifiedBy ?? options?.defaultVerifiedByUserId) : verifiedBy;
+
+    if (status === "VERIFIED" && !evidenceId && !effectiveVerifiedBy) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        `Attribute "${key}" cannot be marked VERIFIED without an evidenceId or verifiedBy user ID (§5.9, §6.3).`,
+        { field: key }
       );
     }
 
@@ -1236,7 +1251,11 @@ export function validateTypeAttributesAgainstSchema(
       value,
       status,
       ...(sourceType ? { sourceType } : {}),
-      ...(evidenceId ? { evidenceId } : {})
+      ...(evidenceId ? { evidenceId } : {}),
+      ...(effectiveVerifiedBy ? { verifiedBy: effectiveVerifiedBy } : {}),
+      ...(status === "VERIFIED"
+        ? { verifiedAt: verifiedAt ?? new Date().toISOString() }
+        : {})
     };
   }
 

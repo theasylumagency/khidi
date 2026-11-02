@@ -287,6 +287,17 @@ export interface SkuAttributeValueEntry {
   status: "VERIFIED" | "UNVERIFIED" | "NOT_FOUND" | "CONFLICT";
   sourceType?: string;
   evidenceId?: string;
+  verifiedBy?: string;
+  verifiedAt?: string;
+}
+
+export interface SkuUnitMetadataEntry {
+  sourceString: string | null;
+  status: "VERIFIED" | "UNVERIFIED" | "NOT_FOUND" | "CONFLICT";
+  sourceType?: string;
+  evidenceId?: string;
+  verifiedBy?: string;
+  verifiedAt?: string;
 }
 
 export const categories = pgTable("categories", {
@@ -375,6 +386,10 @@ export const skus = pgTable("skus", {
   currentA: numeric("current_a", { precision: 10, scale: 2 }),
   unitSourceStringsJson: jsonb("unit_source_strings_json")
     .$type<Record<string, string>>()
+    .notNull()
+    .default({}),
+  unitMetadataJson: jsonb("unit_metadata_json")
+    .$type<Record<string, SkuUnitMetadataEntry>>()
     .notNull()
     .default({}),
 

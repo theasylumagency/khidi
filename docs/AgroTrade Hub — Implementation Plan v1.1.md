@@ -105,7 +105,7 @@ flowchart TD
 | `packages/domain` | `withDomainTransaction()` ჰელპერი (ატომურად წერს ბიზნეს-ცვლილებას + `stock_ledger` + `audit_logs` + `outbox_events` + `outbox_deliveries` `[C10]`), `IdempotencyGuard`. | კონკრეტული დომენის (მაგ. ფასების ან მარაგების) წესების ცოდნა. |
 | `packages/auth` | სესიები, Office (Email + Password + სავალდებულო TOTP `ADMIN`/`STOCK_MANAGER`-ისთვის), საწყობის გაზიარებული ტელეფონის ავტორიზაცია (Device Token + პერსონალური PIN), RBAC (ერთი გლობალური `users.role` + `user_entity_memberships`, დოკუმენტირებული `ADR-001`-ში `[C12]`), Granular Permissions, Storefront API გასაღებების ჰეშირება და IP ფილტრაცია. | ბიზნეს-ობიექტების პირდაპირი მოდიფიკაცია. |
 | `packages/entities` | `legal_entities` (`AGROTRADE`, `NEWBRAND`, მათ შორის `prices_include_vat` `[C11]`), `storefronts`, `entity_relationships` (`PURCHASE` \| `CONSIGNMENT` და რეჟიმის შეცვლის წინაპირობების ვალიდაცია `[C17]`), `storefront_listings` (§4.5). | ფასების ან მარაგების დათვლა. |
-| `packages/products` | Product Family, SKU/Variant, Composed Bundle & Factory Kit (`is_kit`), 30 Product Type-ის სქემა, ერთეულების ნორმალიზაცია, `sku_identifiers` კოლიზიების დეტექციით, შიდა SKU (`AGT-000184`), QR/Code128 ეტიკეტების გენერაცია (58×40 მმ), `accounting_mappings` (`legal_entity_id`-ით `[C9]`), დეტერმინისტული Naming Engine (KA/EN), `canonical_slug` (ენიჭება მხოლოდ `READY`-ზე `[C8]`) + `sku_slug_history`, SKU Lifecycle State Machine (§15.1). | `pricing`, `inventory`, `fulfillment` ან `publishing` პაკეტების იმპორტი `[C5]`; მარაგების ნაშთების შეცვლა ან AI-ს სინქრონულად გამოძახება. |
+| `packages/products` | Product Family, SKU/Variant, Composed Bundle & Factory Kit (`is_kit`), 30 Product Type-ის სქემა, ერთეულების ნორმალიზაცია, `sku_identifiers` კოლიზიების დეტექციით, შიდა SKU (`KH-000001`), QR/Code128 ეტიკეტების გენერაცია (58×40 მმ), `accounting_mappings` (`legal_entity_id`-ით `[C9]`), დეტერმინისტული Naming Engine (KA/EN), `canonical_slug` (ენიჭება მხოლოდ `READY`-ზე `[C8]`) + `sku_slug_history`, SKU Lifecycle State Machine (§15.1). | `pricing`, `inventory`, `fulfillment` ან `publishing` პაკეტების იმპორტი `[C5]`; მარაგების ნაშთების შეცვლა ან AI-ს სინქრონულად გამოძახება. |
 | `packages/publishing` `[C5, C18]` | Per-Storefront Sellability Evaluator (§15.2: ამოწმებს `READY` სტატუსს, არა-ნულოვან `canonical_slug`-ს `[C8]`, გამყიდველისა და მფლობელის აქტიურ `accounting_mappings`-ს `[C9]`, აქტიურ საბაზისო ფასს, `VERIFIED` საჯარო მთავარ ფოტოს და ჩართულ `storefront_listings`-ს; მოწმდება მხოლოდ ახალი `RESERVE`-ის დროს `[C18]`) და Storefront API-ს პროდუქტის პროექციის აგება. | კატალოგის, ფასების ან მარაგების პირდაპირი მუტაცია. არცერთ ქვედა პაკეტს არ აქვს უფლება დააიმპორტოს `publishing` `[C5]`. |
 | `packages/evidence` | `evidence` რეესტრი (`INVOICE` მხოლოდ `ADMIN`-ისთვის), `sku_field_provenance` (წყაროს პრიორიტეტები 1..9), Identity Confidence კალკულატორი (`HIGH`, `MEDIUM`, `LOW`, `CONFLICT`), კონფლიქტების გვერდიგვერდ შედარება. | კონფლიქტების ჩუმი (silent) გადაჭრა. |
 | `packages/media` | 3 სლოტიანი ფოტო-ინსტრუქცია, Tier-1 (მოწყობილობაზე) და Tier-2 (სერვერზე) ხარისხის შემოწმება, S3 ვერსიირებული საცავი (`raw/`, `master/`, `web/`, `evidence/`), EXIF GPS-ის წაშლა, Sharp პაიპლაინი (1:1 კანვასი, 400/800/1600px WebP + AVIF), Storefront-ის `media_base_url`-ზე პუბლიკაცია. | Raw ორიგინალის გადაწერა ან პროდუქტის გეომეტრიის/ფერის/ლოგოს შეცვლა. |
@@ -268,7 +268,7 @@ CREATE TABLE product_families (
 -- SKU / ვარიანტი (§5.1 - §5.12, §15.1, [C8])
 CREATE TABLE skus (
   id UUID PRIMARY KEY,
-  internal_sku TEXT NOT NULL UNIQUE,      -- მაგ. 'AGT-000184'
+  internal_sku TEXT NOT NULL UNIQUE,      -- მაგ. 'KH-000001'
   product_family_id UUID REFERENCES product_families(id),
   product_type_id UUID REFERENCES product_types(id),
   category_id UUID NOT NULL REFERENCES categories(id),
@@ -1037,7 +1037,7 @@ flowchart LR
   - ტაქსონომიის 8 კატეგორია + `UNCLASSIFIED`; 30 საწყისი Product Type თავისი Zod სქემით, ფოტო-ინსტრუქციებით, სახელდების შაბლონებითა და AI Research კონტრაქტებით.
   - `product_families`, `skus` (`canonical_slug` არის `NULL`-ებადი ნაწილობრივი უნიკალური ინდექსით `[C8]`), `sku_slug_history` (append-only ტრიგერითა და `hub_app` შეზღუდვით `[C7]`), `bundle_components`, უნივერსალური ერთეულების ნორმალიზატორი, `sku_identifiers` (კოლიზიების დეტექციით).
   - `accounting_mappings` სვეტით `legal_entity_id` და ინდექსით `(sku_id, legal_entity_id) WHERE active = TRUE` `[C9]`.
-  - `storefront_listings` (§4.5), `legacy_urls` (§12.5), შიდა SKU გენერატორი (`AGT-000184`) და თერმული ეტიკეტის ბეჭდვა (QR + Code128, 58×40 მმ).
+  - `storefront_listings` (§4.5), `legacy_urls` (§12.5), შიდა SKU გენერატორი (`KH-000001`) და თერმული ეტიკეტის ბეჭდვა (QR + Code128, 58×40 მმ).
 - **ვერიფიკაცია:** `INTAKE` სტატუსში `canonical_slug IS NULL` ტესტი `[C8]`, `sku_slug_history` append-only ტესტი `[C7]`, იდენტიფიკატორების კოლიზიისა და მრავალ-სუბიექტიანი `accounting_mappings`-ის ტესტები `[C9]`.
 
 ### Milestone 3: Scanning, Offline Queue & Production Backups (`packages/scanning`) `[C6]`

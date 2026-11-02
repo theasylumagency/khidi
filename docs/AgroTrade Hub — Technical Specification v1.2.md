@@ -311,7 +311,7 @@ Do not assume values are globally unique unless the type guarantees it. Collisio
 
 ### 5.4 Internal SKU and labels
 
-Every SKU receives a stable internal ID, e.g. `AGT-000184`. Never use a name as identity. Never invent a GTIN/EAN.
+Every SKU receives a stable, entity-neutral internal ID starting from 1, e.g. `KH-000001`. Never use a name as identity. Never invent a GTIN/EAN.
 
 When no usable barcode exists: create a provisional intake, identify the product, assign the internal SKU, generate a QR and Code128 label, print it, and attach it to the product, shelf or location. Later scans of that label resolve directly to the SKU. Label printing must support common thermal label printers via browser print with a fixed label template (default 58 × 40 mm, configurable).
 

@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@khidi/db";
 import { assertRoleAllowed } from "@khidi/auth";
-import { transitionSkuToReady, updateSkuCanonicalSlug } from "@khidi/products";
+import {
+  type IdentityConfidenceLevel,
+  type SkuLifecycleState,
+  transitionSkuLifecycle,
+  transitionSkuToReady,
+  updateSkuCanonicalSlug
+} from "@khidi/products";
 import { AppError } from "@khidi/shared";
 import { getCurrentPrincipal } from "../../../../lib/session.ts";
 
@@ -11,11 +17,14 @@ export async function POST(request: Request) {
     if (!principal) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
-    assertRoleAllowed(principal, ["ADMIN"]);
+    assertRoleAllowed(principal, ["ADMIN", "OPERATOR"]);
 
     const body = (await request.json()) as {
       skuId?: string;
-      action?: "TRANSITION_READY" | "UPDATE_SLUG";
+      action?: "TRANSITION_READY" | "TRANSITION_LIFECYCLE" | "UPDATE_SLUG";
+      targetState?: Exclude<SkuLifecycleState, "READY">;
+      identityConfidence?: IdentityConfidenceLevel;
+      humanConfirmedMediumConfidence?: boolean;
       customCanonicalSlug?: string;
       reason?: string;
     };
@@ -25,6 +34,23 @@ export async function POST(request: Request) {
     }
 
     const db = getDb();
+
+    if (body.action === "TRANSITION_LIFECYCLE" && body.targetState) {
+      const updated = await transitionSkuLifecycle(
+        db,
+        { userId: principal.userId },
+        body.skuId,
+        body.targetState,
+        {
+          identityConfidence: body.identityConfidence,
+          reason: body.reason
+        }
+      );
+      return NextResponse.json({ ok: true, sku: updated });
+    }
+
+    // READY transition and canonical slug update require ADMIN
+    assertRoleAllowed(principal, ["ADMIN"]);
 
     if (body.action === "UPDATE_SLUG" && body.customCanonicalSlug) {
       const updated = await updateSkuCanonicalSlug(
@@ -41,7 +67,10 @@ export async function POST(request: Request) {
       db,
       { userId: principal.userId },
       body.skuId,
-      body.customCanonicalSlug ? { customCanonicalSlug: body.customCanonicalSlug } : undefined
+      {
+        customCanonicalSlug: body.customCanonicalSlug,
+        humanConfirmedMediumConfidence: body.humanConfirmedMediumConfidence
+      }
     );
 
     return NextResponse.json({ ok: true, sku: updated });

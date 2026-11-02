@@ -1,9 +1,12 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import {
+  accountingMappings,
   getDb,
   legalEntities,
   outboxEvents,
+  productFamilies,
+  skuIdentifiers,
   skuSlugHistory,
   skus,
   storefronts,
@@ -13,6 +16,7 @@ import { AppError, createUuidV7 } from "@khidi/shared";
 import {
   attachSkuIdentifier,
   buildThermalLabelSpec,
+  computeGs1CheckDigit,
   createProductFamily,
   createSkuDraft,
   generateDeterministicDisplayNames,
@@ -22,13 +26,17 @@ import {
   listCategories,
   listProductTypes,
   listSkuSlugHistory,
+  normalizeAndValidateGtin14,
   normalizeLegacyUrlPath,
   normalizePowerToKw,
+   normalizeUniversalUnits,
   registerLegacyUrl,
+  removeSkuIdentifier,
   resolveSkuByScannedIdentifier,
   seedTaxonomyAndProductTypes,
   setComposedBundleComponents,
   setStorefrontListing,
+  transitionSkuLifecycle,
   transitionSkuToReady,
   updateSkuCanonicalSlug,
   upsertAccountingMapping,
@@ -91,7 +99,7 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
     expect(motoblock.aiResearchContractJson.unknownFieldPolicy).toBe("NULL_NOT_FOUND");
   });
 
-  it("supports adding a new Product Type dynamically without DB redesign and validates hybrid attributes (§5.8, §5.9)", async () => {
+  it("supports adding a new Product Type dynamically and enforces VERIFIED provenance on both type attributes and universal units (§5.6, §5.8, §5.9)", async () => {
     const cats = await listCategories(db);
     const agriCat = cats.find((c) => c.key === "AGRI_MACHINERY")!;
 
@@ -138,12 +146,37 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
 
     expect(customType.key).toBe("HAY_BALER");
 
-    // Valid attributes pass
+    // Marking a type attribute VERIFIED without evidenceId or verifiedBy is rejected (§5.9)
+    expect(() =>
+      validateTypeAttributesAgainstSchema(customType.attributeSchemaJson, {
+        bale_shape: { value: "ROUND", status: "VERIFIED" }
+      })
+    ).toThrow(/evidenceId or verifiedBy/);
+
+    // Marking a universal unit VERIFIED without evidenceId or verifiedBy is rejected (§5.6, §5.9)
+    expect(() =>
+      normalizeUniversalUnits({
+        power: { value: "9 HP", status: "VERIFIED", sourceType: "PLATE" }
+      })
+    ).toThrow(/evidenceId or verifiedBy/);
+
+    // Plain unit string defaults to UNVERIFIED in unitMetadataJson; structured VERIFIED unit with verifiedBy succeeds
+    const normUnits = normalizeUniversalUnits({
+      power: { value: "9 HP", status: "VERIFIED", sourceType: "PLATE", verifiedBy: adminUserId },
+      weight: "135 kg"
+    });
+    expect(normUnits.powerKw).toBe("6.62");
+    expect(normUnits.unitMetadataJson.power_kw?.status).toBe("VERIFIED");
+    expect(normUnits.unitMetadataJson.power_kw?.verifiedBy).toBe(adminUserId);
+    expect(normUnits.unitMetadataJson.weight_kg?.status).toBe("UNVERIFIED");
+
+    // Valid attributes with verifiedBy pass
     const valid = validateTypeAttributesAgainstSchema(customType.attributeSchemaJson, {
-      bale_shape: { value: "ROUND", status: "VERIFIED" },
+      bale_shape: { value: "ROUND", status: "VERIFIED", verifiedBy: adminUserId },
       bale_weight_kg: { value: null, status: "NOT_FOUND" }
     });
     expect(valid.bale_shape?.value).toBe("ROUND");
+    expect(valid.bale_shape?.verifiedBy).toBe(adminUserId);
 
     // Unknown un-schematized attribute key is rejected (§5.9 no uncontrolled JSON blobs)
     expect(() =>
@@ -155,7 +188,7 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
     // Invalid enum value is rejected
     expect(() =>
       validateTypeAttributesAgainstSchema(customType.attributeSchemaJson, {
-        bale_shape: { value: "TRIANGLE", status: "VERIFIED" }
+        bale_shape: { value: "TRIANGLE", status: "VERIFIED", verifiedBy: adminUserId }
       })
     ).toThrow(AppError);
   });
@@ -194,11 +227,11 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
     expect(withoutDiff.displayNameEn).toBe("HIROMIKI D178E-DF900Q — Motoblock");
   });
 
-  it("enforces [C8] nullable canonical_slug in INTAKE, generates slug at READY, and enforces [C7] append-only sku_slug_history", async () => {
+  it("enforces explicit SKU lifecycle state machine (§15.1), neutral KH- internal_sku, [C8] READY preconditions, and [C7] append-only sku_slug_history", async () => {
     const motoblock = await getProductTypeByKey(db, "MOTOBLOCK");
     const uniqueModel = `D178E-${createUuidV7().slice(-8).toUpperCase()}`;
 
-    // 1. Create SKU in INTAKE -> canonical_slug MUST be NULL ([C8])
+    // 1. Create SKU in INTAKE -> always starts in INTAKE + LOW confidence, canonical_slug = NULL, neutral KH-XXXXXX code
     const draft = await createSkuDraft(
       db,
       { userId: adminUserId },
@@ -217,13 +250,24 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
     );
 
     expect(draft.lifecycleState).toBe("INTAKE");
+    expect(draft.identityConfidence).toBe("LOW");
     expect(draft.canonicalSlug).toBeNull();
-    expect(draft.internalSku).toMatch(/^AGT-\d{6,}$/);
+    expect(draft.internalSku).toMatch(/^KH-\d{6,}$/);
     expect(draft.powerKw).toBe("6.620");
     expect(draft.workingWidthMm).toBe("900.00");
     expect(draft.unitSourceStringsJson.power_kw).toBe("9 HP");
+    expect(draft.unitMetadataJson.power_kw?.status).toBe("UNVERIFIED");
 
-    // 2. Direct DB attempt to set lifecycle_state = 'READY' with canonical_slug = NULL must fail CHECK constraint ([C8])
+    // 2. Jumping directly from INTAKE to READY or INTAKE to CONTENT_REVIEW must fail (§15.1)
+    await expect(
+      transitionSkuToReady(db, { userId: adminUserId }, draft.id)
+    ).rejects.toThrow(/must be in "CONTENT_REVIEW" first/);
+
+    await expect(
+      transitionSkuLifecycle(db, { userId: adminUserId }, draft.id, "CONTENT_REVIEW")
+    ).rejects.toThrow(/Invalid SKU lifecycle transition/);
+
+    // 3. Direct DB attempt to set lifecycle_state = 'READY' with canonical_slug = NULL or LOW confidence must fail CHECK constraint ([C8])
     await expect(
       db
         .update(skus)
@@ -231,14 +275,75 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
         .where(eq(skus.id, draft.id))
     ).rejects.toThrow();
 
-    // 3. Transition to READY via domain service -> generates canonical_slug ([C8])
-    const readySku = await transitionSkuToReady(db, { userId: adminUserId }, draft.id);
-    const expectedInitialSlug = `hiromiki-${uniqueModel.toLowerCase()}`;
+    // 4. Walk state machine to CONTENT_REVIEW while still LOW confidence -> READY must fail due to LOW confidence & missing accounting_mapping
+    await transitionSkuLifecycle(db, { userId: adminUserId }, draft.id, "IDENTIFYING");
+    await transitionSkuLifecycle(db, { userId: adminUserId }, draft.id, "IDENTIFIED", {
+      identityConfidence: "LOW"
+    });
+    await transitionSkuLifecycle(
+      db,
+      { userId: adminUserId },
+      draft.id,
+      "ACCOUNTING_MAPPING_REQUIRED"
+    );
+    await transitionSkuLifecycle(db, { userId: adminUserId }, draft.id, "CONTENT_GENERATING");
+    await transitionSkuLifecycle(db, { userId: adminUserId }, draft.id, "CONTENT_REVIEW");
+
+    await expect(
+      transitionSkuToReady(db, { userId: adminUserId }, draft.id)
+    ).rejects.toThrow(/identity_confidence="LOW"/);
+
+    // 5. Upgrade confidence to MEDIUM -> requires humanConfirmedMediumConfidence AND at least one active accounting_mapping
+    await transitionSkuLifecycle(
+      db,
+      { userId: adminUserId },
+      draft.id,
+      "IDENTIFICATION_REQUIRED",
+      { identityConfidence: "MEDIUM" }
+    );
+    await transitionSkuLifecycle(db, { userId: adminUserId }, draft.id, "IDENTIFIED", {
+      identityConfidence: "MEDIUM"
+    });
+    await transitionSkuLifecycle(
+      db,
+      { userId: adminUserId },
+      draft.id,
+      "ACCOUNTING_MAPPING_REQUIRED"
+    );
+    await transitionSkuLifecycle(db, { userId: adminUserId }, draft.id, "CONTENT_GENERATING");
+    await transitionSkuLifecycle(db, { userId: adminUserId }, draft.id, "CONTENT_REVIEW");
+
+    await expect(
+      transitionSkuToReady(db, { userId: adminUserId }, draft.id)
+    ).rejects.toThrow(/humanConfirmedMediumConfidence: true/);
+
+    await expect(
+      transitionSkuToReady(db, { userId: adminUserId }, draft.id, {
+        humanConfirmedMediumConfidence: true
+      })
+    ).rejects.toThrow(/requires at least one active accounting_mapping/);
+
+    // 6. Add active accounting mapping -> transition to READY succeeds ([C8, C9])
+    await upsertAccountingMapping(
+      db,
+      { userId: adminUserId },
+      {
+        skuId: draft.id,
+        legalEntityId: agroEntityId,
+        accountingItemId: `1610/${uniqueModel}`,
+        accountingName: `HIROMIKI ${uniqueModel}`
+      }
+    );
+
+    const readySku = await transitionSkuToReady(db, { userId: adminUserId }, draft.id, {
+      humanConfirmedMediumConfidence: true
+    });
+    const expectedInitialSlug = `hiromiki-${uniqueModel.toLowerCase()}-9-hp`;
     expect(readySku.lifecycleState).toBe("READY");
     expect(readySku.canonicalSlug).toBe(expectedInitialSlug);
     expect(readySku.displayNameKa).toBe(`HIROMIKI ${uniqueModel} — მოტობლოკი, 9 ცხ.ძ.`);
 
-    // 4. Change canonical_slug -> old slug is preserved in sku_slug_history ([C7, C8])
+    // 7. Change canonical_slug -> old slug is preserved in sku_slug_history ([C7, C8])
     const updatedSlugValue = `${expectedInitialSlug}-v2`;
     const renamedSku = await updateSkuCanonicalSlug(
       db,
@@ -253,7 +358,7 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
     expect(history).toHaveLength(1);
     expect(history[0]?.oldSlug).toBe(expectedInitialSlug);
 
-    // 5. [C7] Append-only immutability on sku_slug_history: UPDATE and DELETE are blocked for hub_app!
+    // 8. [C7] Append-only immutability on sku_slug_history: UPDATE and DELETE are blocked for hub_app!
     await expect(
       db
         .update(skuSlugHistory)
@@ -266,78 +371,212 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
     ).rejects.toThrow();
   });
 
-  it("detects barcode/identifier collisions across SKUs without silent merging (§5.3) and supports multi-entity accounting_mappings with legal_entity_id ([C9], §5.5)", async () => {
+  it("generates deterministic variant slugs including differentiator regardless of approval order (§5.1, §5.11)", async () => {
     const motoblock = await getProductTypeByKey(db, "MOTOBLOCK");
+    const suffix = createUuidV7().slice(-8).toUpperCase();
+    const sharedModel = `DF900Q-${suffix}`;
+
     const family = await createProductFamily(
       db,
       { userId: adminUserId },
       {
-        code: `FAM-${createUuidV7().slice(-8).toUpperCase()}`,
+        code: `FAM-VAR-${suffix}`,
         productTypeId: motoblock.id,
-        brand: "WEIMA",
-        baseModel: "WM1100",
-        titleKa: "WEIMA WM1100 სერია"
+        brand: "HIROMIKI",
+        baseModel: sharedModel,
+        titleKa: `HIROMIKI ${sharedModel} ოჯახი`
       }
     );
 
+    const ironSku = await createSkuDraft(
+      db,
+      { userId: adminUserId },
+      {
+        productFamilyId: family.id,
+        productTypeId: motoblock.id,
+        brand: "HIROMIKI",
+        modelCode: sharedModel,
+        keyDifferentiatorKa: "9 ცხ.ძ., რკინის ბორბლებით",
+        keyDifferentiatorEn: "9 HP, Iron Wheels"
+      }
+    );
+
+    const rubberSku = await createSkuDraft(
+      db,
+      { userId: adminUserId },
+      {
+        productFamilyId: family.id,
+        productTypeId: motoblock.id,
+        brand: "HIROMIKI",
+        modelCode: sharedModel,
+        keyDifferentiatorKa: "9 ცხ.ძ., რეზინის ბორბლებით",
+        keyDifferentiatorEn: "9 HP, Rubber Wheels"
+      }
+    );
+
+    for (const variant of [ironSku, rubberSku]) {
+      await upsertAccountingMapping(
+        db,
+        { userId: adminUserId },
+        {
+          skuId: variant.id,
+          legalEntityId: agroEntityId,
+          accountingItemId: `1610/${variant.internalSku}`,
+          accountingName: `HIROMIKI ${variant.internalSku}`
+        }
+      );
+      await transitionSkuLifecycle(db, { userId: adminUserId }, variant.id, "IDENTIFYING");
+      await transitionSkuLifecycle(db, { userId: adminUserId }, variant.id, "IDENTIFIED", {
+        identityConfidence: "HIGH"
+      });
+      await transitionSkuLifecycle(
+        db,
+        { userId: adminUserId },
+        variant.id,
+        "ACCOUNTING_MAPPING_REQUIRED"
+      );
+      await transitionSkuLifecycle(db, { userId: adminUserId }, variant.id, "CONTENT_GENERATING");
+      await transitionSkuLifecycle(db, { userId: adminUserId }, variant.id, "CONTENT_REVIEW");
+    }
+
+    // Even when Iron transitions first and Rubber second, neither gets "-2"; both get deterministic differentiator slugs!
+    const readyIron = await transitionSkuToReady(db, { userId: adminUserId }, ironSku.id);
+    const readyRubber = await transitionSkuToReady(db, { userId: adminUserId }, rubberSku.id);
+
+    expect(readyIron.canonicalSlug).toBe(`hiromiki-${sharedModel.toLowerCase()}-9-hp-iron-wheels`);
+    expect(readyRubber.canonicalSlug).toBe(
+      `hiromiki-${sharedModel.toLowerCase()}-9-hp-rubber-wheels`
+    );
+  });
+
+  it("validates GS1 check digits, normalizes UPC-A (12) and EAN-13 (13) to GTIN-14, serializes concurrent attachments via advisory lock, and clears collision flags on removal/archive (§5.3)", async () => {
+    // 1. GS1 check digit validation & UPC-A <-> EAN-13 -> GTIN-14 equivalence
+    // UPC-A "012345678905" == EAN-13 "0012345678905" == GTIN-14 "00012345678905"
+    expect(normalizeAndValidateGtin14("012345678905")).toBe("00012345678905");
+    expect(normalizeAndValidateGtin14("0012345678905")).toBe("00012345678905");
+    expect(() => normalizeAndValidateGtin14("012345678909")).toThrow(/Invalid GS1 check digit/);
+
+    // 2. Manual attachment of INTERNAL_SKU or INTERNAL_QR is forbidden
+    const motoblock = await getProductTypeByKey(db, "MOTOBLOCK");
     const skuA = await createSkuDraft(
       db,
       { userId: adminUserId },
       {
-        productFamilyId: family.id,
         productTypeId: motoblock.id,
         brand: "WEIMA",
         modelCode: "WM1100-RUBBER",
-        keyDifferentiatorKa: "რეზინის ბორბლებით"
+        keyDifferentiatorEn: "Rubber Wheels"
       }
     );
-
     const skuB = await createSkuDraft(
       db,
       { userId: adminUserId },
       {
-        productFamilyId: family.id,
         productTypeId: motoblock.id,
         brand: "WEIMA",
         modelCode: "WM1100-IRON",
-        keyDifferentiatorKa: "რკინის ბორბლებით"
+        keyDifferentiatorEn: "Iron Wheels"
       }
     );
 
-    const sharedBarcode = `486999${Date.now().toString().slice(-6)}`;
+    await expect(
+      attachSkuIdentifier(
+        db,
+        { userId: adminUserId },
+        {
+          skuId: skuA.id,
+          identifierType: "INTERNAL_SKU",
+          value: "KH-999999"
+        }
+      )
+    ).rejects.toThrow(/system-managed identifier and cannot be attached manually/);
 
-    const attach1 = await attachSkuIdentifier(
-      db,
-      { userId: adminUserId },
-      {
-        skuId: skuA.id,
-        identifierType: "GTIN",
-        value: sharedBarcode,
-        verified: true
-      }
-    );
-    expect(attach1.collisionDetected).toBe(false);
+    // DB partial unique index blocks duplicate INTERNAL_SKU even on raw SQL insert
+    await expect(
+      db.insert(skuIdentifiers).values({
+        id: createUuidV7(),
+        skuId: skuB.id,
+        identifierType: "INTERNAL_SKU",
+        value: skuA.internalSku,
+        issuerSource: "INTERNAL",
+        isPrimary: false,
+        verified: true,
+        hasCollision: false
+      })
+    ).rejects.toThrow();
 
-    // Attach the same GTIN to skuB -> must flag collision on both, never merge!
-    const attach2 = await attachSkuIdentifier(
+    // 3. Concurrent attachments of the same barcode (one as 12-digit UPC, one as 13-digit EAN-13) serialize via pg_advisory_xact_lock and detect collision
+    const rand6 = Math.floor(100000 + Math.random() * 899999).toString();
+    const upcPayload11 = `04860${rand6}`; // 11 digits starting with 0
+    const check = computeGs1CheckDigit(upcPayload11);
+    const upc12 = `${upcPayload11}${check}`; // 12-digit UPC-A
+    const ean13 = `0${upc12}`; // Equivalent 13-digit EAN-13
+
+    const [resA, resB] = await Promise.all([
+      attachSkuIdentifier(
+        db,
+        { userId: adminUserId },
+        {
+          skuId: skuA.id,
+          identifierType: "UPC",
+          value: upc12,
+          verified: true
+        }
+      ),
+      attachSkuIdentifier(
+        db,
+        { userId: adminUserId },
+        {
+          skuId: skuB.id,
+          identifierType: "GTIN",
+          value: ean13,
+          verified: false
+        }
+      )
+    ]);
+
+    expect(resA.identifier.value).toBe(`00${upc12}`);
+    expect(resB.identifier.value).toBe(`00${upc12}`);
+
+    const lookupDuringCollision = await resolveSkuByScannedIdentifier(db, upc12);
+    expect(lookupDuringCollision.isAmbiguousCollision).toBe(true);
+    expect(lookupDuringCollision.uniqueSkuIds.sort()).toEqual([skuA.id, skuB.id].sort());
+    expect(lookupDuringCollision.matches.every((m) => m.hasCollision)).toBe(true);
+
+    // 4. Removing the identifier from skuB clears has_collision on skuA!
+    await removeSkuIdentifier(db, { userId: adminUserId }, resB.identifier.id, "Wrong box scan");
+    const lookupAfterRemoval = await resolveSkuByScannedIdentifier(db, ean13);
+    expect(lookupAfterRemoval.isAmbiguousCollision).toBe(false);
+    expect(lookupAfterRemoval.uniqueSkuIds).toEqual([skuA.id]);
+    expect(lookupAfterRemoval.matches[0]?.hasCollision).toBe(false);
+
+    // 5. Re-attach to skuB -> collision again -> then archive skuB -> clears collision on skuA and excludes archived skuB from scan lookup!
+    await attachSkuIdentifier(
       db,
       { userId: adminUserId },
       {
         skuId: skuB.id,
         identifierType: "GTIN",
-        value: sharedBarcode,
-        verified: false
+        value: ean13
       }
     );
-    expect(attach2.collisionDetected).toBe(true);
-    expect(attach2.conflictingSkuIds).toContain(skuA.id);
+    expect((await resolveSkuByScannedIdentifier(db, ean13)).isAmbiguousCollision).toBe(true);
 
-    const lookup = await resolveSkuByScannedIdentifier(db, sharedBarcode);
-    expect(lookup.isAmbiguousCollision).toBe(true);
-    expect(lookup.uniqueSkuIds.sort()).toEqual([skuA.id, skuB.id].sort());
-    expect(lookup.matches.every((m) => m.hasCollision)).toBe(true);
+    await transitionSkuLifecycle(db, { userId: adminUserId }, skuB.id, "ARCHIVED", {
+      reason: "Duplicate draft archived"
+    });
 
-    // [C9] Multi-entity accounting mappings using legal_entity_id, preserving exact string & name
+    // Archiving is terminal — transitioning out of ARCHIVED is forbidden
+    await expect(
+      transitionSkuLifecycle(db, { userId: adminUserId }, skuB.id, "INTAKE")
+    ).rejects.toThrow(/Invalid SKU lifecycle transition from "ARCHIVED"/);
+
+    const lookupAfterArchive = await resolveSkuByScannedIdentifier(db, ean13);
+    expect(lookupAfterArchive.isAmbiguousCollision).toBe(false);
+    expect(lookupAfterArchive.uniqueSkuIds).toEqual([skuA.id]);
+    expect(lookupAfterArchive.matches[0]?.hasCollision).toBe(false);
+
+    // 6. [C9] Multi-entity accounting mappings using legal_entity_id, preserving exact string & name
     const mapAgro = await upsertAccountingMapping(
       db,
       { userId: adminUserId },
@@ -361,12 +600,18 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
 
     expect(mapAgro.legalEntityId).toBe(agroEntityId);
     expect(mapAgro.accountingItemId).toBe("1610/00004/0099");
-    // Exact preservation of accounting_name (§5.5)
     expect(mapAgro.accountingName).toBe("  მოტობლოკი WEIMA WM1100 (ზუსტი ბუღალტრული სახელი)  ");
     expect(mapNewBrand.legalEntityId).toBe(newBrandEntityId);
 
     const activeMappings = await listAccountingMappingsForSku(db, skuA.id, { activeOnly: true });
     expect(activeMappings).toHaveLength(2);
+
+    // 7. hub_app role cannot DELETE from skus, product_families, or accounting_mappings
+    await expect(db.delete(skus).where(eq(skus.id, skuA.id))).rejects.toThrow();
+    await expect(
+      db.delete(accountingMappings).where(eq(accountingMappings.id, mapAgro.id))
+    ).rejects.toThrow();
+    await expect(db.delete(productFamilies)).rejects.toThrow();
   });
 
   it("supports Composed Bundles (§5.2), Storefront Listings with LISTING_CHANGED outbox (§4.5), Legacy URLs (§12.5), and 58×40mm Thermal Labels (§5.4)", async () => {

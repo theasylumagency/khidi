@@ -35,11 +35,16 @@ import {
   normalizeLegacyUrlPath
 } from "./naming.ts";
 import { buildThermalLabelSpec } from "./labels.ts";
+import {
+  buildCandidateLookupValues,
+  normalizeIdentifierOnWrite
+} from "./identifiers.ts";
 
 export * from "./taxonomy.ts";
 export * from "./units.ts";
 export * from "./naming.ts";
 export * from "./labels.ts";
+export * from "./identifiers.ts";
 
 export const SKU_LIFECYCLE_STATES = [
   "INTAKE",
@@ -54,6 +59,48 @@ export const SKU_LIFECYCLE_STATES = [
 ] as const;
 
 export type SkuLifecycleState = (typeof SKU_LIFECYCLE_STATES)[number];
+
+/**
+ * §15.1 Explicit SKU Lifecycle State Machine transition table.
+ * `ARCHIVED` is terminal (cannot transition back from `ARCHIVED`).
+ * `READY` can only be reached from `CONTENT_REVIEW` after all domain preconditions pass.
+ */
+export const ALLOWED_LIFECYCLE_TRANSITIONS: Readonly<
+  Record<SkuLifecycleState, readonly SkuLifecycleState[]>
+> = {
+  INTAKE: ["IDENTIFYING", "IDENTIFIED", "IDENTIFICATION_REQUIRED", "ARCHIVED"],
+  IDENTIFYING: ["IDENTIFICATION_REQUIRED", "IDENTIFIED", "ARCHIVED"],
+  IDENTIFICATION_REQUIRED: ["IDENTIFYING", "IDENTIFIED", "ARCHIVED"],
+  IDENTIFIED: [
+    "IDENTIFICATION_REQUIRED",
+    "ACCOUNTING_MAPPING_REQUIRED",
+    "CONTENT_GENERATING",
+    "ARCHIVED"
+  ],
+  ACCOUNTING_MAPPING_REQUIRED: [
+    "CONTENT_GENERATING",
+    "CONTENT_REVIEW",
+    "IDENTIFICATION_REQUIRED",
+    "ARCHIVED"
+  ],
+  CONTENT_GENERATING: ["CONTENT_REVIEW", "IDENTIFICATION_REQUIRED", "ARCHIVED"],
+  CONTENT_REVIEW: [
+    "READY",
+    "CONTENT_GENERATING",
+    "ACCOUNTING_MAPPING_REQUIRED",
+    "IDENTIFICATION_REQUIRED",
+    "ARCHIVED"
+  ],
+  READY: ["CONTENT_REVIEW", "ARCHIVED"],
+  ARCHIVED: []
+};
+
+export function canTransitionSkuLifecycle(
+  fromState: SkuLifecycleState,
+  toState: SkuLifecycleState
+): boolean {
+  return ALLOWED_LIFECYCLE_TRANSITIONS[fromState]?.includes(toState) ?? false;
+}
 
 export const IDENTITY_CONFIDENCE_LEVELS = ["HIGH", "MEDIUM", "LOW", "CONFLICT"] as const;
 export type IdentityConfidenceLevel = (typeof IDENTITY_CONFIDENCE_LEVELS)[number];
@@ -72,6 +119,11 @@ export const SKU_IDENTIFIER_TYPES = [
 ] as const;
 
 export type SkuIdentifierType = (typeof SKU_IDENTIFIER_TYPES)[number];
+
+export type PublicAttachableIdentifierType = Exclude<
+  SkuIdentifierType,
+  "INTERNAL_SKU" | "INTERNAL_QR"
+>;
 
 /**
  * Seeds the 8 public top-level categories + UNCLASSIFIED (§5.7) and the 30 initial Product Types (§5.8).
@@ -270,15 +322,15 @@ export async function upsertProductType(
 }
 
 /**
- * §5.4 Allocates the next monotonic internal SKU ID (`AGT-000184`) from PostgreSQL sequence,
- * skipping any explicitly seeded `AGT-XXXXXX` values if present.
+ * §5.4 Allocates the next monotonic neutral internal SKU ID (`KH-000001`) from PostgreSQL sequence,
+ * skipping any explicitly seeded `KH-XXXXXX` values if present.
  */
 export async function allocateNextInternalSku(tx: AppDatabase | DbExecutor): Promise<string> {
   while (true) {
     const res = await tx.execute(sql`SELECT nextval('internal_sku_seq') AS seq_val`);
     const row = res.rows[0] as { seq_val?: string | number } | undefined;
-    const seqNum = Number(row?.seq_val ?? 184);
-    const candidate = `AGT-${String(seqNum).padStart(6, "0")}`;
+    const seqNum = Number(row?.seq_val ?? 1);
+    const candidate = `KH-${String(seqNum).padStart(6, "0")}`;
 
     const [existing] = await tx
       .select({ id: skus.id })
@@ -343,12 +395,10 @@ export async function listProductFamilies(db: AppDatabase | DbExecutor) {
 }
 
 export interface CreateSkuDraftInput {
-  internalSku?: string; // Optional override for deterministic seed; otherwise auto-allocated AGT-XXXXXX
+  internalSku?: string; // Optional override for deterministic seed (`KH-000001`); otherwise auto-allocated
   productFamilyId?: string | null;
   productTypeId?: string | null;
   categoryId?: string | null; // Defaults to productType.defaultCategoryId or UNCLASSIFIED
-  lifecycleState?: Exclude<SkuLifecycleState, "READY">;
-  identityConfidence?: IdentityConfidenceLevel;
   isComposedBundle?: boolean;
   isKit?: boolean;
   kitComponentsJson?: KitComponentInfo[] | null;
@@ -368,9 +418,9 @@ export interface CreateSkuDraftInput {
 }
 
 /**
- * Creates a SKU in `INTAKE` (or another pre-`READY` state) with `canonical_slug = NULL` ([C8]).
- * Also registers the `INTERNAL_SKU` (`AGT-XXXXXX`) and `INTERNAL_QR` (`khidi://sku/AGT-XXXXXX`)
- * identifiers in `sku_identifiers` (§5.4).
+ * Creates a SKU strictly in `INTAKE` state with `identity_confidence = 'LOW'` and `canonical_slug = NULL` ([C8]).
+ * Callers cannot bypass the lifecycle state machine or inject a high confidence without evidence/transitions.
+ * Also registers system-managed `INTERNAL_SKU` (`KH-XXXXXX`) and `INTERNAL_QR` (`khidi://sku/KH-XXXXXX`).
  */
 export async function createSkuDraft(
   db: AppDatabase | DbExecutor,
@@ -467,8 +517,8 @@ export async function createSkuDraft(
         productTypeId: input.productTypeId ?? null,
         categoryId: resolvedCategoryId,
         canonicalSlug: null, // [C8] Strictly NULL before READY!
-        lifecycleState: input.lifecycleState ?? "INTAKE",
-        identityConfidence: input.identityConfidence ?? "LOW",
+        lifecycleState: "INTAKE", // §15.1 Always starts in INTAKE
+        identityConfidence: "LOW", // Always starts in LOW until evidence/review transitions it
         isComposedBundle: input.isComposedBundle ?? false,
         isKit: input.isKit ?? false,
         kitComponentsJson: input.kitComponentsJson ?? null,
@@ -491,6 +541,7 @@ export async function createSkuDraft(
         voltageV: normalizedUnits.voltageV,
         currentA: normalizedUnits.currentA,
         unitSourceStringsJson: normalizedUnits.unitSourceStringsJson,
+        unitMetadataJson: normalizedUnits.unitMetadataJson,
         typeAttributesJson: validatedTypeAttributes,
         displayNameKa: generatedNames.displayNameKa,
         displayNameEn: generatedNames.displayNameEn,
@@ -507,7 +558,7 @@ export async function createSkuDraft(
       throw new AppError("VALIDATION_ERROR", "Failed to create SKU draft.");
     }
 
-    // Automatically attach INTERNAL_SKU and INTERNAL_QR identifiers (§5.3, §5.4)
+    // Automatically attach system-only INTERNAL_SKU and INTERNAL_QR identifiers (§5.3, §5.4)
     await ctx.tx.insert(skuIdentifiers).values([
       {
         id: createUuidV7(),
@@ -538,6 +589,7 @@ export async function createSkuDraft(
       after: {
         internalSku: created.internalSku,
         lifecycleState: created.lifecycleState,
+        identityConfidence: created.identityConfidence,
         canonicalSlug: created.canonicalSlug,
         productTypeId: created.productTypeId,
         isComposedBundle: created.isComposedBundle,
@@ -546,6 +598,86 @@ export async function createSkuDraft(
     });
 
     return created;
+  });
+}
+
+/**
+ * §15.1 Transitions a SKU between non-READY states according to `ALLOWED_LIFECYCLE_TRANSITIONS`.
+ * If transitioning to `ARCHIVED`, also recomputes collision flags on any shared identifiers.
+ */
+export async function transitionSkuLifecycle(
+  db: AppDatabase | DbExecutor,
+  actor: DomainActor,
+  skuId: string,
+  targetState: Exclude<SkuLifecycleState, "READY">,
+  options?: {
+    identityConfidence?: IdentityConfidenceLevel;
+    reason?: string;
+  }
+) {
+  return withDomainTransaction(db, actor, async (ctx) => {
+    const [sku] = await ctx.tx.select().from(skus).where(eq(skus.id, skuId)).limit(1);
+    if (!sku) {
+      throw new AppError("NOT_FOUND", `SKU ${skuId} not found.`);
+    }
+
+    const currentState = sku.lifecycleState as SkuLifecycleState;
+    if (!canTransitionSkuLifecycle(currentState, targetState)) {
+      throw new AppError(
+        "PRECONDITION_FAILED",
+        `Invalid SKU lifecycle transition from "${currentState}" to "${targetState}" (§15.1). Allowed next states: [${ALLOWED_LIFECYCLE_TRANSITIONS[currentState].join(", ")}].`
+      );
+    }
+
+    const nextConfidence =
+      options?.identityConfidence ?? (sku.identityConfidence as IdentityConfidenceLevel);
+
+    const [updated] = await ctx.tx
+      .update(skus)
+      .set({
+        lifecycleState: targetState,
+        identityConfidence: nextConfidence,
+        updatedAt: new Date()
+      })
+      .where(eq(skus.id, sku.id))
+      .returning();
+
+    if (targetState === "ARCHIVED") {
+      // Recompute collision state for all identifiers attached to this SKU
+      const attached = await ctx.tx
+        .select()
+        .from(skuIdentifiers)
+        .where(eq(skuIdentifiers.skuId, sku.id));
+
+      for (const idRow of attached) {
+        await recomputeIdentifierCollisionState(ctx.tx, idRow.identifierType, idRow.value);
+      }
+
+      await ctx.emitOutboxEvent({
+        eventType: "PRODUCT_ARCHIVED",
+        aggregateType: "product",
+        aggregateId: sku.id,
+        payload: { skuId: sku.id, internalSku: sku.internalSku },
+        consumers: ["notifications"]
+      });
+    }
+
+    await ctx.recordAudit({
+      action: "SKU_LIFECYCLE_TRANSITIONED",
+      entityType: "sku",
+      entityId: sku.id,
+      before: {
+        lifecycleState: sku.lifecycleState,
+        identityConfidence: sku.identityConfidence
+      },
+      after: {
+        lifecycleState: targetState,
+        identityConfidence: nextConfidence
+      },
+      reason: options?.reason
+    });
+
+    return updated!;
   });
 }
 
@@ -588,8 +720,16 @@ async function resolveUniqueCanonicalSlug(
 }
 
 /**
- * [C8] Transitions a SKU to `READY`, generating its `canonical_slug` from verified `brand` and `model_code`
- * (if not already assigned), computing deterministic display names, and recording approval metadata.
+ * §15.1 & [C8] Transitions a SKU from `CONTENT_REVIEW` to `READY`.
+ * Enforces domain preconditions:
+ * 1. Current state must be `CONTENT_REVIEW` (never `INTAKE`, `ARCHIVED`, etc.).
+ * 2. `actor.userId` is required (`approved_by`).
+ * 3. `identity_confidence` must be `HIGH`, or `MEDIUM` with `humanConfirmedMediumConfidence = true` (`LOW` and `CONFLICT` are forbidden).
+ * 4. `product_type_id` must be assigned and category must not be `UNCLASSIFIED`.
+ * 5. `brand` and `model_code` must be present.
+ * 6. At least one active `accounting_mappings` row must exist for the SKU.
+ * 7. When the SKU belongs to a multi-SKU Product Family (or shares `brand` + `model_code` with another SKU),
+ *    includes the variant differentiator in `canonical_slug` so variant slugs are deterministic and independent of approval order.
  */
 export async function transitionSkuToReady(
   db: AppDatabase | DbExecutor,
@@ -597,35 +737,140 @@ export async function transitionSkuToReady(
   skuId: string,
   options?: {
     customCanonicalSlug?: string;
+    humanConfirmedMediumConfidence?: boolean;
   }
 ) {
+  if (!actor.userId) {
+    throw new AppError(
+      "PRECONDITION_FAILED",
+      "Transitioning a SKU to READY requires an authenticated human approver (actor.userId)."
+    );
+  }
+
   return withDomainTransaction(db, actor, async (ctx) => {
     const [sku] = await ctx.tx.select().from(skus).where(eq(skus.id, skuId)).limit(1);
     if (!sku) {
       throw new AppError("NOT_FOUND", `SKU ${skuId} not found.`);
     }
 
-    let productType: typeof productTypes.$inferSelect | null = null;
-    if (sku.productTypeId) {
-      const [pt] = await ctx.tx
-        .select()
-        .from(productTypes)
-        .where(eq(productTypes.id, sku.productTypeId))
-        .limit(1);
-      productType = pt ?? null;
+    const currentState = sku.lifecycleState as SkuLifecycleState;
+    if (!canTransitionSkuLifecycle(currentState, "READY")) {
+      throw new AppError(
+        "PRECONDITION_FAILED",
+        `SKU ${sku.internalSku} cannot transition to READY from "${currentState}"; it must be in "CONTENT_REVIEW" first (§15.1).`
+      );
     }
 
-    if (!productType) {
+    if (sku.identityConfidence === "LOW" || sku.identityConfidence === "CONFLICT") {
+      throw new AppError(
+        "PRECONDITION_FAILED",
+        `SKU ${sku.internalSku} has identity_confidence="${sku.identityConfidence}" and cannot transition to READY (§15.1).`
+      );
+    }
+
+    if (sku.identityConfidence === "MEDIUM" && !options?.humanConfirmedMediumConfidence) {
+      throw new AppError(
+        "PRECONDITION_FAILED",
+        `SKU ${sku.internalSku} has identity_confidence="MEDIUM" and requires explicit human confirmation (humanConfirmedMediumConfidence: true) to transition to READY (§15.1).`
+      );
+    }
+
+    if (!sku.brand?.trim() || !sku.modelCode?.trim()) {
+      throw new AppError(
+        "PRECONDITION_FAILED",
+        `SKU ${sku.internalSku} requires verified brand and model_code before transitioning to READY.`
+      );
+    }
+
+    if (!sku.productTypeId) {
       throw new AppError(
         "PRECONDITION_FAILED",
         "SKU must have an assigned Product Type before transitioning to READY."
       );
     }
 
+    const [productType] = await ctx.tx
+      .select()
+      .from(productTypes)
+      .where(eq(productTypes.id, sku.productTypeId))
+      .limit(1);
+
+    if (!productType) {
+      throw new AppError("NOT_FOUND", `Product Type ${sku.productTypeId} not found.`);
+    }
+
+    const [cat] = await ctx.tx
+      .select()
+      .from(categories)
+      .where(eq(categories.id, sku.categoryId))
+      .limit(1);
+
+    if (!cat || cat.isUnclassified) {
+      throw new AppError(
+        "PRECONDITION_FAILED",
+        "SKU in UNCLASSIFIED category cannot transition to READY (§5.7)."
+      );
+    }
+
+    const activeMappings = await ctx.tx
+      .select({ id: accountingMappings.id })
+      .from(accountingMappings)
+      .where(and(eq(accountingMappings.skuId, sku.id), eq(accountingMappings.active, true)))
+      .limit(1);
+
+    if (activeMappings.length === 0) {
+      throw new AppError(
+        "PRECONDITION_FAILED",
+        `SKU ${sku.internalSku} requires at least one active accounting_mapping before transitioning to READY (§5.5, §15.1).`
+      );
+    }
+
+    // Check if this SKU is part of a multi-SKU Product Family or shares (brand, model_code) with another SKU
+    let shouldIncludeDifferentiator = false;
+    if (sku.productFamilyId) {
+      const familySiblings = await ctx.tx
+        .select({ id: skus.id })
+        .from(skus)
+        .where(and(eq(skus.productFamilyId, sku.productFamilyId), ne(skus.id, sku.id)))
+        .limit(1);
+      if (familySiblings.length > 0) {
+        shouldIncludeDifferentiator = true;
+      }
+    }
+    if (!shouldIncludeDifferentiator && sku.brand && sku.modelCode) {
+      const sameModelSiblings = await ctx.tx
+        .select({ id: skus.id })
+        .from(skus)
+        .where(
+          and(
+            eq(skus.brand, sku.brand),
+            eq(skus.modelCode, sku.modelCode),
+            ne(skus.id, sku.id)
+          )
+        )
+        .limit(1);
+      if (sameModelSiblings.length > 0) {
+        shouldIncludeDifferentiator = true;
+      }
+    }
+
+    const differentiatorForSlug = sku.keyDifferentiatorEn ?? sku.keyDifferentiatorKa ?? null;
+    if (shouldIncludeDifferentiator && !differentiatorForSlug && !options?.customCanonicalSlug) {
+      throw new AppError(
+        "PRECONDITION_FAILED",
+        `SKU ${sku.internalSku} belongs to a multi-variant family/model and requires keyDifferentiatorEn or keyDifferentiatorKa to generate a distinct variant slug.`
+      );
+    }
+
     const baseSlug = options?.customCanonicalSlug
       ? generateCanonicalSlug(options.customCanonicalSlug, null)
       : sku.canonicalSlug ??
-        generateCanonicalSlug(sku.brand, sku.modelCode, sku.keyDifferentiatorEn ?? sku.internalSku);
+        generateCanonicalSlug(
+          sku.brand,
+          sku.modelCode,
+          differentiatorForSlug,
+          sku.internalSku
+        );
 
     const finalSlug = await resolveUniqueCanonicalSlug(
       ctx.tx,
@@ -651,14 +896,21 @@ export async function transitionSkuToReady(
       keyDifferentiatorEn: sku.keyDifferentiatorEn
     });
 
+    if (!names.displayNameKa || !names.displayNameEn) {
+      throw new AppError(
+        "PRECONDITION_FAILED",
+        "Deterministic KA and EN display names are required before transitioning to READY (§5.10)."
+      );
+    }
+
     const [updated] = await ctx.tx
       .update(skus)
       .set({
         lifecycleState: "READY",
         canonicalSlug: finalSlug,
-        displayNameKa: names.displayNameKa ?? sku.displayNameKa,
-        displayNameEn: names.displayNameEn ?? sku.displayNameEn,
-        approvedBy: actor.userId ?? null,
+        displayNameKa: names.displayNameKa,
+        displayNameEn: names.displayNameEn,
+        approvedBy: actor.userId,
         approvedAt: new Date(),
         updatedAt: new Date()
       })
@@ -675,7 +927,8 @@ export async function transitionSkuToReady(
       },
       after: {
         lifecycleState: "READY",
-        canonicalSlug: finalSlug
+        canonicalSlug: finalSlug,
+        identityConfidence: sku.identityConfidence
       }
     });
 
@@ -867,9 +1120,60 @@ export async function getBundleComponents(db: AppDatabase | DbExecutor, bundleSk
 }
 
 /**
- * §5.3 Attaches an identifier/barcode (`GTIN`, `UPC`, `MPN`, `FACTORY_MODEL`, etc.) to a SKU.
- * Never assumes global uniqueness or silently merges SKUs: if another SKU already has the same
- * `(identifier_type, value)`, marks `has_collision = true` on all matching rows and audits a collision review event.
+ * Recomputes `has_collision` across all non-ARCHIVED SKUs for a given `(identifierType, value)`
+ * under a transaction-scoped advisory lock (`pg_advisory_xact_lock`).
+ * If <= 1 active SKU holds the identifier, clears `has_collision = false`.
+ */
+async function recomputeIdentifierCollisionState(
+  tx: AppDatabase | DbExecutor,
+  identifierType: string,
+  value: string
+): Promise<{ collisionDetected: boolean; activeSkuIds: string[] }> {
+  const lockKey = `sku_id_lock:${identifierType}:${value}`;
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+
+  const rowsWithSku = await tx
+    .select({
+      identifierId: skuIdentifiers.id,
+      skuId: skuIdentifiers.skuId,
+      lifecycleState: skus.lifecycleState
+    })
+    .from(skuIdentifiers)
+    .innerJoin(skus, eq(skuIdentifiers.skuId, skus.id))
+    .where(
+      and(
+        eq(skuIdentifiers.identifierType, identifierType),
+        eq(skuIdentifiers.value, value)
+      )
+    );
+
+  const activeSkuIds = Array.from(
+    new Set(
+      rowsWithSku
+        .filter((r) => r.lifecycleState !== "ARCHIVED")
+        .map((r) => r.skuId)
+    )
+  );
+  const collisionDetected = activeSkuIds.length > 1;
+
+  await tx
+    .update(skuIdentifiers)
+    .set({ hasCollision: collisionDetected })
+    .where(
+      and(
+        eq(skuIdentifiers.identifierType, identifierType),
+        eq(skuIdentifiers.value, value)
+      )
+    );
+
+  return { collisionDetected, activeSkuIds };
+}
+
+/**
+ * §5.3 Attaches an external identifier/barcode (`GTIN`, `UPC`, `MPN`, `FACTORY_MODEL`, etc.) to a SKU.
+ * - Forbids manual attachment of `INTERNAL_SKU` or `INTERNAL_QR` (system-generated only).
+ * - Normalizes `GTIN` and `UPC` to 14-digit `GTIN-14` (`identifierType = "GTIN"`) after validating the GS1 Modulo-10 check digit.
+ * - Uses `pg_advisory_xact_lock` on `(identifier_type, value)` so concurrent attachments cannot miss a collision.
  */
 export async function attachSkuIdentifier(
   db: AppDatabase | DbExecutor,
@@ -887,52 +1191,50 @@ export async function attachSkuIdentifier(
   collisionDetected: boolean;
   conflictingSkuIds: string[];
 }> {
-  const cleanValue = input.value.trim();
-  if (!cleanValue) {
-    throw new AppError("VALIDATION_ERROR", "Identifier value cannot be empty.");
+  if (
+    input.identifierType === "INTERNAL_SKU" ||
+    input.identifierType === "INTERNAL_QR"
+  ) {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      `${input.identifierType} is a system-managed identifier and cannot be attached manually (§5.4).`
+    );
   }
 
+  const { canonicalType, canonicalValue } = normalizeIdentifierOnWrite(
+    input.identifierType,
+    input.value
+  );
+
   return withDomainTransaction(db, actor, async (ctx) => {
-    const existingOtherRows = await ctx.tx
-      .select()
-      .from(skuIdentifiers)
-      .where(
-        and(
-          eq(skuIdentifiers.identifierType, input.identifierType),
-          eq(skuIdentifiers.value, cleanValue),
-          ne(skuIdentifiers.skuId, input.skuId)
-        )
-      );
-
-    const conflictingSkuIds = Array.from(new Set(existingOtherRows.map((r) => r.skuId)));
-    const collisionDetected = conflictingSkuIds.length > 0;
-
-    if (collisionDetected) {
-      await ctx.tx
-        .update(skuIdentifiers)
-        .set({ hasCollision: true })
-        .where(
-          and(
-            eq(skuIdentifiers.identifierType, input.identifierType),
-            eq(skuIdentifiers.value, cleanValue)
-          )
-        );
-    }
+    const lockKey = `sku_id_lock:${canonicalType}:${canonicalValue}`;
+    await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
 
     const id = createUuidV7();
+    await ctx.tx.insert(skuIdentifiers).values({
+      id,
+      skuId: input.skuId,
+      identifierType: canonicalType,
+      value: canonicalValue,
+      issuerSource: input.issuerSource?.trim() ?? null,
+      verified: input.verified ?? false,
+      isPrimary: input.isPrimary ?? false,
+      hasCollision: false
+    });
+
+    const { collisionDetected, activeSkuIds } = await recomputeIdentifierCollisionState(
+      ctx.tx,
+      canonicalType,
+      canonicalValue
+    );
+
+    const conflictingSkuIds = activeSkuIds.filter((sId) => sId !== input.skuId);
+
     const [created] = await ctx.tx
-      .insert(skuIdentifiers)
-      .values({
-        id,
-        skuId: input.skuId,
-        identifierType: input.identifierType,
-        value: cleanValue,
-        issuerSource: input.issuerSource?.trim() ?? null,
-        verified: input.verified ?? false,
-        isPrimary: input.isPrimary ?? false,
-        hasCollision: collisionDetected
-      })
-      .returning();
+      .select()
+      .from(skuIdentifiers)
+      .where(eq(skuIdentifiers.id, id))
+      .limit(1);
 
     if (!created) {
       throw new AppError("VALIDATION_ERROR", "Failed to attach SKU identifier.");
@@ -961,6 +1263,72 @@ export async function attachSkuIdentifier(
   });
 }
 
+/**
+ * Removes an external identifier from a SKU (e.g. when resolving a barcode collision)
+ * and automatically clears `has_collision` on the remaining SKU if the collision is resolved.
+ * System-managed `INTERNAL_SKU` and `INTERNAL_QR` cannot be removed.
+ */
+export async function removeSkuIdentifier(
+  db: AppDatabase | DbExecutor,
+  actor: DomainActor,
+  identifierId: string,
+  reason?: string
+): Promise<{ collisionStillPresent: boolean; remainingActiveSkuIds: string[] }> {
+  return withDomainTransaction(db, actor, async (ctx) => {
+    const [existing] = await ctx.tx
+      .select()
+      .from(skuIdentifiers)
+      .where(eq(skuIdentifiers.id, identifierId))
+      .limit(1);
+
+    if (!existing) {
+      throw new AppError("NOT_FOUND", `Identifier ${identifierId} not found.`);
+    }
+
+    if (
+      existing.identifierType === "INTERNAL_SKU" ||
+      existing.identifierType === "INTERNAL_QR"
+    ) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        `System-managed ${existing.identifierType} cannot be removed.`
+      );
+    }
+
+    const lockKey = `sku_id_lock:${existing.identifierType}:${existing.value}`;
+    await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+
+    await ctx.tx.delete(skuIdentifiers).where(eq(skuIdentifiers.id, existing.id));
+
+    const { collisionDetected, activeSkuIds } = await recomputeIdentifierCollisionState(
+      ctx.tx,
+      existing.identifierType,
+      existing.value
+    );
+
+    await ctx.recordAudit({
+      action: "SKU_IDENTIFIER_REMOVED",
+      entityType: "sku",
+      entityId: existing.skuId,
+      before: {
+        identifierId: existing.id,
+        identifierType: existing.identifierType,
+        value: existing.value
+      },
+      after: {
+        collisionStillPresent: collisionDetected,
+        remainingActiveSkuIds: activeSkuIds
+      },
+      reason
+    });
+
+    return {
+      collisionStillPresent: collisionDetected,
+      remainingActiveSkuIds: activeSkuIds
+    };
+  });
+}
+
 export async function listSkuIdentifiers(db: AppDatabase | DbExecutor, skuId: string) {
   return db
     .select()
@@ -969,11 +1337,26 @@ export async function listSkuIdentifiers(db: AppDatabase | DbExecutor, skuId: st
     .orderBy(desc(skuIdentifiers.isPrimary), asc(skuIdentifiers.identifierType));
 }
 
+/**
+ * §5.3 Resolves a scanned barcode/QR string against `sku_identifiers`.
+ * - Normalizes 8/12/13/14-digit GS1 barcodes to 14-digit GTIN-14 so UPC-A (12 digits) and EAN-13 (13 digits with leading 0) match.
+ * - Excludes `ARCHIVED` SKUs by default (`options.includeArchived = false`).
+ */
 export async function resolveSkuByScannedIdentifier(
   db: AppDatabase | DbExecutor,
-  scannedValue: string
+  scannedValue: string,
+  options?: { includeArchived?: boolean }
 ) {
-  const clean = scannedValue.trim();
+  const candidates = buildCandidateLookupValues(scannedValue);
+  if (candidates.length === 0) {
+    return { matches: [], uniqueSkuIds: [], isAmbiguousCollision: false };
+  }
+
+  const conditions = [inArray(skuIdentifiers.value, candidates)];
+  if (!options?.includeArchived) {
+    conditions.push(ne(skus.lifecycleState, "ARCHIVED"));
+  }
+
   const rows = await db
     .select({
       identifierId: skuIdentifiers.id,
@@ -987,7 +1370,7 @@ export async function resolveSkuByScannedIdentifier(
     })
     .from(skuIdentifiers)
     .innerJoin(skus, eq(skuIdentifiers.skuId, skus.id))
-    .where(eq(skuIdentifiers.value, clean));
+    .where(and(...conditions));
 
   const uniqueSkuIds = Array.from(new Set(rows.map((r) => r.skuId)));
   return {

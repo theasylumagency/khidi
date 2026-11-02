@@ -15,6 +15,7 @@ import {
   seedTaxonomyAndProductTypes,
   setComposedBundleComponents,
   setStorefrontListing,
+  transitionSkuLifecycle,
   transitionSkuToReady,
   upsertAccountingMapping
 } from "./index.ts";
@@ -25,11 +26,11 @@ export async function runProductsSeed() {
   // 1. Always ensure 9 categories (8 public + UNCLASSIFIED) and 30 initial Product Types exist
   const taxonomyStats = await seedTaxonomyAndProductTypes(db);
 
-  // 2. Check if initial seed SKU AGT-000184 already exists
+  // 2. Check if initial seed SKU KH-000001 already exists
   const [existingSku] = await db
     .select()
     .from(skus)
-    .where(eq(skus.internalSku, "AGT-000184"))
+    .where(eq(skus.internalSku, "KH-000001"))
     .limit(1);
 
   if (existingSku) {
@@ -88,33 +89,30 @@ export async function runProductsSeed() {
     titleEn: "HIROMIKI D178E-DF900Q Diesel Motoblock Series"
   });
 
-  // 4. Variant 1: AGT-000184 — 9 HP Diesel Motoblock with Rubber Wheels -> READY ([C8])
+  // 4. Variant 1: KH-000001 — 9 HP Diesel Motoblock with Rubber Wheels -> READY ([C8])
   const skuRubber = await createSkuDraft(db, actor, {
-    internalSku: "AGT-000184",
     productFamilyId: hiromikiFamily.id,
     productTypeId: motoblockType.id,
-    lifecycleState: "CONTENT_REVIEW",
-    identityConfidence: "HIGH",
     brand: "HIROMIKI",
     manufacturer: "HIROMIKI Power Equipment",
     modelCode: "D178E-DF900Q",
     keyDifferentiatorKa: "9 ცხ.ძ., რეზინის ბორბლებით",
     keyDifferentiatorEn: "9 HP, Rubber Wheels",
     universalUnits: {
-      power: "9 HP", // -> 6.62 kW (§5.6)
-      engineDisplacement: "418 cc",
-      workingWidth: "110 cm",
-      workingDepth: "30 cm",
-      weight: "135 kg"
+      power: { value: "9 HP", status: "VERIFIED", sourceType: "PLATE", verifiedBy: adminUser.id }, // -> 6.62 kW (§5.6)
+      engineDisplacement: { value: "418 cc", status: "VERIFIED", sourceType: "SPEC_SHEET", verifiedBy: adminUser.id },
+      workingWidth: { value: "110 cm", status: "VERIFIED", sourceType: "SPEC_SHEET", verifiedBy: adminUser.id },
+      workingDepth: { value: "30 cm", status: "VERIFIED", sourceType: "SPEC_SHEET", verifiedBy: adminUser.id },
+      weight: { value: "135 kg", status: "VERIFIED", sourceType: "PLATE", verifiedBy: adminUser.id }
     },
     typeAttributes: {
-      fuel_type: { value: "DIESEL", status: "VERIFIED", sourceType: "PLATE" },
-      engine_model: { value: "186FA", status: "VERIFIED", sourceType: "PLATE" },
-      start_type: { value: "ELECTRIC_STARTER", status: "VERIFIED", sourceType: "SPEC_SHEET" },
-      transmission_gears: { value: "2 წინ + 1 უკან", status: "VERIFIED", sourceType: "SPEC_SHEET" },
-      wheel_size: { value: "4.00-10", status: "VERIFIED", sourceType: "PHOTO" },
-      wheel_type: { value: "RUBBER", status: "VERIFIED", sourceType: "PHOTO" },
-      pto_shaft: { value: true, status: "VERIFIED", sourceType: "SPEC_SHEET" }
+      fuel_type: { value: "DIESEL", status: "VERIFIED", sourceType: "PLATE", verifiedBy: adminUser.id },
+      engine_model: { value: "186FA", status: "VERIFIED", sourceType: "PLATE", verifiedBy: adminUser.id },
+      start_type: { value: "ELECTRIC_STARTER", status: "VERIFIED", sourceType: "SPEC_SHEET", verifiedBy: adminUser.id },
+      transmission_gears: { value: "2 წინ + 1 უკან", status: "VERIFIED", sourceType: "SPEC_SHEET", verifiedBy: adminUser.id },
+      wheel_size: { value: "4.00-10", status: "VERIFIED", sourceType: "PHOTO", verifiedBy: adminUser.id },
+      wheel_type: { value: "RUBBER", status: "VERIFIED", sourceType: "PHOTO", verifiedBy: adminUser.id },
+      pto_shaft: { value: true, status: "VERIFIED", sourceType: "SPEC_SHEET", verifiedBy: adminUser.id }
     },
     shortDescriptionKa: "9 ცხ.ძ. დიზელის მოტობლოკი ელექტრო სტარტერით, 4.00-10 რეზინის ბორბლებით და 32 დანიანი ფრეზით.",
     shortDescriptionEn: "9 HP diesel motoblock with electric starter, 4.00-10 rubber wheels, and 32-blade rotary tiller."
@@ -123,7 +121,7 @@ export async function runProductsSeed() {
   await attachSkuIdentifier(db, actor, {
     skuId: skuRubber.id,
     identifierType: "GTIN",
-    value: "4860001840012",
+    value: "4860000010012",
     issuerSource: "PACKAGING",
     verified: true,
     isPrimary: false
@@ -146,7 +144,17 @@ export async function runProductsSeed() {
     legacyCode: "NB-HM178E"
   });
 
-  // Transition AGT-000184 to READY — assigns canonical_slug = 'hiromiki-d178e-df900q' ([C8])
+  // Walk KH-000001 through explicit lifecycle transitions (§15.1) before transitioning to READY ([C8])
+  await transitionSkuLifecycle(db, actor, skuRubber.id, "IDENTIFYING");
+  await transitionSkuLifecycle(db, actor, skuRubber.id, "IDENTIFIED", {
+    identityConfidence: "HIGH",
+    reason: "Plate and packaging verified"
+  });
+  await transitionSkuLifecycle(db, actor, skuRubber.id, "ACCOUNTING_MAPPING_REQUIRED");
+  await transitionSkuLifecycle(db, actor, skuRubber.id, "CONTENT_GENERATING");
+  await transitionSkuLifecycle(db, actor, skuRubber.id, "CONTENT_REVIEW");
+
+  // Transition KH-000001 to READY — assigns canonical_slug = 'hiromiki-d178e-df900q-9-hp-rubber-wheels' ([C8])
   await transitionSkuToReady(db, actor, skuRubber.id);
 
   // Enable Storefront Listing on agrotrade-ge (§4.5)
@@ -157,15 +165,12 @@ export async function runProductsSeed() {
     reason: "Initial READY catalog item on AgroTrade storefront"
   });
 
-  // 5. Variant 2: AGT-000185 — 9 HP Diesel Motoblock with Iron Wheels (§5.1 separate SKU, in INTAKE with NULL slug [C8])
+  // 5. Variant 2: KH-000002 — 9 HP Diesel Motoblock with Iron Wheels (§5.1 separate SKU, in INTAKE with NULL slug [C8])
   const skuIron = await createSkuDraft(db, actor, {
-    internalSku: "AGT-000185",
     productFamilyId: hiromikiFamily.id,
     productTypeId: motoblockType.id,
-    lifecycleState: "INTAKE",
-    identityConfidence: "MEDIUM",
     brand: "HIROMIKI",
-    modelCode: "D178E-DF900Q-IRON",
+    modelCode: "D178E-DF900Q",
     keyDifferentiatorKa: "9 ცხ.ძ., რკინის ბორბლებით",
     keyDifferentiatorEn: "9 HP, Iron Wheels",
     universalUnits: {
@@ -174,18 +179,15 @@ export async function runProductsSeed() {
       weight: "142 kg"
     },
     typeAttributes: {
-      fuel_type: { value: "DIESEL", status: "VERIFIED" },
+      fuel_type: { value: "DIESEL", status: "VERIFIED", verifiedBy: adminUser.id },
       engine_model: { value: "186FA", status: "UNVERIFIED" },
-      wheel_type: { value: "IRON", status: "VERIFIED" }
+      wheel_type: { value: "IRON", status: "VERIFIED", verifiedBy: adminUser.id }
     }
   });
 
-  // 6. Component SKUs for Composed Bundle: Plough (AGT-000186) & Trailer (AGT-000187)
+  // 6. Component SKUs for Composed Bundle: Plough (KH-000003) & Trailer (KH-000004)
   const skuPlough = await createSkuDraft(db, actor, {
-    internalSku: "AGT-000186",
     productTypeId: attachmentType.id,
-    lifecycleState: "IDENTIFIED",
-    identityConfidence: "HIGH",
     brand: "WEIMA",
     modelCode: "WM-PL01",
     keyDifferentiatorKa: "ერთფრთიანი გუთანი",
@@ -195,16 +197,15 @@ export async function runProductsSeed() {
       weight: "18 kg"
     },
     typeAttributes: {
-      attachment_kind: { value: "PLOUGH", status: "VERIFIED" },
-      compatible_mount: { value: "HIROMIKI / WEIMA 178-186 სერია", status: "VERIFIED" }
+      attachment_kind: { value: "PLOUGH", status: "VERIFIED", verifiedBy: adminUser.id },
+      compatible_mount: { value: "HIROMIKI / WEIMA 178-186 სერია", status: "VERIFIED", verifiedBy: adminUser.id }
     }
   });
+  await transitionSkuLifecycle(db, actor, skuPlough.id, "IDENTIFYING");
+  await transitionSkuLifecycle(db, actor, skuPlough.id, "IDENTIFIED", { identityConfidence: "HIGH" });
 
   const skuTrailer = await createSkuDraft(db, actor, {
-    internalSku: "AGT-000187",
     productTypeId: trailerType.id,
-    lifecycleState: "IDENTIFIED",
-    identityConfidence: "HIGH",
     brand: "WEIMA",
     modelCode: "WM-7C-500",
     keyDifferentiatorKa: "500 კგ თვითმცლელი მისაბმელი",
@@ -215,24 +216,25 @@ export async function runProductsSeed() {
       weight: "145 kg"
     },
     typeAttributes: {
-      payload_capacity_kg: { value: 500, status: "VERIFIED" },
-      brake_type: { value: "MECHANICAL_DRUM", status: "VERIFIED" },
-      dumping_bed: { value: true, status: "VERIFIED" }
+      payload_capacity_kg: { value: 500, status: "VERIFIED", verifiedBy: adminUser.id },
+      brake_type: { value: "MECHANICAL_DRUM", status: "VERIFIED", verifiedBy: adminUser.id },
+      dumping_bed: { value: true, status: "VERIFIED", verifiedBy: adminUser.id }
     }
   });
+  await transitionSkuLifecycle(db, actor, skuTrailer.id, "IDENTIFYING");
+  await transitionSkuLifecycle(db, actor, skuTrailer.id, "IDENTIFIED", { identityConfidence: "HIGH" });
 
-  // 7. Composed Bundle SKU: AGT-000188 (Motoblock × 1 + Plough × 1 + Trailer × 1, §5.2)
+  // 7. Composed Bundle SKU: KH-000005 (Motoblock × 1 + Plough × 1 + Trailer × 1, §5.2)
   const skuBundle = await createSkuDraft(db, actor, {
-    internalSku: "AGT-000188",
     productTypeId: motoblockType.id,
-    lifecycleState: "IDENTIFIED",
-    identityConfidence: "HIGH",
     isComposedBundle: true,
     brand: "HIROMIKI",
     modelCode: "D178E-AGRO-SET",
     keyDifferentiatorKa: "სრული კომპლექტი (მოტობლოკი + გუთანი + მისაბმელი)",
     keyDifferentiatorEn: "Full Bundle (Motoblock + Plough + Trailer)"
   });
+  await transitionSkuLifecycle(db, actor, skuBundle.id, "IDENTIFYING");
+  await transitionSkuLifecycle(db, actor, skuBundle.id, "IDENTIFIED", { identityConfidence: "HIGH" });
 
   await setComposedBundleComponents(db, actor, skuBundle.id, [
     { componentSkuId: skuRubber.id, quantity: 1 },
@@ -240,12 +242,9 @@ export async function runProductsSeed() {
     { componentSkuId: skuTrailer.id, quantity: 1 }
   ]);
 
-  // 8. Factory Kit SKU: AGT-000189 (is_kit = true, §5.2)
-  await createSkuDraft(db, actor, {
-    internalSku: "AGT-000189",
+  // 8. Factory Kit SKU: KH-000006 (is_kit = true, §5.2)
+  const skuKit = await createSkuDraft(db, actor, {
     productTypeId: motoblockType.id,
-    lifecycleState: "IDENTIFIED",
-    identityConfidence: "HIGH",
     isKit: true,
     kitComponentsJson: [
       { nameKa: "ძირითადი აგრეგატი WEIMA WM1100C-6", nameEn: "Main unit WEIMA WM1100C-6", quantity: 1 },
@@ -262,11 +261,13 @@ export async function runProductsSeed() {
       weight: "98 kg"
     },
     typeAttributes: {
-      fuel_type: { value: "GASOLINE", status: "VERIFIED" },
-      engine_model: { value: "WM170F-2", status: "VERIFIED" },
-      wheel_type: { value: "RUBBER", status: "VERIFIED" }
+      fuel_type: { value: "GASOLINE", status: "VERIFIED", verifiedBy: adminUser.id },
+      engine_model: { value: "WM170F-2", status: "VERIFIED", verifiedBy: adminUser.id },
+      wheel_type: { value: "RUBBER", status: "VERIFIED", verifiedBy: adminUser.id }
     }
   });
+  await transitionSkuLifecycle(db, actor, skuKit.id, "IDENTIFYING");
+  await transitionSkuLifecycle(db, actor, skuKit.id, "IDENTIFIED", { identityConfidence: "HIGH" });
 
   // 9. Sample Legacy SEO URL (§12.5)
   await registerLegacyUrl(db, actor, {
@@ -278,7 +279,7 @@ export async function runProductsSeed() {
     gscClicks16m: 1420,
     gscImpressions16m: 28900,
     backlinks: 14,
-    notes: "High-traffic legacy product URL mapped to canonical SKU AGT-000184"
+    notes: "High-traffic legacy product URL mapped to canonical SKU KH-000001"
   });
 
   return {
@@ -290,7 +291,7 @@ export async function runProductsSeed() {
       skuPlough.internalSku,
       skuTrailer.internalSku,
       skuBundle.internalSku,
-      "AGT-000189"
+      skuKit.internalSku
     ]
   };
 }

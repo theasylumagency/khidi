@@ -1,11 +1,11 @@
 -- 0002_product_model.sql
 -- Milestone 2: Product Master, Taxonomy (8 Categories + UNCLASSIFIED), 30 Product Types,
 -- Product Families, SKUs ([C8] nullable canonical_slug), Append-Only sku_slug_history ([C7, C8]),
--- Composed Bundles, Identifiers with Collision Detection, Accounting Mappings ([C9] legal_entity_id),
--- Storefront Listings (§4.5), and Legacy SEO URLs (§12.5).
+-- Composed Bundles, Identifiers with Collision Detection & System-Only Internal Labels,
+-- Accounting Mappings ([C9] legal_entity_id), Storefront Listings (§4.5), and Legacy SEO URLs (§12.5).
 
--- Sequence for stable internal SKU allocation (e.g. AGT-000184, §5.4)
-CREATE SEQUENCE IF NOT EXISTS internal_sku_seq START WITH 184 INCREMENT BY 1;
+-- Sequence for neutral internal SKU allocation starting from 1 (e.g. KH-000001, §5.4)
+CREATE SEQUENCE IF NOT EXISTS internal_sku_seq START WITH 1 INCREMENT BY 1;
 
 -- 1. Categories (§5.7: 8 public categories + internal UNCLASSIFIED)
 CREATE TABLE IF NOT EXISTS categories (
@@ -55,8 +55,8 @@ CREATE TABLE IF NOT EXISTS product_families (
 -- 4. SKUs / Variants (§5.1 - §5.12, §15.1, [C8])
 CREATE TABLE IF NOT EXISTS skus (
   id UUID PRIMARY KEY,
-  internal_sku TEXT NOT NULL UNIQUE,
-  product_family_id UUID REFERENCES product_families(id),
+  internal_sku TEXT NOT NULL UNIQUE, -- Neutral prefix e.g. 'KH-000001'
+  product_family_id UUID REFERENCES product_families(id) ON DELETE RESTRICT,
   product_type_id UUID REFERENCES product_types(id),
   category_id UUID NOT NULL REFERENCES categories(id),
   canonical_slug TEXT, -- [C8] NULL-able at intake; required when lifecycle_state = 'READY'
@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS skus (
   key_differentiator_ka TEXT,
   key_differentiator_en TEXT,
 
-  -- Universal normalized units (§5.6)
+  -- Universal normalized units (§5.6) + per-unit status/provenance metadata (§5.9)
   power_kw NUMERIC(10,3),
   engine_displacement_cm3 NUMERIC(10,2),
   length_mm NUMERIC(10,2),
@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS skus (
   voltage_v NUMERIC(10,2),
   current_a NUMERIC(10,2),
   unit_source_strings_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  unit_metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 
   -- Schema-driven type attributes (§5.9)
   type_attributes_json JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -111,9 +112,12 @@ CREATE TABLE IF NOT EXISTS skus (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-  -- [C8] READY requires non-null canonical_slug
+  -- [C8] READY requires non-null canonical_slug and non-LOW/non-CONFLICT confidence
   CONSTRAINT chk_skus_ready_requires_slug CHECK (
-    lifecycle_state <> 'READY' OR canonical_slug IS NOT NULL
+    lifecycle_state <> 'READY' OR (
+      canonical_slug IS NOT NULL AND
+      identity_confidence IN ('HIGH', 'MEDIUM')
+    )
   ),
   -- Composed bundle and factory kit are mutually exclusive (§5.2)
   CONSTRAINT chk_skus_bundle_or_kit_exclusive CHECK (
@@ -143,7 +147,7 @@ SELECT enforce_append_only_table('sku_slug_history');
 
 -- 6. Composed Bundle Components (§5.2)
 CREATE TABLE IF NOT EXISTS bundle_components (
-  bundle_sku_id UUID NOT NULL REFERENCES skus(id) ON DELETE CASCADE,
+  bundle_sku_id UUID NOT NULL REFERENCES skus(id) ON DELETE RESTRICT,
   component_sku_id UUID NOT NULL REFERENCES skus(id) ON DELETE RESTRICT,
   quantity INTEGER NOT NULL CHECK (quantity > 0),
   PRIMARY KEY (bundle_sku_id, component_sku_id),
@@ -153,7 +157,7 @@ CREATE TABLE IF NOT EXISTS bundle_components (
 -- 7. SKU Identifiers & Barcodes (§5.3)
 CREATE TABLE IF NOT EXISTS sku_identifiers (
   id UUID PRIMARY KEY,
-  sku_id UUID NOT NULL REFERENCES skus(id) ON DELETE CASCADE,
+  sku_id UUID NOT NULL REFERENCES skus(id) ON DELETE RESTRICT,
   identifier_type TEXT NOT NULL CHECK (identifier_type IN (
     'GTIN', 'UPC', 'MPN', 'FACTORY_MODEL', 'PLATE_VALUE',
     'SUPPLIER_CODE', 'ACCOUNTING_CODE', 'INTERNAL_SKU',
@@ -168,6 +172,11 @@ CREATE TABLE IF NOT EXISTS sku_identifiers (
   UNIQUE (sku_id, identifier_type, value)
 );
 
+-- System-generated INTERNAL_SKU and INTERNAL_QR must be globally unique across all SKUs (§5.4)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sku_identifiers_internal_unique
+  ON sku_identifiers (identifier_type, value)
+  WHERE identifier_type IN ('INTERNAL_SKU', 'INTERNAL_QR');
+
 CREATE INDEX IF NOT EXISTS idx_sku_identifiers_lookup
   ON sku_identifiers (identifier_type, value);
 
@@ -177,7 +186,7 @@ CREATE INDEX IF NOT EXISTS idx_sku_identifiers_value
 -- 8. Accounting Mappings (§5.5, [C9]: legal_entity_id)
 CREATE TABLE IF NOT EXISTS accounting_mappings (
   id UUID PRIMARY KEY,
-  sku_id UUID NOT NULL REFERENCES skus(id) ON DELETE CASCADE,
+  sku_id UUID NOT NULL REFERENCES skus(id) ON DELETE RESTRICT,
   legal_entity_id UUID NOT NULL REFERENCES legal_entities(id), -- [C9]
   accounting_item_id TEXT NOT NULL,
   accounting_name TEXT NOT NULL,
@@ -201,8 +210,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_accounting_mappings_unique_active_item
 -- 9. Storefront Listings (§4.5)
 CREATE TABLE IF NOT EXISTS storefront_listings (
   id UUID PRIMARY KEY,
-  storefront_id UUID NOT NULL REFERENCES storefronts(id) ON DELETE CASCADE,
-  sku_id UUID NOT NULL REFERENCES skus(id) ON DELETE CASCADE,
+  storefront_id UUID NOT NULL REFERENCES storefronts(id) ON DELETE RESTRICT,
+  sku_id UUID NOT NULL REFERENCES skus(id) ON DELETE RESTRICT,
   enabled BOOLEAN NOT NULL DEFAULT FALSE,
   enabled_at TIMESTAMPTZ,
   enabled_by UUID REFERENCES users(id),
@@ -235,17 +244,19 @@ CREATE TABLE IF NOT EXISTS legacy_urls (
 -- 11. Role Privileges for hub_app ([C7])
 GRANT USAGE, SELECT ON SEQUENCE internal_sku_seq TO hub_app;
 
+-- Mutable catalog tables where row deletion is allowed (e.g. replacing bundle_components or resolving duplicate sku_identifiers)
 GRANT SELECT, INSERT, UPDATE, DELETE ON
   categories,
   product_types,
-  product_families,
-  skus,
   bundle_components,
   sku_identifiers,
-  accounting_mappings,
   storefront_listings,
   legacy_urls
 TO hub_app;
+
+-- Core entities referenced by ledger & history: forbid DELETE/TRUNCATE for hub_app (SKUs are archived, mappings are deactivated)
+REVOKE DELETE, TRUNCATE ON skus, product_families, accounting_mappings FROM hub_app;
+GRANT SELECT, INSERT, UPDATE ON skus, product_families, accounting_mappings TO hub_app;
 
 -- [C7] Strictly forbid UPDATE, DELETE, TRUNCATE on append-only sku_slug_history for hub_app
 REVOKE UPDATE, DELETE, TRUNCATE ON sku_slug_history FROM hub_app;

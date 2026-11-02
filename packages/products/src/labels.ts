@@ -19,7 +19,7 @@ const CODE128_PATTERNS: readonly string[] = [
 ] as const;
 
 /**
- * Generates a valid Code128B barcode SVG for an ASCII identifier such as `AGT-000184`.
+ * Generates a valid Code128B barcode SVG for an ASCII identifier such as `KH-000001`.
  */
 export function renderCode128Svg(value: string, heightPx = 42): string {
   const clean = value.trim();
@@ -128,8 +128,8 @@ export function renderInternalQrSvg(qrPayload: string, sizePx = 76): string {
 }
 
 export interface ThermalLabelPayload {
-  internalSku: string; // e.g. AGT-000184
-  qrValue: string; // e.g. khidi://sku/AGT-000184
+  internalSku: string; // e.g. KH-000001
+  qrValue: string; // e.g. khidi://sku/KH-000001
   titleKa: string;
   brand?: string | null;
   modelCode?: string | null;
