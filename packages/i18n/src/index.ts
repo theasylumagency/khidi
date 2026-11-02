@@ -126,6 +126,15 @@ export function formatStaffName(fullName: string): string {
 }
 
 const SCANNING_LABELS = {
+  "media.error.GENERIC": "ფოტოს შენახვა ვერ მოხერხდა. ფოტო რიგში დარჩება.",
+  "media.error.FILE_TOO_LARGE": "ფოტო 15 მბ-ზე დიდია. გადაიღეთ სხვა ფოტო.",
+  "media.error.UNSUPPORTED_FORMAT": "მიიღება მხოლოდ JPEG, PNG ან WebP ფოტო.",
+  "media.error.RESOLUTION": "ფოტოს ზომა მცირეა. გადაიღეთ მაღალი გარჩევადობით.",
+  "media.error.UNDEREXPOSED": "ფოტო ძალიან ბნელია. გაზარდეთ განათება და გადაიღეთ თავიდან.",
+  "media.error.OVEREXPOSED": "ფოტო ძალიან ნათელია. შეამცირეთ განათება და გადაიღეთ თავიდან.",
+  "media.error.BLUR": "⚠ ფოტო ბუნდოვანია, გადაიღეთ თავიდან",
+  "media.error.DEPENDENCY_PENDING": "ფოტო ელოდება თავისი სკანის გაგზავნას.",
+  "media.error.TARGET_UNAVAILABLE": "ფოტოს დავალება დასრულებულია ან გაუქმებულია. ფოტო რიგში ინახება.",
   "scanner.my_tasks": "ჩემი დავალებები",
   "scanner.empty_tasks": "ამჟამად მიღების დავალება არ გაქვთ.",
   "scanner.open": "სკანირების დაწყება",
