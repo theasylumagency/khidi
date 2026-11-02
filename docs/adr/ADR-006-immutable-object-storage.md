@@ -67,3 +67,25 @@ flags nearby candidates within the same SKU (default Hamming distance 6); it nev
 verifies, identifies or replaces a photo. Class A photos wait for a SKU resolution before
 comparison. The filesystem adapter resolves its development root from the repository,
 so the Hub and worker share originals even when their working directories differ.
+
+### Public transfer and withdrawal (P9)
+
+Only VERIFIED, PUBLIC images of READY SKUs enter the public plan. Filenames use the
+canonical slug, a position and width/format; internal UUIDs and KH codes are rejected.
+Storefront URL building uses that storefront's `media_base_url`, requires HTTPS and
+rejects the configured Hub hostname. No CDN or storefront API is introduced here.
+
+Publication is a recoverable transfer across PostgreSQL and object storage, not a
+distributed transaction. A PENDING intent commits before any public object write;
+WITHDRAWING commits before deletion. Only after the storage action succeeds does its
+own audited transaction mark PUBLISHED or WITHDRAWN. A write followed by a connection
+failure therefore leaves a discoverable intent, including for later rejection cleanup.
+Position names are reused only after their previous occupant is withdrawn. The worker
+rechecks SKU and image eligibility while holding database locks before each copy.
+
+Image decisions, SKU approval, leaving READY and slug changes enqueue a synchronization
+job in their domain transaction. The server-side URL projection stops returning an
+ineligible image immediately; removal of existing public objects follows the durable
+worker job. Operations must monitor terminal media failures and retry them after fixing
+the cause. Public responses have a five-minute cache lifetime; raw originals, evidence
+and private master versions remain retained and are never published or removed.

@@ -9,3 +9,5 @@ export { getMediaStorage } from "./storage-config.ts";
 export * from "./management.ts";
 export * from "./private-media.ts";
 export * from "./signing.ts";
+export * from "./public-media.ts";
+export { queueMediaJob } from "./transactions.ts";

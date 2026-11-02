@@ -9,14 +9,15 @@ import { assertMediaPrincipal } from "./principal.ts";
 import { processImage, tier2ImageCheck } from "./processing.ts";
 import type { MediaStorage } from "./storage.ts";
 import { mediaReceipt, recordMediaReceipt } from "./transactions.ts";
+import { synchronizePublicMedia } from "./public-media.ts";
 
 async function auditJob(ctx: DomainTransactionContext, id: string, status: string, attempts: number) {
   await ctx.recordAudit({ action: "MEDIA_JOB_UPDATED", entityType: "media_job", entityId: id, after: { status, attempts } });
   await ctx.emitOutboxEvent({ eventType: "MEDIA_JOB_UPDATED", aggregateType: "media_job", aggregateId: id, payload: { status, attempts }, consumers: [] });
 }
-export interface MediaJobHandlers { publish?: (ctx: DomainTransactionContext, storage: MediaStorage, skuId: string) => Promise<void> }
+export interface MediaJobHandlers { publish?: (db: DbExecutor, storage: MediaStorage, skuId: string) => Promise<void> }
 /** pg-boss owns execution leases; media_jobs retains the human-visible result permanently. */
-export async function executeMediaJob(db: DbExecutor, storage: MediaStorage, id: string, handlers: MediaJobHandlers = {}, generation?: number) {
+export async function executeMediaJob(db: DbExecutor, storage: MediaStorage, id: string, handlers: MediaJobHandlers = { publish: synchronizePublicMedia }, generation?: number) {
   const job = await withDomainTransaction(db, {}, async (ctx) => {
     const [job] = await ctx.tx.select().from(mediaJobs).where(eq(mediaJobs.id, id)).for("update");
     if (!job) throw new AppError("NOT_FOUND", "Media job not found.");
@@ -36,14 +37,18 @@ export async function executeMediaJob(db: DbExecutor, storage: MediaStorage, id:
   if (!job) return;
   if (job.status === "DEAD_LETTER") return { deadLetter: true };
   try {
+    if (job.jobType === "publish-sku-media") {
+      if (!handlers.publish) throw new Error("Publication handler unavailable.");
+      // Publication intents must commit before object writes, outside the completion TX.
+      await handlers.publish(db, storage, job.skuId!);
+    }
     await withDomainTransaction(db, {}, async (ctx) => {
       const [current] = await ctx.tx.select().from(mediaJobs).where(eq(mediaJobs.id, id)).for("update");
-      if (!current || current.status === "COMPLETED" || current.attempts !== job.attempts) return;
+      if (!current || current.status === "COMPLETED" || current.attempts !== job.attempts || current.generation !== job.generation) return;
       // All image DB effects, the version and follow-up jobs commit together.
       if (job.jobType === "process-image") await processImage(ctx, storage, job.imageId!, job.imageVersion!);
       else if (job.jobType === "tier2-image-check") await tier2ImageCheck(ctx, storage, job.imageId!, job.imageVersion!);
-      else if (job.jobType === "publish-sku-media" && handlers.publish) await handlers.publish(ctx, storage, job.skuId!);
-      else throw new Error("Media job handler is unavailable.");
+      else if (job.jobType !== "publish-sku-media") throw new Error("Media job handler is unavailable.");
       await ctx.tx.update(mediaJobs).set({ status: "COMPLETED", lastError: null, updatedAt: new Date() }).where(eq(mediaJobs.id, id));
       await auditJob(ctx, id, "COMPLETED", job.attempts);
     });
@@ -51,7 +56,7 @@ export async function executeMediaJob(db: DbExecutor, storage: MediaStorage, id:
     const dead = job.attempts >= job.maxAttempts;
     await withDomainTransaction(db, {}, async (ctx) => {
       const [current] = await ctx.tx.select().from(mediaJobs).where(eq(mediaJobs.id, id)).for("update");
-      if (!current || current.status === "COMPLETED" || current.attempts !== job.attempts) return;
+      if (!current || current.status === "COMPLETED" || current.attempts !== job.attempts || current.generation !== job.generation) return;
       const status = dead ? "DEAD_LETTER" : "RETRY";
       const description = error instanceof Error ? `${error.name}: ${error.message}` : "Image processing failed.";
       await ctx.tx.update(mediaJobs).set({ status, lastError: description.replace(/(https?:\/\/)[^/\s@]+@/g, "$1[redacted]@").slice(0, 2000), nextAttemptAt: new Date(Date.now() + 1000 * 2 ** (job.attempts - 1)), updatedAt: new Date() }).where(eq(mediaJobs.id, id));

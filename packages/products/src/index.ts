@@ -23,6 +23,7 @@ import {
   users
 } from "@khidi/db";
 import { type DomainActor, withDomainTransaction } from "@khidi/domain";
+import { queueMediaJob } from "@khidi/media";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import {
   INITIAL_CATEGORIES,
@@ -671,6 +672,7 @@ export async function transitionSkuLifecycle(
       },
       reason: options?.reason
     });
+    if (currentState === "READY") await queueMediaJob(ctx, "publish-sku-media", { skuId: sku.id });
 
     return updated!;
   });
@@ -1029,6 +1031,7 @@ export async function transitionSkuToReady(
       },
       consumers: ["notifications"]
     });
+    await queueMediaJob(ctx, "publish-sku-media", { skuId: sku.id });
 
     return updated!;
   });
@@ -1092,6 +1095,7 @@ export async function updateSkuCanonicalSlug(
       after: { canonicalSlug: finalSlug },
       reason
     });
+    await queueMediaJob(ctx, "publish-sku-media", { skuId: sku.id });
 
     return updated!;
   });

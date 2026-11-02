@@ -4,6 +4,7 @@ import { type DbExecutor, createMigratorPool, outboxDeliveries, outboxEvents, re
 import { withDomainTransaction } from "@khidi/domain";
 import { executeMediaJob, markMediaJobDeadLetter, type MediaJobHandlers } from "./jobs.ts";
 import type { MediaStorage } from "./storage.ts";
+import { synchronizePublicMedia } from "./public-media.ts";
 export const MEDIA_QUEUES = ["process-image", "tier2-image-check", "publish-sku-media"] as const;
 export const MEDIA_JOB_SCHEMA = "khidi_jobs";
 export async function deployMediaJobs() {
@@ -48,7 +49,7 @@ export async function dispatchMediaJobs(db: DbExecutor, boss: PgBoss, onlyJobId?
     return pending.length;
   });
 }
-export async function startMediaWorkers(db: DbExecutor, storage: MediaStorage, boss: PgBoss, handlers: MediaJobHandlers = {}) {
+export async function startMediaWorkers(db: DbExecutor, storage: MediaStorage, boss: PgBoss, handlers: MediaJobHandlers = { publish: synchronizePublicMedia }) {
   await boss.work("media-dead-letter", { batchSize: 1 }, async (jobs) => {
     for (const job of jobs) { const data = job.data as { jobId: string; generation: number }; await markMediaJobDeadLetter(db, data.jobId, data.generation); }
   });
