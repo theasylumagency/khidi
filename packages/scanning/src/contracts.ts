@@ -32,3 +32,17 @@ export interface IntakeResult extends Record<string, unknown> {
   duplicateOfIntakeId: string | null;
   labelStatus: (typeof LABEL_STATUSES)[number];
 }
+
+export const createScanTaskSchema = z.object({
+  idempotencyKey: uuidV7Schema,
+  taskType: z.enum(SCAN_TASK_TYPES), title: z.string().trim().min(1).max(200),
+  assigneeUserId: z.string().uuid().nullable().default(null),
+  assigneeRole: z.enum(["ADMIN", "OPERATOR", "STOCK_MANAGER", "WAREHOUSE", "ORDER_MANAGER"]).nullable().default(null),
+  productTypeId: z.string().uuid().nullable().default(null),
+  targetCount: z.number().int().positive().max(2147483647).nullable().default(null),
+  dueDate: z.string().datetime({ offset: true }).nullable().default(null)
+}).strict().refine((input) => Number(input.assigneeUserId !== null) + Number(input.assigneeRole !== null) === 1, "Choose one assignee user or role.");
+export const intakeFiltersSchema = z.object({
+  resultState: z.enum(RESULT_STATES).optional(), labelStatus: z.enum(LABEL_STATUSES).optional(),
+  taskId: z.string().uuid().optional(), page: z.coerce.number().int().min(1).max(100000).default(1)
+}).strict();

@@ -8,6 +8,7 @@ import { intakeInputSchema, type IntakeResult } from "./contracts.ts";
 import { assertScanningPrincipal } from "./principal.ts";
 export * from "./contracts.ts";
 export * from "./labels.ts";
+export * from "./tasks.ts";
 
 export function normalizeScan(value: string, identifierType?: SkuIdentifierType) {
   const internal = /^(?:khidi:\/\/sku\/)?(KH-\d{6,})$/i.exec(value.trim());
