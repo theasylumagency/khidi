@@ -626,6 +626,7 @@ export const imageMasterVersions = pgTable("image_master_versions", {
 export const intakePhotoStatus = pgTable("intake_photo_status", {
   intakeId: uuid("intake_id").primaryKey().references(() => productIntakes.id, { onDelete: "restrict" }),
   requiredSlotsJson: jsonb("required_slots_json").$type<string[]>().notNull(), status: text("status").notNull().default("PENDING"),
+  coveredSlotsJson: jsonb("covered_slots_json").$type<string[]>().notNull().default([]),
   attentionReason: text("attention_reason"), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 });
 export const mediaJobs = pgTable("media_jobs", {

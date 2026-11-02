@@ -13,6 +13,17 @@ export const photoUploadSchema = z.object({
   if (value.intakeId && value.intakeIdempotencyKey || value.photoRequestTaskId && (value.intakeId || value.intakeIdempotencyKey)) ctx.addIssue({ code: "custom", message: "Choose one intake or photo request." });
 });
 export type PhotoUploadInput = z.infer<typeof photoUploadSchema>;
-export interface CaptureSlot { slot: PhotoSlot; required: boolean; titleKa?: string; guidanceKa?: string }
+export interface CaptureSlot { slot: PhotoSlot; required: boolean; titleKa?: string; guidanceKa?: string; alreadyCovered?: boolean }
 export const GENERIC_CAPTURE_SLOTS: CaptureSlot[] = ["MAIN", "SECONDARY", "IDENTIFICATION"].map((slot) => ({ slot: slot as PhotoSlot, required: true }));
 export interface DiscardedPhotoMetadata { idempotencyKey: string; slot: PhotoSlot; sha256: string; bytes: number; capturedAt: string }
+export const PHOTO_TARGET_FIELDS = {
+  intakeId: z.string().uuid().nullable().default(null), intakeIdempotencyKey: uuidV7.nullable().default(null),
+  photoRequestTaskId: z.string().uuid().nullable().default(null), skuId: z.string().uuid().nullable().default(null)
+};
+export const photoTargetSchema = z.object(PHOTO_TARGET_FIELDS).strict().refine((value) => Object.values(value).filter(Boolean).length === 1, "Choose one photo target.");
+export type PhotoTarget = z.infer<typeof photoTargetSchema>;
+export const photoAttentionSchema = z.object({ ...PHOTO_TARGET_FIELDS,
+  idempotencyKey: uuidV7, userId: z.string().uuid(), deviceId: z.string().uuid(),
+  capturedAt: z.string().datetime({ offset: true }), reason: z.string().trim().min(1).max(4000),
+  slots: z.array(z.enum(PHOTO_SLOTS)).min(1).max(4)
+}).strict().refine((value) => [value.intakeId, value.intakeIdempotencyKey, value.photoRequestTaskId, value.skuId].filter(Boolean).length === 1, "Choose one photo target.");

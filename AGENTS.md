@@ -243,6 +243,29 @@ requires photos, the user goes straight into capture; then to the next scan.
   "✓ ფოტო მიღებულია".
 - Required slots cannot be skipped. A "can't photograph" action records a reason and marks
   the intake for admin attention; nothing is lost.
+- **Photos belong to the original intake, never to a duplicate.** A repeat scan in an
+  `INTAKE_UNIQUE` task (a duplicate, or a scan of a printed `KH-` label to confirm attachment)
+  never starts photo capture by itself. It shows "უკვე დასკანერებულია" with the photo status
+  of the original intake. If that original intake still misses required photos, the screen
+  offers "ფოტოების დასრულება", which captures only the missing slots and stores them on the
+  original intake. Any user assigned to the task, and ADMIN, may complete them.
+- **Slots already covered:** when the scan matches a SKU that already has a VERIFIED image for
+  a slot, that slot is optional for this intake (shown as "ფოტო უკვე არსებობს — გამოტოვება ან
+  ხელახლა გადაღება").
+- **Deciding offline whether to start capture.** The warehouse never waits for the server.
+  - When a task is opened online, the device caches the task's already-scanned normalized
+    identifiers; together with the device's own queued scans this is the local duplicate list.
+    Normalization runs with the same shared code as on the server.
+  - A scan found in the local duplicate list → no automatic capture (duplicate rule above).
+    Any other scan → capture starts immediately, online or offline.
+  - If the server answer arrives before the first photo is taken and says "duplicate", the
+    capture screen closes with the duplicate message.
+  - Offline, the "slots already covered" rule cannot be known, so all required slots are asked.
+- **Late duplicate detection.** If photos were already taken for a scan that the server later
+  classifies as a duplicate, they are kept and stored on the original intake as additional
+  UNVERIFIED candidates for their slots. They never replace or overwrite existing images, even
+  when the slot is already filled; the admin chooses in P8, and the P6 perceptual-hash check
+  flags near-identical photos.
 
 **P5 — Offline photo queue.** Extend the S5 queue:
 - Photos are stored as blobs in IndexedDB with the same per-user ownership rules as scans.

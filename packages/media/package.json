@@ -8,7 +8,8 @@
     "./storage": "./src/storage.ts",
     "./storage-config": "./src/storage-config.ts",
     "./contracts": "./src/contracts.ts",
-    "./quality": "./src/quality.ts"
+    "./quality": "./src/quality.ts",
+    "./capture-browser": "./src/capture-browser.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

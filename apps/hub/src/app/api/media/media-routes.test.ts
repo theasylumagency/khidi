@@ -7,11 +7,15 @@ import { parsePhotoUpload } from "../../../lib/photo-upload-body.ts";
 const { session } = vi.hoisted(() => ({ session: { principal: null as AuthenticatedPrincipal | null } }));
 vi.mock("../../../lib/session.ts", () => ({ getCurrentPrincipal: async () => session.principal }));
 import { POST as upload } from "./uploads/route.ts";
+import { GET as capture } from "./capture/route.ts";
+import { POST as attention } from "./attention/route.ts";
 
 describe("P3 photo upload HTTP boundary", () => {
   it("requires an authenticated principal before reading a photo body", async () => {
     session.principal = null;
     expect((await upload(new Request("http://localhost/api/media/uploads", { method: "POST", body: "invalid" }))).status).toBe(401);
+    expect((await capture(new Request("http://localhost/api/media/capture"))).status).toBe(401);
+    expect((await attention(new Request("http://localhost/api/media/attention", { method: "POST", body: "{}" }))).status).toBe(401);
   });
   it("rejects an oversized actual stream even without Content-Length", async () => {
     const admin = await getDb().query.users.findFirst({ where: (user, { eq }) => eq(user.role, "ADMIN") });

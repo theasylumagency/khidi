@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
 import { type DbExecutor, intakePhotoStatus, productImages, productIntakes, productTypes, scanTasks, skus } from "@khidi/db";
 import type { DomainTransactionContext } from "@khidi/domain";
@@ -9,6 +9,19 @@ import { queueMediaJob } from "./transactions.ts";
 export function intakeSku(intake: typeof productIntakes.$inferSelect) {
   return !intake.reviewOriginalReason || ["LINK_EXISTING", "ACCEPT_FOR_TASK"].includes(intake.reviewResolution ?? "") ? intake.matchedSkuId : null;
 }
+export async function originalPhotoIntake(db: DbExecutor, intake: typeof productIntakes.$inferSelect, lock = false) {
+  if (!intake.duplicateOfIntakeId) return intake;
+  const query = db.select().from(productIntakes).where(eq(productIntakes.id, intake.duplicateOfIntakeId));
+  const [original] = lock ? await query.for("update") : await query.limit(1);
+  if (!original || original.duplicateOfIntakeId) throw new AppError("INVARIANT_VIOLATION", "Original intake reference is invalid.");
+  return original;
+}
+export async function canCompleteIntakePhotos(db: DbExecutor, principal: AuthenticatedPrincipal, intake: typeof productIntakes.$inferSelect) {
+  if (principal.role === "ADMIN" || intake.scannedBy === principal.userId) return true;
+  if (!intake.taskId) return false;
+  const [task] = await db.select().from(scanTasks).where(eq(scanTasks.id, intake.taskId)).limit(1);
+  return !!task && task.taskType === "INTAKE_UNIQUE" && (task.assigneeUserId === principal.userId || task.assigneeRole === principal.role);
+}
 export async function captureSlotsForSku(db: DbExecutor, skuId: string | null): Promise<CaptureSlot[]> {
   if (!skuId) return structuredClone(GENERIC_CAPTURE_SLOTS);
   const [row] = await db.select({ slots: productTypes.photoInstructionsJson }).from(skus)
@@ -18,8 +31,11 @@ export async function captureSlotsForSku(db: DbExecutor, skuId: string | null): 
 }
 export async function initializeIntakePhotos(ctx: DomainTransactionContext, intakeId: string, skuId: string | null) {
   const slots = await captureSlotsForSku(ctx.tx, skuId);
-  await ctx.tx.insert(intakePhotoStatus).values({ intakeId, requiredSlotsJson: slots.filter((slot) => slot.required).map((slot) => slot.slot) }).onConflictDoNothing();
-  await ctx.tx.update(productIntakes).set({ photosMissing: true }).where(eq(productIntakes.id, intakeId));
+  const verified = skuId ? await ctx.tx.select({ slot: productImages.slot }).from(productImages).where(and(eq(productImages.skuId, skuId), eq(productImages.status, "VERIFIED"))) : [];
+  const covered = [...new Set(verified.map((image) => image.slot))];
+  const required = slots.filter((slot) => slot.required && !covered.includes(slot.slot)).map((slot) => slot.slot);
+  await ctx.tx.insert(intakePhotoStatus).values({ intakeId, requiredSlotsJson: required, coveredSlotsJson: covered, status: required.length ? "PENDING" : "COMPLETE" }).onConflictDoNothing();
+  await ctx.tx.update(productIntakes).set({ photosMissing: required.length > 0 }).where(eq(productIntakes.id, intakeId));
 }
 export async function resolveUploadTarget(tx: DbExecutor, principal: AuthenticatedPrincipal, input: PhotoUploadInput) {
   if (input.photoRequestTaskId) {
@@ -34,9 +50,10 @@ export async function resolveUploadTarget(tx: DbExecutor, principal: Authenticat
   }
   if (input.intakeId || input.intakeIdempotencyKey) {
     const predicate = input.intakeId ? eq(productIntakes.id, input.intakeId) : eq(productIntakes.idempotencyKey, input.intakeIdempotencyKey!);
-    const [intake] = await tx.select().from(productIntakes).where(predicate).for("update");
-    if (!intake) throw new AppError("PRECONDITION_FAILED", "Intake has not been delivered.", { mediaReason: "DEPENDENCY_PENDING" });
-    if (principal.role !== "ADMIN" && intake.scannedBy !== principal.userId) throw new AppError("FORBIDDEN", "Photo belongs to the intake scanner.");
+    const [requested] = await tx.select().from(productIntakes).where(predicate).for("update");
+    if (!requested) throw new AppError("PRECONDITION_FAILED", "Intake has not been delivered.", { mediaReason: "DEPENDENCY_PENDING" });
+    const intake = await originalPhotoIntake(tx, requested, true);
+    if (requested.scannedBy !== principal.userId && !await canCompleteIntakePhotos(tx, principal, intake)) throw new AppError("FORBIDDEN", "Photo belongs to the scanner or an assigned task member.");
     const skuId = intakeSku(intake);
     if (input.skuId && input.skuId !== skuId) throw new AppError("VALIDATION_ERROR", "Review photos await explicit SKU resolution.");
     return { skuId, intakeId: intake.id, photoRequestTaskId: null };

@@ -10,6 +10,7 @@ import { assertMediaPrincipal } from "./principal.ts";
 import { mediaReceipt, queueMediaJob, recordMediaReceipt } from "./transactions.ts";
 import { refreshIntakePhotoStatus, resolveUploadTarget } from "./targets.ts";
 import { digest, privateImageKey, StorageExistsError, type MediaStorage } from "./storage.ts";
+import { sniffPhotoMime } from "./formats.ts";
 
 export function configuredQuality(env: NodeJS.ProcessEnv = process.env): QualityConfig {
   try { return qualityConfig(env.MEDIA_QUALITY_CONFIG ? JSON.parse(env.MEDIA_QUALITY_CONFIG) : {}); }
@@ -18,15 +19,13 @@ export function configuredQuality(env: NodeJS.ProcessEnv = process.env): Quality
 export async function inspectPhoto(bytes: Uint8Array, config = DEFAULT_QUALITY_CONFIG) {
   if (!bytes.byteLength || bytes.byteLength > MAX_PHOTO_BYTES) throw new AppError("VALIDATION_ERROR", "Photo exceeds size limit.", { mediaReason: "FILE_TOO_LARGE" });
   const b = Buffer.from(bytes);
-  const mime = b[0] === 255 && b[1] === 216 && b[2] === 255 ? "image/jpeg"
-    : b.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) ? "image/png"
-    : b.toString("ascii", 0, 4) === "RIFF" && b.toString("ascii", 8, 12) === "WEBP" ? "image/webp" : null;
+  const mime = sniffPhotoMime(bytes);
   if (!mime) throw new AppError("VALIDATION_ERROR", "Unsupported image format.", { mediaReason: "UNSUPPORTED_FORMAT" });
   try {
     const image = sharp(b, { limitInputPixels: 64_000_000, failOn: "warning" });
     const metadata = await image.metadata();
     if (!metadata.width || !metadata.height || (metadata.pages ?? 1) > 1 || !["jpeg", "png", "webp"].includes(metadata.format ?? "")) throw new Error("Invalid raster image.");
-    const sample = await image.autoOrient().resize({ width: 256, height: 256, fit: "inside", withoutEnlargement: true }).removeAlpha().greyscale().raw().toBuffer({ resolveWithObject: true });
+    const sample = await image.autoOrient().resize({ width: 256, height: 256, fit: "inside", withoutEnlargement: true }).flatten({ background: "#f5f5f4" }).greyscale().raw().toBuffer({ resolveWithObject: true });
     const quality = evaluatePhotoQuality({ width: metadata.width, height: metadata.height, gray: sample.data, sampleWidth: sample.info.width, sampleHeight: sample.info.height }, config);
     if (!quality.passed) throw new AppError("VALIDATION_ERROR", "Photo requires a retake.", { mediaReason: quality.reasons[0], quality });
     return { mime, width: metadata.width, height: metadata.height, quality };
@@ -70,7 +69,7 @@ export async function receivePhoto(db: DbExecutor, storage: MediaStorage, princi
       const jobId = await queueMediaJob(ctx, "process-image", { imageId: id, imageVersion: 1 }, `process-image:${id}:1`);
       if (target.intakeId) await refreshIntakePhotoStatus(ctx, target.intakeId);
       const body = { id, ...target, slot: input.slot, rawSha256, rawBytes: bytes.byteLength };
-      await ctx.recordAudit({ action: "IMAGE_UPLOADED", entityType: "product_image", entityId: id, after: { ...body, jobId } });
+      await ctx.recordAudit({ action: "IMAGE_UPLOADED", entityType: "product_image", entityId: id, after: { ...body, jobId, submittedIntakeId: input.intakeId, submittedIntakeKey: input.intakeIdempotencyKey } });
       await ctx.emitOutboxEvent({ eventType: "IMAGE_UPLOADED", aggregateType: "product_image", aggregateId: id, payload: body, consumers: [] });
       await recordMediaReceipt(ctx, input.idempotencyKey, requestHash, "UPLOAD", body);
       return { status: 201, body };

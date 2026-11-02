@@ -73,7 +73,7 @@ export async function receiveIntake(db: AppDatabase | DbExecutor, principal: Aut
         labelStatus: body.labelStatus, resultState: body.resultState, idempotencyKey: input.idempotencyKey, requestHash,
         reviewReason, reviewOriginalReason: reviewReason, reviewReferenceSkuId: identity.referenceSkuId, acceptanceResponseJson: body
       });
-      if (task?.photosRequired) await initializeIntakePhotos(ctx, body.id, reviewReason ? null : body.matchedSkuId);
+      if (task?.photosRequired && !first) await initializeIntakePhotos(ctx, body.id, reviewReason ? null : body.matchedSkuId);
       if (body.labelStatus === "TO_PRINT") await ctx.tx.insert(labelEvents).values({
         id: createUuidV7(), intakeId: body.id, fromStatus: null, toStatus: "TO_PRINT", actorUserId: principal.userId
       });
