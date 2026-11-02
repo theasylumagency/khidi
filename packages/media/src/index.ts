@@ -6,3 +6,6 @@ export * from "./discard.ts";
 export * from "./jobs.ts";
 export * from "./jobs-runtime.ts";
 export { getMediaStorage } from "./storage-config.ts";
+export * from "./management.ts";
+export * from "./private-media.ts";
+export * from "./signing.ts";

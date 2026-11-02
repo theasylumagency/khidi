@@ -1,0 +1,55 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import path from "node:path";
+import { tmpdir } from "node:os";
+import { and, eq } from "drizzle-orm";
+import { getDb, imageMasterVersions, mediaJobs, productImages, users } from "@khidi/db";
+import { loadPrincipalByUserId, type AuthenticatedPrincipal } from "@khidi/auth";
+import { createUuidV7 } from "@khidi/shared";
+import { createSkuDraft } from "../../products/src/index.ts";
+import { receivePhoto } from "./upload.ts";
+import { executeMediaJob } from "./jobs.ts";
+import { hasVerifiedPublicMainImage, listMediaImageViews, manageImage } from "./management.ts";
+import { readSignedPrivateMedia } from "./private-media.ts";
+import { DEV_MEDIA_SIGNING_SECRET, mediaSigningSecret, signPrivateMedia, verifyPrivateMedia } from "./signing.ts";
+import { FilesystemMediaStorage, digest } from "./storage.ts";
+import { fixturePhoto } from "./test-fixtures.ts";
+describe("P8 audited image decisions and private signed views", () => {
+  const db = getDb(); let admin: AuthenticatedPrincipal, warehouse: AuthenticatedPrincipal, root: string, storage: FilesystemMediaStorage, bytes: Buffer;
+  beforeAll(async () => {
+    const staff = await db.select().from(users); [admin, warehouse] = await Promise.all(["ADMIN", "WAREHOUSE"].map((role) => loadPrincipalByUserId(db, staff.find((u) => u.role === role)!.id))) as [AuthenticatedPrincipal, AuthenticatedPrincipal];
+    root = await mkdtemp(path.join(tmpdir(), "khidi-media-management-test-")); storage = new FilesystemMediaStorage(root); bytes = await fixturePhoto();
+  });
+  afterAll(async () => { if (path.dirname(path.resolve(root)) !== path.resolve(tmpdir()) || !path.basename(root).startsWith("khidi-media-management-test-")) throw new Error("Unsafe cleanup."); await rm(root, { recursive: true, force: true }); });
+  const change = (imageId: string, action: string, fields = {}) => ({ idempotencyKey: createUuidV7(), imageId, action, ...fields });
+  it("allows only admins to decide, blocks unprocessed verification, requires rejection reason, and preserves raw and master history", async () => {
+    const skuId = (await createSkuDraft(db, { userId: admin.userId }, {})).id;
+    const upload = await receivePhoto(db, storage, admin, { idempotencyKey: createUuidV7(), skuId, userId: admin.userId, deviceId: createUuidV7(), capturedAt: new Date().toISOString(), slot: "MAIN" }, bytes), id = upload.body.id as string;
+    await expect(manageImage(db, warehouse, change(id, "VERIFY"))).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(manageImage(db, admin, change(id, "VERIFY"))).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(await hasVerifiedPublicMainImage(db, skuId)).toBe(false);
+    const [job] = await db.select().from(mediaJobs).where(and(eq(mediaJobs.imageId, id), eq(mediaJobs.jobType, "process-image"))); await executeMediaJob(db, storage, job!.id);
+    const verify = change(id, "VERIFY"); await manageImage(db, admin, verify); expect((await manageImage(db, admin, verify)).replayed).toBe(true);
+    expect(await hasVerifiedPublicMainImage(db, skuId)).toBe(true);
+    await manageImage(db, admin, change(id, "UPDATE", { usage: "INTERNAL_EVIDENCE", role: "IDENTITY", sortOrder: 7 })); expect(await hasVerifiedPublicMainImage(db, skuId)).toBe(false);
+    await expect(manageImage(db, admin, change(id, "REJECT"))).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await manageImage(db, admin, change(id, "REJECT", { reason: "Wrong angle for the requested detail" }));
+    const reprocess = change(id, "REPROCESS"); await manageImage(db, admin, reprocess); await manageImage(db, admin, reprocess);
+    const [next] = await db.select().from(mediaJobs).where(and(eq(mediaJobs.imageId, id), eq(mediaJobs.jobType, "process-image"), eq(mediaJobs.imageVersion, 2))); await executeMediaJob(db, storage, next!.id);
+    expect(await db.select().from(imageMasterVersions).where(eq(imageMasterVersions.imageId, id))).toHaveLength(2);
+    const [row] = await db.select().from(productImages).where(eq(productImages.id, id)); expect(row).toMatchObject({ status: "REJECTED", masterVersion: 2, rawSha256: digest(bytes), sortOrder: 7 });
+    expect(digest(await storage.readPrivate(row!.rawStorageKey, row!.rawSha256))).toBe(digest(bytes));
+    const views = await listMediaImageViews(db, admin, { skuId }); expect(views[0]!.versions).toHaveLength(2);
+    const rawQuery = Object.fromEntries(new URL(views[0]!.rawUrl, "http://localhost").searchParams);
+    expect(digest((await readSignedPrivateMedia(db, storage, admin, rawQuery)).bytes)).toBe(digest(bytes));
+    await expect(readSignedPrivateMedia(db, storage, warehouse, rawQuery)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    for (const version of views[0]!.versions) expect((await readSignedPrivateMedia(db, storage, admin, Object.fromEntries(new URL(version.masterUrl, "http://localhost").searchParams))).contentType).toBe("image/jpeg");
+  }, 60000);
+  it("binds private URLs to user, variant, version and five-minute expiry", () => {
+    const id = createUuidV7(), now = Date.now(), url = signPrivateMedia(admin.userId, id, "400.webp", 2, now), raw = Object.fromEntries(new URL(url, "http://localhost").searchParams);
+    expect(verifyPrivateMedia(admin.userId, raw, now).version).toBe(2);
+    for (const changed of [{ ...raw, variant: "raw" }, { ...raw, version: "1" }, { ...raw, imageId: createUuidV7() }, { ...raw, signature: "a".repeat(64) }]) expect(() => verifyPrivateMedia(admin.userId, changed, now)).toThrow();
+    expect(() => verifyPrivateMedia(warehouse.userId, raw, now)).toThrow(); expect(() => verifyPrivateMedia(admin.userId, raw, now + 300_000)).toThrow();
+    expect(() => mediaSigningSecret({ NODE_ENV: "production" })).toThrow("CRITICAL:"); expect(() => mediaSigningSecret({ NODE_ENV: "production", MEDIA_SIGNING_SECRET: DEV_MEDIA_SIGNING_SECRET })).toThrow();
+  });
+});

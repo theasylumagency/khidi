@@ -17,3 +17,8 @@
 .media-next { width: 100%; }
 .media-capture form, .media-capture label { display: grid; gap: 10px; margin-top: 14px; }
 .media-capture [role=alert] { color: #991b1b; }
+.media-admin { margin-block: 24px; }
+.media-admin-card { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 20px; padding: 20px 0; border-bottom: 1px solid #cbd5e1; }
+.media-admin-card > img { object-fit: contain; background: #f5f5f4; }
+.media-admin-card code { overflow-wrap: anywhere; }
+@media (max-width: 640px) { .media-admin-card { grid-template-columns: 1fr; } }

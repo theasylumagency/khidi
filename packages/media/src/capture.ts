@@ -43,6 +43,7 @@ export async function getPhotoCaptureContext(db: DbExecutor, principal: Authenti
     skuId = sku.id;
   }
   let slots = await captureSlotsForSku(db, skuId);
+  if (!intakeId && !taskId) slots = slots.map((slot) => ({ ...slot, required: false }));
   if (required) {
     slots = slots.filter((slot) => !taskId || required!.includes(slot.slot)).map((slot) => ({ ...slot, required: required!.includes(slot.slot), alreadyCovered: covered.includes(slot.slot) }));
     for (const slot of required) if (!slots.some((known) => known.slot === slot)) slots.push({ slot: slot as PhotoSlot, required: true });

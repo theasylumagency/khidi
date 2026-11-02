@@ -9,6 +9,8 @@ import { SkuDetailActions } from "../../../components/sku-detail-actions.tsx";
 import { PhotoRequestForm } from "../../../components/photo-request-form.tsx";
 import { listTaskAssignees } from "@khidi/scanning";
 import { formatStaffName } from "@khidi/i18n";
+import { listMediaImageViews } from "@khidi/media";
+import { AdminMediaPanel } from "../../../components/admin-media-panel.tsx";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +64,7 @@ export default async function SkuDetailPage({
       enabled: Boolean(found?.enabled)
     };
   });
+  const images = principal.role === "ADMIN" ? await listMediaImageViews(db, principal, { skuId }) : [];
 
   return (
     <div style={{ display: "grid", gap: "1.5rem" }}>
@@ -446,7 +449,7 @@ export default async function SkuDetailPage({
             </ul>
           )}
         </section>
-        {principal.role === "ADMIN" ? <section><PhotoRequestForm skuId={skuId} assignees={photoAssignees} /></section> : null}
+        {principal.role === "ADMIN" ? <><AdminMediaPanel skuId={skuId} images={images} assignees={photoAssignees} /><section><PhotoRequestForm skuId={skuId} assignees={photoAssignees} /></section></> : null}
       </div>
     </div>
   );

@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./storage": "./src/storage.ts",
     "./storage-config": "./src/storage-config.ts",
+    "./signing": "./src/signing.ts",
     "./contracts": "./src/contracts.ts",
     "./quality": "./src/quality.ts",
     "./capture-browser": "./src/capture-browser.ts"

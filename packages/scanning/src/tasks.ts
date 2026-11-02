@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull, isNotNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, isNotNull, or, sql } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
 import { type DbExecutor, productIntakes, productTypes, scanTasks, skus, users } from "@khidi/db";
 import { executeIdempotent, withDomainTransaction } from "@khidi/domain";
@@ -63,12 +63,15 @@ export async function listIntakes(db: DbExecutor, principal: AuthenticatedPrinci
   if (!parsed.success) throw new AppError("VALIDATION_ERROR", "Invalid intake filters.");
   const filters = parsed.data;
   const conditions = [];
+  const photosMissing = sql<boolean>`COALESCE((SELECT original.photos_missing FROM product_intakes original WHERE original.id = ${productIntakes.duplicateOfIntakeId}), ${productIntakes.photosMissing})`;
+  const photoAttentionReason = sql<string | null>`CASE WHEN ${productIntakes.duplicateOfIntakeId} IS NULL THEN ${productIntakes.photoAttentionReason} ELSE (SELECT original.photo_attention_reason FROM product_intakes original WHERE original.id = ${productIntakes.duplicateOfIntakeId}) END`;
+  if (filters.photosMissing) conditions.push(eq(photosMissing, filters.photosMissing === "yes"));
   if (filters.resultState) conditions.push(eq(productIntakes.resultState, filters.resultState));
   if (filters.labelStatus) conditions.push(eq(productIntakes.labelStatus, filters.labelStatus));
   if (filters.taskId) conditions.push(eq(productIntakes.taskId, filters.taskId));
   if (filters.needsReview === "yes") conditions.push(isNotNull(productIntakes.reviewReason), isNull(productIntakes.reviewedAt));
   if (filters.needsReview === "no") conditions.push(sqlNoReview());
-  const rows = await db.select({ intake: productIntakes, internalSku: skus.internalSku, scannedByName: users.fullName }).from(productIntakes)
+  const rows = await db.select({ intake: productIntakes, internalSku: skus.internalSku, scannedByName: users.fullName, photosMissing, photoAttentionReason }).from(productIntakes)
     .leftJoin(skus, eq(skus.id, productIntakes.matchedSkuId)).innerJoin(users, eq(users.id, productIntakes.scannedBy))
     .where(and(...conditions)).orderBy(desc(productIntakes.createdAt), desc(productIntakes.id)).limit(101).offset((filters.page - 1) * 100);
   return { rows: rows.slice(0, 100), hasMore: rows.length > 100 };

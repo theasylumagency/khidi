@@ -1,5 +1,5 @@
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 import { S3Client } from "@aws-sdk/client-s3";
 import { FilesystemMediaStorage, type MediaStorage } from "./storage.ts";
 import { S3MediaStorage } from "./storage-s3.ts";
@@ -8,7 +8,15 @@ export function createMediaStorage(env: NodeJS.ProcessEnv = process.env): MediaS
   const driver = env.MEDIA_STORAGE_DRIVER ?? (env.NODE_ENV === "production" ? "s3" : "filesystem");
   if (driver === "filesystem") {
     if (env.NODE_ENV === "production") throw new Error("Production media requires protected S3-compatible storage.");
-    return new FilesystemMediaStorage(path.resolve(fileURLToPath(new URL("../../../", import.meta.url)), env.MEDIA_FILESYSTEM_ROOT ?? ".local-media"));
+    const configured = env.MEDIA_FILESYSTEM_ROOT;
+    if (configured && path.isAbsolute(configured)) return new FilesystemMediaStorage(configured);
+    let root = process.cwd();
+    while (!existsSync(path.join(root, "pnpm-workspace.yaml"))) {
+      const parent = path.dirname(root);
+      if (parent === root) throw new Error("Configure an absolute MEDIA_FILESYSTEM_ROOT outside the development workspace.");
+      root = parent;
+    }
+    return new FilesystemMediaStorage(path.resolve(root, configured ?? ".local-media"));
   }
   if (driver !== "s3") throw new Error("Unknown media storage driver.");
   const privateBucket = env.MEDIA_PRIVATE_BUCKET, publicBucket = env.MEDIA_PUBLIC_BUCKET;

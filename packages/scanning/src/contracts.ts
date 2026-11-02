@@ -55,6 +55,7 @@ export const createScanTaskSchema = z.object({
 export const intakeFiltersSchema = z.object({
   resultState: z.enum(RESULT_STATES).optional(), labelStatus: z.enum(LABEL_STATUSES).optional(),
   needsReview: z.enum(["yes", "no"]).optional(),
+  photosMissing: z.enum(["yes", "no"]).optional(),
   taskId: z.string().uuid().optional(), page: z.coerce.number().int().min(1).max(100000).default(1)
 }).strict();
 
