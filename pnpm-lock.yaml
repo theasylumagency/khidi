@@ -480,6 +480,9 @@ importers:
       '@khidi/shared':
         specifier: workspace:*
         version: link:../shared
+      '@zxing/library':
+        specifier: 0.21.3
+        version: 0.21.3
       drizzle-orm:
         specifier: 0.40.0
         version: 0.40.0(@types/pg@8.11.11)(pg@8.13.3)
@@ -1158,6 +1161,13 @@ packages:
   '@vitest/utils@3.0.8':
     resolution: {integrity: sha512-nkBC3aEhfX2PdtQI/QwAWp8qZWwzASsU4Npbcd5RdMPBSSLCpkZp52P3xku3s3uA0HIEhGvEcF8rNkBsz9dQ4Q==}
 
+  '@zxing/library@0.21.3':
+    resolution: {integrity: sha512-hZHqFe2JyH/ZxviJZosZjV+2s6EDSY0O24R+FQmlWZBZXP9IqMo7S3nb3+2LBWxodJQkSurdQGnqE7KXqrYgow==}
+    engines: {node: '>= 10.4.0'}
+
+  '@zxing/text-encoding@0.9.0':
+    resolution: {integrity: sha512-U/4aVJ2mxI0aDNI8Uq0wEhMgY+u4CNtEb0om3+y3+niDAsoTCOB33UF0sxpzqzdqXLqmvc+vZyAt4O8pPdfkwA==}
+
   acorn-jsx-walk@2.0.0:
     resolution: {integrity: sha512-uuo6iJj4D4ygkdzd6jPtcxs8vZgDX9YFIkqczGImoypX2fQ4dVImmu3UzA4ynixCIMTrEOWW+95M2HuBaCEOVA==}
 
@@ -1728,6 +1738,10 @@ packages:
     resolution: {integrity: sha512-n1cw8k1k0x4pgA2+9XrOkFydTerNcJ1zWCO5Nn9scWHTD+5tp8dghT2x1uduQePZTZgd3Tupf+x9BxJjeJi77Q==}
     engines: {node: '>=14.0.0'}
 
+  ts-custom-error@3.3.1:
+    resolution: {integrity: sha512-5OX1tzOjxWEgsr/YEUWSuPrQ00deKLh6D7OTWcvNHm12/7QPyRh8SYpyWvA4IZv8H/+GQWQEh/kwo95Q9OVW1A==}
+    engines: {node: '>=14.0.0'}
+
   tsconfig-paths-webpack-plugin@4.2.0:
     resolution: {integrity: sha512-zbem3rfRS8BgeNK50Zz5SIQgXzLafiHjOwUAvk/38/o1jHn/V5QAgVUcz884or7WYcPaH3N2CIfUc2u0ul7UcA==}
     engines: {node: '>=10.13.0'}
@@ -2220,6 +2234,15 @@ snapshots:
       loupe: 3.2.1
       tinyrainbow: 2.0.0
 
+  '@zxing/library@0.21.3':
+    dependencies:
+      ts-custom-error: 3.3.1
+    optionalDependencies:
+      '@zxing/text-encoding': 0.9.0
+
+  '@zxing/text-encoding@0.9.0':
+    optional: true
+
   acorn-jsx-walk@2.0.0: {}
 
   acorn-jsx@5.3.2(acorn@8.19.0):
@@ -2704,6 +2727,8 @@ snapshots:
   tinyrainbow@2.0.0: {}
 
   tinyspy@3.0.2: {}
+
+  ts-custom-error@3.3.1: {}
 
   tsconfig-paths-webpack-plugin@4.2.0:
     dependencies:

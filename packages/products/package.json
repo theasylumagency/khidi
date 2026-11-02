@@ -19,6 +19,7 @@
     "@khidi/evidence": "workspace:*",
     "@khidi/media": "workspace:*",
     "@khidi/shared": "workspace:*",
+    "@zxing/library": "0.21.3",
     "drizzle-orm": "0.40.0",
     "zod": "3.24.2"
   }

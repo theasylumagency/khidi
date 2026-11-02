@@ -1,17 +1,13 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
-import { type AppDatabase, type DbExecutor, productIntakes, scanTasks, users } from "@khidi/db";
+import { type AppDatabase, type DbExecutor, labelEvents, productIntakes, scanTasks } from "@khidi/db";
 import { executeIdempotent, withDomainTransaction } from "@khidi/domain";
 import { attachSkuIdentifier, buildCandidateLookupValues, createSkuDraft, normalizeIdentifierOnWrite, resolveSkuByScannedIdentifier, type SkuIdentifierType } from "@khidi/products";
 import { AppError, createUuidV7, sha256Hex } from "@khidi/shared";
 import { intakeInputSchema, type IntakeResult } from "./contracts.ts";
+import { assertScanningPrincipal } from "./principal.ts";
 export * from "./contracts.ts";
-
-export async function assertScanningPrincipal(db: DbExecutor, principal: AuthenticatedPrincipal, adminOnly = false) {
-  const [user] = await db.select().from(users).where(eq(users.id, principal.userId)).limit(1);
-  if (!user?.active || user.role !== principal.role) throw new AppError("UNAUTHORIZED", "Session principal is no longer active.");
-  if (adminOnly && user.role !== "ADMIN") throw new AppError("FORBIDDEN", "Only an administrator may manage scanning.");
-}
+export * from "./labels.ts";
 
 export function normalizeScan(value: string, identifierType?: SkuIdentifierType) {
   const internal = /^(?:khidi:\/\/sku\/)?(KH-\d{6,})$/i.exec(value.trim());
@@ -85,6 +81,13 @@ export async function receiveIntake(db: AppDatabase | DbExecutor, principal: Aut
             identifierType: normalized.canonicalType, value: normalized.canonicalValue, verified: false, issuerSource: "WAREHOUSE_SCAN" });
         }
       }
+      if (normalized?.internal && task && !first && skuId) {
+        [first] = await ctx.tx.select().from(productIntakes).where(and(
+          eq(productIntakes.taskId, task.id), eq(productIntakes.matchedSkuId, skuId), eq(productIntakes.isNoBarcode, true)
+        )).orderBy(asc(productIntakes.createdAt)).limit(1);
+        // Attaching the provisional product's label must not count it a second time.
+        if (first) resultState = "MATCHED_EXISTING";
+      }
       const [intake] = await ctx.tx.insert(productIntakes).values({
         id: createUuidV7(), taskId: input.taskId, sourceMode: input.sourceMode, scannedBy: principal.userId,
         deviceId: principal.deviceId, clientDeviceId: input.deviceId, scannedAt: new Date(input.scannedAt),
@@ -92,6 +95,23 @@ export async function receiveIntake(db: AppDatabase | DbExecutor, principal: Aut
         isNoBarcode: input.isNoBarcode, matchedSkuId: skuId, duplicateOfIntakeId: first?.id ?? null,
         labelStatus: input.isNoBarcode ? "TO_PRINT" : "NOT_REQUIRED", resultState, idempotencyKey: input.idempotencyKey, requestHash
       }).returning();
+      if (input.isNoBarcode) await ctx.tx.insert(labelEvents).values({
+        id: createUuidV7(), intakeId: intake!.id, fromStatus: null, toStatus: "TO_PRINT", actorUserId: principal.userId
+      });
+      if (normalized?.internal && skuId) {
+        const awaiting = await ctx.tx.select().from(productIntakes).where(and(
+          eq(productIntakes.matchedSkuId, skuId), eq(productIntakes.labelStatus, "PRINTED")
+        )).orderBy(asc(productIntakes.id)).for("update");
+        for (const original of awaiting) {
+          // A task scanner may only attach labels for intakes in their assigned task.
+          if (principal.role !== "ADMIN" && original.taskId !== input.taskId) continue;
+          await ctx.tx.update(productIntakes).set({ labelStatus: "ATTACHED" }).where(eq(productIntakes.id, original.id));
+          await ctx.tx.insert(labelEvents).values({ id: createUuidV7(), intakeId: original.id,
+            fromStatus: "PRINTED", toStatus: "ATTACHED", actorUserId: principal.userId, scanIntakeId: intake!.id });
+          await ctx.recordAudit({ action: "LABEL_ATTACHED_BY_SCAN", entityType: "product_intake", entityId: original.id, after: { labelStatus: "ATTACHED", scanIntakeId: intake!.id } });
+          await ctx.emitOutboxEvent({ eventType: "LABEL_STATUS_CHANGED", aggregateType: "product_intake", aggregateId: original.id, payload: { labelStatus: "ATTACHED", scanIntakeId: intake!.id }, consumers: ["notifications"] });
+        }
+      }
       if (task && !first) {
         await ctx.tx.update(scanTasks).set({ completedCount: task.completedCount + 1, status: "IN_PROGRESS" }).where(eq(scanTasks.id, task.id));
         await ctx.recordAudit({ action: "SCAN_TASK_PROGRESS_UPDATED", entityType: "scan_task", entityId: task.id, after: { completedCount: task.completedCount + 1 } });

@@ -119,8 +119,33 @@ export function getNavigationForRole(role: UserRole): NavItem[] {
   return NAVIGATION_ITEMS.filter((item) => item.allowedRoles.includes(role));
 }
 
+const SCANNING_LABELS = {
+  "scanning.labels": "დასაბეჭდი ეტიკეტები",
+  "scanning.select": "არჩევა",
+  "scanning.sku": "შიდა კოდი",
+  "scanning.product": "პროდუქტი",
+  "scanning.date": "თარიღი",
+  "scanning.empty": "ჩანაწერები არ არის.",
+  "scanning.print_selected": "არჩეული ეტიკეტების ბეჭდვა",
+  "scanning.print": "ბეჭდვა — 58 × 40 მმ",
+  "scanning.mark_printed": "დაბეჭდილია — დადასტურება",
+  "scanning.print_help": "დაბეჭდეთ ეტიკეტები და შედეგის შემოწმების შემდეგ დაადასტურეთ. მიმაგრება პროდუქტის ეტიკეტის სკანირებით დასტურდება.",
+  "scanning.back": "უკან დაბრუნება",
+  "scanning.saving": "ინახება…",
+  "scanning.error": "მოქმედება ვერ შესრულდა. სცადეთ ხელახლა.",
+  "scanning.error.UNAUTHORIZED": "სესია დასრულდა. შედით თავიდან.",
+  "scanning.error.FORBIDDEN": "ამ მოქმედების უფლება არ გაქვთ.",
+  "scanning.error.NOT_FOUND": "ჩანაწერი ვერ მოიძებნა.",
+  "scanning.error.VALIDATION_ERROR": "შეამოწმეთ შეყვანილი მონაცემები.",
+  "scanning.error.CONFLICT": "მონაცემები შეიცვალა. განაახლეთ გვერდი.",
+  "scanning.error.IDEMPOTENCY_CONFLICT": "მოთხოვნის კოდი სხვა მონაცემებით უკვე გამოყენებულია.",
+  "scanning.error.PRECONDITION_FAILED": "ჩანაწერის მიმდინარე მდგომარეობა ამ მოქმედებას არ უშვებს.",
+  "scanning.error.INVARIANT_VIOLATION": "მონაცემების შენახვა ვერ მოხერხდა."
+} as const;
+
 export const DICTIONARY = {
   ka: {
+    ...SCANNING_LABELS,
     "app.title": "Khidi — სასაწყობო და კატალოგის ჰაბი",
     "app.subtitle": "კანონიკური პროდუქტების, მარაგების, ფასებისა და შესრულების ცენტრი",
     "auth.office_login": "ოფისის შესვლა (ელ-ფოსტა + TOTP)",
@@ -136,6 +161,7 @@ export const DICTIONARY = {
     "settings.operating_model_rule3": "3. გადაცემის (HANDED_OVER) შემდეგ დაბრუნებული პროდუქცია მიდის მხოლოდ მთავარ საწყობში და არასდროს ბრუნდება პირდაპირ ონლაინ თაროზე. ხელახალი ონლაინ გაყიდვისთვის საჭიროა ახალი STOCK_IN დოკუმენტის ნომრით [C1]."
   },
   en: {
+    ...SCANNING_LABELS,
     "app.title": "Khidi — Online Warehouse & Catalog Hub",
     "app.subtitle": "Canonical Product Master, Inventory, Pricing & Fulfillment Hub",
     "auth.office_login": "Office Login (Email + TOTP)",
