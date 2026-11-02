@@ -9,13 +9,17 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "build": "tsc --noEmit"
+    "build": "tsc --noEmit",
+    "seed": "tsx src/seed-products.ts"
   },
   "dependencies": {
+    "@khidi/db": "workspace:*",
     "@khidi/domain": "workspace:*",
     "@khidi/entities": "workspace:*",
     "@khidi/evidence": "workspace:*",
     "@khidi/media": "workspace:*",
-    "@khidi/shared": "workspace:*"
+    "@khidi/shared": "workspace:*",
+    "drizzle-orm": "0.40.0",
+    "zod": "3.24.2"
   }
 }

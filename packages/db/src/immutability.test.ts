@@ -87,8 +87,10 @@ describe("Database Foundation: Role Separation, Migration Runner & Append-Only I
     const [runA, runB] = await Promise.all([runMigrations(), runMigrations()]);
     expect(runA.applied).toEqual([]);
     expect(runA.skipped).toContain("0001_foundation.sql");
+    expect(runA.skipped).toContain("0002_product_model.sql");
     expect(runB.applied).toEqual([]);
     expect(runB.skipped).toContain("0001_foundation.sql");
+    expect(runB.skipped).toContain("0002_product_model.sql");
   });
 
   it("fails fast in NODE_ENV=production if DATABASE_URL or DATABASE_MIGRATOR_URL is missing or uses dev passwords", () => {

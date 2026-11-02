@@ -5,9 +5,11 @@ import {
   boolean,
   timestamp,
   integer,
+  numeric,
   jsonb,
   primaryKey,
-  unique
+  unique,
+  type AnyPgColumn
 } from "drizzle-orm/pg-core";
 
 export interface ReservationPolicyConfig {
@@ -241,3 +243,258 @@ export const systemSettings = pgTable("system_settings", {
   updatedBy: uuid("updated_by").references(() => users.id),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 });
+
+// ============================================================================
+// Milestone 2: Product Master, Taxonomy, Identifiers & Accounting Mappings
+// ============================================================================
+
+export interface ProductTypeAttributeFieldDef {
+  key: string;
+  labelKa: string;
+  labelEn: string;
+  dataType: "string" | "number" | "boolean" | "enum";
+  tier: "REQUIRED_IDENTITY" | "IMPORTANT_SPEC" | "OPTIONAL_SPEC";
+  filterCandidate: boolean;
+  unit?: string;
+  enumValues?: string[];
+}
+
+export interface ProductTypePhotoInstructionSlot {
+  slot: "MAIN" | "SECONDARY" | "IDENTIFICATION";
+  titleKa: string;
+  titleEn: string;
+  guidanceKa: string;
+  guidanceEn: string;
+  required: boolean;
+}
+
+export interface ProductTypeAiResearchContract {
+  requiredIdentityFields: string[];
+  targetSpecificationFields: string[];
+  forbidInvention: boolean;
+  unknownFieldPolicy: "NULL_NOT_FOUND";
+}
+
+export interface KitComponentInfo {
+  nameKa: string;
+  nameEn?: string;
+  quantity: number;
+  notes?: string;
+}
+
+export interface SkuAttributeValueEntry {
+  value: string | number | boolean | null;
+  status: "VERIFIED" | "UNVERIFIED" | "NOT_FOUND" | "CONFLICT";
+  sourceType?: string;
+  evidenceId?: string;
+}
+
+export const categories = pgTable("categories", {
+  id: uuid("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  parentId: uuid("parent_id").references((): AnyPgColumn => categories.id),
+  nameKa: text("name_ka").notNull(),
+  nameEn: text("name_en").notNull(),
+  isUnclassified: boolean("is_unclassified").notNull().default(false),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const productTypes = pgTable("product_types", {
+  id: uuid("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  defaultCategoryId: uuid("default_category_id")
+    .notNull()
+    .references(() => categories.id),
+  nameKa: text("name_ka").notNull(),
+  nameEn: text("name_en").notNull(),
+  attributeSchemaJson: jsonb("attribute_schema_json")
+    .$type<ProductTypeAttributeFieldDef[]>()
+    .notNull(),
+  photoInstructionsJson: jsonb("photo_instructions_json")
+    .$type<ProductTypePhotoInstructionSlot[]>()
+    .notNull(),
+  namingTemplateKa: text("naming_template_ka").notNull(),
+  namingTemplateEn: text("naming_template_en").notNull(),
+  aiResearchContractJson: jsonb("ai_research_contract_json")
+    .$type<ProductTypeAiResearchContract>()
+    .notNull(),
+  searchAliasesKa: text("search_aliases_ka").array().notNull().default([]),
+  searchAliasesEn: text("search_aliases_en").array().notNull().default([]),
+  active: boolean("active").notNull().default(true),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const productFamilies = pgTable("product_families", {
+  id: uuid("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  productTypeId: uuid("product_type_id").references(() => productTypes.id),
+  categoryId: uuid("category_id").references(() => categories.id),
+  brand: text("brand"),
+  manufacturer: text("manufacturer"),
+  baseModel: text("base_model"),
+  titleKa: text("title_ka").notNull(),
+  titleEn: text("title_en"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const skus = pgTable("skus", {
+  id: uuid("id").primaryKey(),
+  internalSku: text("internal_sku").notNull().unique(),
+  productFamilyId: uuid("product_family_id").references(() => productFamilies.id),
+  productTypeId: uuid("product_type_id").references(() => productTypes.id),
+  categoryId: uuid("category_id")
+    .notNull()
+    .references(() => categories.id),
+  canonicalSlug: text("canonical_slug"), // [C8] NULL at INTAKE, required at READY
+  lifecycleState: text("lifecycle_state").notNull().default("INTAKE"),
+  identityConfidence: text("identity_confidence").notNull().default("LOW"),
+  isComposedBundle: boolean("is_composed_bundle").notNull().default(false),
+  isKit: boolean("is_kit").notNull().default(false),
+  kitComponentsJson: jsonb("kit_components_json").$type<KitComponentInfo[] | null>(),
+  brand: text("brand"),
+  manufacturer: text("manufacturer"),
+  modelCode: text("model_code"),
+  keyDifferentiatorKa: text("key_differentiator_ka"),
+  keyDifferentiatorEn: text("key_differentiator_en"),
+
+  // Universal normalized units (§5.6)
+  powerKw: numeric("power_kw", { precision: 10, scale: 3 }),
+  engineDisplacementCm3: numeric("engine_displacement_cm3", { precision: 10, scale: 2 }),
+  lengthMm: numeric("length_mm", { precision: 10, scale: 2 }),
+  widthMm: numeric("width_mm", { precision: 10, scale: 2 }),
+  heightMm: numeric("height_mm", { precision: 10, scale: 2 }),
+  workingWidthMm: numeric("working_width_mm", { precision: 10, scale: 2 }),
+  workingDepthMm: numeric("working_depth_mm", { precision: 10, scale: 2 }),
+  weightKg: numeric("weight_kg", { precision: 10, scale: 3 }),
+  volumeL: numeric("volume_l", { precision: 10, scale: 3 }),
+  pressureBar: numeric("pressure_bar", { precision: 10, scale: 2 }),
+  flowLMin: numeric("flow_l_min", { precision: 10, scale: 2 }),
+  voltageV: numeric("voltage_v", { precision: 10, scale: 2 }),
+  currentA: numeric("current_a", { precision: 10, scale: 2 }),
+  unitSourceStringsJson: jsonb("unit_source_strings_json")
+    .$type<Record<string, string>>()
+    .notNull()
+    .default({}),
+
+  // Schema-driven type attributes (§5.9)
+  typeAttributesJson: jsonb("type_attributes_json")
+    .$type<Record<string, SkuAttributeValueEntry>>()
+    .notNull()
+    .default({}),
+
+  // Canonical content (§5.10, §5.12)
+  displayNameKa: text("display_name_ka"),
+  displayNameEn: text("display_name_en"),
+  shortDescriptionKa: text("short_description_ka"),
+  shortDescriptionEn: text("short_description_en"),
+  fullDescriptionKa: text("full_description_ka"),
+  fullDescriptionEn: text("full_description_en"),
+  searchAliasesKa: text("search_aliases_ka").array().notNull().default([]),
+  searchAliasesEn: text("search_aliases_en").array().notNull().default([]),
+
+  approvedBy: uuid("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const skuSlugHistory = pgTable("sku_slug_history", {
+  id: uuid("id").primaryKey(),
+  skuId: uuid("sku_id")
+    .notNull()
+    .references(() => skus.id, { onDelete: "restrict" }),
+  oldSlug: text("old_slug").notNull().unique(),
+  changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const bundleComponents = pgTable(
+  "bundle_components",
+  {
+    bundleSkuId: uuid("bundle_sku_id")
+      .notNull()
+      .references(() => skus.id, { onDelete: "cascade" }),
+    componentSkuId: uuid("component_sku_id")
+      .notNull()
+      .references(() => skus.id, { onDelete: "restrict" }),
+    quantity: integer("quantity").notNull()
+  },
+  (table) => [primaryKey({ columns: [table.bundleSkuId, table.componentSkuId] })]
+);
+
+export const skuIdentifiers = pgTable(
+  "sku_identifiers",
+  {
+    id: uuid("id").primaryKey(),
+    skuId: uuid("sku_id")
+      .notNull()
+      .references(() => skus.id, { onDelete: "cascade" }),
+    identifierType: text("identifier_type").notNull(),
+    value: text("value").notNull(),
+    issuerSource: text("issuer_source"),
+    verified: boolean("verified").notNull().default(false),
+    isPrimary: boolean("is_primary").notNull().default(false),
+    hasCollision: boolean("has_collision").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [unique().on(table.skuId, table.identifierType, table.value)]
+);
+
+export const accountingMappings = pgTable("accounting_mappings", {
+  id: uuid("id").primaryKey(),
+  skuId: uuid("sku_id")
+    .notNull()
+    .references(() => skus.id, { onDelete: "cascade" }),
+  legalEntityId: uuid("legal_entity_id")
+    .notNull()
+    .references(() => legalEntities.id), // [C9]
+  accountingItemId: text("accounting_item_id").notNull(),
+  accountingName: text("accounting_name").notNull(),
+  legacyCode: text("legacy_code"),
+  active: boolean("active").notNull().default(true),
+  notes: text("notes"),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const storefrontListings = pgTable(
+  "storefront_listings",
+  {
+    id: uuid("id").primaryKey(),
+    storefrontId: uuid("storefront_id")
+      .notNull()
+      .references(() => storefronts.id, { onDelete: "cascade" }),
+    skuId: uuid("sku_id")
+      .notNull()
+      .references(() => skus.id, { onDelete: "cascade" }),
+    enabled: boolean("enabled").notNull().default(false),
+    enabledAt: timestamp("enabled_at", { withTimezone: true }),
+    enabledBy: uuid("enabled_by").references(() => users.id),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    disabledBy: uuid("disabled_by").references(() => users.id),
+    reason: text("reason"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [unique().on(table.storefrontId, table.skuId)]
+);
+
+export const legacyUrls = pgTable(
+  "legacy_urls",
+  {
+    id: uuid("id").primaryKey(),
+    oldHost: text("old_host").notNull(),
+    oldPathRaw: text("old_path_raw").notNull(),
+    oldPathNormalized: text("old_path_normalized").notNull(),
+    entityType: text("entity_type").notNull(), // 'PRODUCT' | 'CATEGORY' | 'OTHER'
+    entityId: uuid("entity_id"),
+    decision: text("decision").notNull().default("UNDECIDED"), // 'KEEP_301' | 'ARCHIVE_PAGE' | 'GONE_410' | 'UNDECIDED'
+    gscClicks16m: integer("gsc_clicks_16m"),
+    gscImpressions16m: integer("gsc_impressions_16m"),
+    backlinks: integer("backlinks"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [unique().on(table.oldHost, table.oldPathNormalized)]
+);
