@@ -35,14 +35,13 @@ export async function runMigrations(options?: {
     await client.query(`SELECT pg_advisory_lock($1::bigint)`, [MIGRATION_ADVISORY_LOCK_KEY]);
     lockAcquired = true;
 
-    // 2. Ensure _schema_migrations tracking table exists with checksum column
+    // 2. Ensure _schema_migrations tracking table exists with mandatory checksum column
     await client.query(`
       CREATE TABLE IF NOT EXISTS _schema_migrations (
         filename TEXT PRIMARY KEY,
-        checksum TEXT,
+        checksum TEXT NOT NULL,
         applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
-      ALTER TABLE _schema_migrations ADD COLUMN IF NOT EXISTS checksum TEXT;
     `);
 
     // 3. Load already-applied migrations BEFORE executing any migration files
@@ -68,16 +67,9 @@ export async function runMigrations(options?: {
 
       if (appliedMap.has(file)) {
         const recordedChecksum = appliedMap.get(file);
-        if (recordedChecksum && recordedChecksum !== fileChecksum) {
+        if (!recordedChecksum || recordedChecksum !== fileChecksum) {
           throw new Error(
-            `Migration checksum mismatch for already-applied migration "${file}": expected ${recordedChecksum}, got ${fileChecksum}. Never modify an already-applied migration.`
-          );
-        }
-        // Backfill checksum if legacy row had NULL checksum
-        if (!recordedChecksum) {
-          await client.query(
-            `UPDATE _schema_migrations SET checksum = $2 WHERE filename = $1`,
-            [file, fileChecksum]
+            `Migration checksum mismatch for already-applied migration "${file}": expected ${recordedChecksum ?? "NULL"}, got ${fileChecksum}. Never modify an already-applied migration.`
           );
         }
         skipped.push(file);

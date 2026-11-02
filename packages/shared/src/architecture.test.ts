@@ -1,10 +1,24 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..", "..", "..");
+
+function collectFilesRecursively(dir: string, predicate: (filePath: string) => boolean): string[] {
+  const results: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const fullPath = join(dir, entry);
+    const stat = statSync(fullPath);
+    if (stat.isDirectory()) {
+      results.push(...collectFilesRecursively(fullPath, predicate));
+    } else if (predicate(fullPath)) {
+      results.push(fullPath);
+    }
+  }
+  return results;
+}
 
 describe("Architecture, Security & Concealment Verification ([C5, C6, C12], CVE-2025-55182)", () => {
   it("enforces Next.js 16.x and React >= 19.2.1 to remediate CVE-2025-55182 (React2Shell)", () => {
@@ -118,13 +132,53 @@ describe("Architecture, Security & Concealment Verification ([C5, C6, C12], CVE-
     expect(adr3).toContain("AES-256-GCM");
   });
 
-  it("enforces requirePageAuth() and ADMIN RBAC on Hub App pages and proxy", () => {
+  it("enforces requirePageAuth() and ADMIN RBAC on Hub App pages and proxy, and exhaustively scans all page.tsx and route.ts files", () => {
     const proxySrc = readFileSync(
       join(repoRoot, "apps", "hub", "src", "proxy.ts"),
       "utf8"
     );
     expect(proxySrc).toContain("khidi_session");
     expect(proxySrc).toContain("private, no-store, no-cache, must-revalidate");
+
+    const appDir = join(repoRoot, "apps", "hub", "src", "app");
+    const allPages = collectFilesRecursively(appDir, (f) => f.endsWith("page.tsx"));
+    const allRoutes = collectFilesRecursively(appDir, (f) => f.endsWith("route.ts"));
+
+    expect(allPages.length).toBeGreaterThanOrEqual(7);
+    expect(allRoutes.length).toBeGreaterThanOrEqual(5);
+
+    const publicPageRelPaths = new Set(["login/page.tsx"]);
+    for (const pageFile of allPages) {
+      const relPath = relative(appDir, pageFile).replace(/\\/g, "/");
+      const content = readFileSync(pageFile, "utf8");
+      if (!publicPageRelPaths.has(relPath)) {
+        expect(
+          content.includes("requirePageAuth("),
+          `Non-public page "${relPath}" is missing mandatory requirePageAuth() session check!`
+        ).toBe(true);
+      }
+    }
+
+    const publicRouteRelPaths = new Set([
+      "api/health/route.ts",
+      "api/auth/office-login/route.ts",
+      "api/auth/warehouse-pin/route.ts",
+      "api/auth/logout/route.ts"
+    ]);
+    for (const routeFile of allRoutes) {
+      const relPath = relative(appDir, routeFile).replace(/\\/g, "/");
+      const content = readFileSync(routeFile, "utf8");
+      if (!publicRouteRelPaths.has(relPath)) {
+        const hasAuthGuard =
+          content.includes("getCurrentPrincipal(") ||
+          content.includes("requirePageAuth(") ||
+          content.includes("verifyStorefrontServiceCredential(");
+        expect(
+          hasAuthGuard,
+          `Non-public API route "${relPath}" is missing mandatory server-side authentication check!`
+        ).toBe(true);
+      }
+    }
 
     const adminPages = ["users", "entities", "storefronts", "settings"];
     for (const page of adminPages) {
@@ -134,17 +188,5 @@ describe("Architecture, Security & Concealment Verification ([C5, C6, C12], CVE-
       );
       expect(content).toContain('requirePageAuth({ allowedRoles: ["ADMIN"] })');
     }
-
-    const homePage = readFileSync(
-      join(repoRoot, "apps", "hub", "src", "app", "page.tsx"),
-      "utf8"
-    );
-    expect(homePage).toContain("requirePageAuth()");
-
-    const pwaSpikePage = readFileSync(
-      join(repoRoot, "apps", "hub", "src", "app", "diagnostics", "pwa-spike", "page.tsx"),
-      "utf8"
-    );
-    expect(pwaSpikePage).toContain("requirePageAuth()");
   });
 });

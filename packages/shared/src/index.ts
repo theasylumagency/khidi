@@ -1,11 +1,29 @@
 import { randomBytes, createHash, createCipheriv, createDecipheriv } from "node:crypto";
 import { z } from "zod";
 
-const DEFAULT_DEV_TOTP_KEY_HEX =
+export const DEFAULT_DEV_TOTP_KEY_HEX =
   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
-function resolveEncryptionKeyBuffer(explicitKey?: string): Buffer {
-  const rawKey = explicitKey ?? process.env.HUB_TOTP_ENCRYPTION_KEY ?? DEFAULT_DEV_TOTP_KEY_HEX;
+export function resolveEncryptionKeyBuffer(
+  explicitKey?: string,
+  env: NodeJS.ProcessEnv = process.env
+): Buffer {
+  const envKey = env.HUB_TOTP_ENCRYPTION_KEY?.trim();
+
+  if (!explicitKey && env.NODE_ENV === "production") {
+    if (!envKey) {
+      throw new Error(
+        "CRITICAL: HUB_TOTP_ENCRYPTION_KEY environment variable is required in production."
+      );
+    }
+    if (envKey.toLowerCase() === DEFAULT_DEV_TOTP_KEY_HEX) {
+      throw new Error(
+        "CRITICAL: HUB_TOTP_ENCRYPTION_KEY must not use the default repository development key in production."
+      );
+    }
+  }
+
+  const rawKey = explicitKey ?? envKey ?? DEFAULT_DEV_TOTP_KEY_HEX;
   if (/^[0-9a-fA-F]{64}$/.test(rawKey)) {
     return Buffer.from(rawKey, "hex");
   }
@@ -13,12 +31,16 @@ function resolveEncryptionKeyBuffer(explicitKey?: string): Buffer {
 }
 
 /**
- * Encrypts a sensitive secret using AES-256-GCM (`HUB_TOTP_ENCRYPTION_KEY`).
+ * Single canonical AES-256-GCM secret encryption helper (`HUB_TOTP_ENCRYPTION_KEY`).
  * Output format: `v1:<iv_hex>:<auth_tag_hex>:<ciphertext_hex>`
  */
-export function encryptSecretAes256Gcm(plaintext: string, explicitKey?: string): string {
-  const key = resolveEncryptionKeyBuffer(explicitKey);
-  const iv = randomBytes(12);
+export function encryptSecretAes256Gcm(
+  plaintext: string,
+  explicitKey?: string,
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  const key = resolveEncryptionKeyBuffer(explicitKey, env);
+  const iv = randomBytes(12); // 96-bit IV for AES-GCM
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   const encrypted = Buffer.concat([cipher.update(plaintext.trim(), "utf8"), cipher.final()]);
   const authTag = cipher.getAuthTag();
@@ -26,9 +48,13 @@ export function encryptSecretAes256Gcm(plaintext: string, explicitKey?: string):
 }
 
 /**
- * Decrypts a `v1:<iv_hex>:<auth_tag_hex>:<ciphertext_hex>` AES-256-GCM payload.
+ * Single canonical AES-256-GCM secret decryption helper.
  */
-export function decryptSecretAes256Gcm(encryptedPayload: string, explicitKey?: string): string {
+export function decryptSecretAes256Gcm(
+  encryptedPayload: string,
+  explicitKey?: string,
+  env: NodeJS.ProcessEnv = process.env
+): string {
   const parts = encryptedPayload.split(":");
   if (parts.length !== 4 || parts[0] !== "v1") {
     throw new AppError(
@@ -41,8 +67,9 @@ export function decryptSecretAes256Gcm(encryptedPayload: string, explicitKey?: s
     throw new AppError("UNAUTHORIZED", "Malformed encrypted secret payload.");
   }
 
+  const key = resolveEncryptionKeyBuffer(explicitKey, env);
+
   try {
-    const key = resolveEncryptionKeyBuffer(explicitKey);
     const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivHex, "hex"));
     decipher.setAuthTag(Buffer.from(tagHex, "hex"));
     const decrypted = Buffer.concat([

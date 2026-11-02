@@ -5,13 +5,45 @@ import * as schema from "./schema.ts";
 
 const { Pool } = pg;
 
-const DEFAULT_APP_DB_URL =
-  process.env.DATABASE_URL ??
+const DEV_FALLBACK_APP_DB_URL =
   "postgres://hub_app:hub_app_dev_password@127.0.0.1:5435/agrotrade_hub";
 
-const DEFAULT_MIGRATOR_DB_URL =
-  process.env.DATABASE_MIGRATOR_URL ??
+const DEV_FALLBACK_MIGRATOR_DB_URL =
   "postgres://hub_migrator:hub_migrator_dev_password@127.0.0.1:5435/agrotrade_hub";
+
+export function resolveAppDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env.DATABASE_URL?.trim();
+  if (env.NODE_ENV === "production") {
+    if (!configured) {
+      throw new Error("CRITICAL: DATABASE_URL environment variable is required in production.");
+    }
+    if (configured.includes("hub_app_dev_password")) {
+      throw new Error(
+        "CRITICAL: DATABASE_URL must not use the default development password in production."
+      );
+    }
+    return configured;
+  }
+  return configured || DEV_FALLBACK_APP_DB_URL;
+}
+
+export function resolveMigratorDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env.DATABASE_MIGRATOR_URL?.trim();
+  if (env.NODE_ENV === "production") {
+    if (!configured) {
+      throw new Error(
+        "CRITICAL: DATABASE_MIGRATOR_URL environment variable is required in production."
+      );
+    }
+    if (configured.includes("hub_migrator_dev_password")) {
+      throw new Error(
+        "CRITICAL: DATABASE_MIGRATOR_URL must not use the default development password in production."
+      );
+    }
+    return configured;
+  }
+  return configured || DEV_FALLBACK_MIGRATOR_DB_URL;
+}
 
 let appPoolSingleton: pg.Pool | null = null;
 let appDbSingleton: NodePgDatabase<typeof schema> | null = null;
@@ -19,7 +51,7 @@ let appDbSingleton: NodePgDatabase<typeof schema> | null = null;
 export function getAppPool(): pg.Pool {
   if (!appPoolSingleton) {
     appPoolSingleton = new Pool({
-      connectionString: DEFAULT_APP_DB_URL,
+      connectionString: resolveAppDatabaseUrl(),
       max: 10
     });
   }
@@ -35,7 +67,7 @@ export function getDb(): NodePgDatabase<typeof schema> {
 
 export function createMigratorPool(): pg.Pool {
   return new Pool({
-    connectionString: DEFAULT_MIGRATOR_DB_URL,
+    connectionString: resolveMigratorDatabaseUrl(),
     max: 4
   });
 }

@@ -154,4 +154,35 @@ describe("Domain Transaction, Per-Consumer Outbox ([C10]) & Atomic Idempotency",
     expect(retryResult.replayed).toBe(false);
     expect(retryResult.body.ok).toBe(true);
   });
+
+  it("supports nested withDomainTransaction(tx, ...) inside executeIdempotent via PostgreSQL SAVEPOINT and rolls back atomically", async () => {
+    const scope = "test:nested_savepoint_tx";
+    const key = `idem_${createUuidV7()}`;
+    let nestedAuditId = "";
+
+    await expect(
+      executeIdempotent(
+        db,
+        { scope, idempotencyKey: key, payload: { qty: 10 } },
+        async (tx) => {
+          // Call withDomainTransaction passing the active `tx` (DbExecutor) rather than `db`
+          nestedAuditId = await withDomainTransaction(tx, {}, async (ctx) => {
+            return ctx.recordAudit({
+              action: "NESTED_SAVEPOINT_AUDIT",
+              entityType: "reservation",
+              entityId: key
+            });
+          });
+
+          // Now fail in the outer idempotency handler AFTER the inner withDomainTransaction succeeded
+          throw new Error("Outer handler failure after nested withDomainTransaction");
+        }
+      )
+    ).rejects.toThrow("Outer handler failure after nested withDomainTransaction");
+
+    // Because withDomainTransaction(tx, ...) used a nested SAVEPOINT on `tx` (not a separate connection on `db`),
+    // rolling back the outer `executeIdempotent` transaction must have rolled back `nestedAuditId` as well!
+    const rows = await db.select().from(auditLogs).where(eq(auditLogs.id, nestedAuditId));
+    expect(rows).toHaveLength(0);
+  });
 });

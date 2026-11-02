@@ -1,9 +1,10 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import * as OTPAuth from "otpauth";
 import { eq, sql } from "drizzle-orm";
 import {
   type AppDatabase,
+  type DbExecutor,
   users,
   userEntityMemberships,
   userPermissions,
@@ -16,6 +17,8 @@ import { withDomainTransaction } from "@khidi/domain";
 import {
   AppError,
   createUuidV7,
+  decryptSecretAes256Gcm,
+  encryptSecretAes256Gcm,
   sha256Hex,
   type GranularPermission,
   type SupportedLocale,
@@ -28,8 +31,6 @@ const WAREHOUSE_PIN_SESSION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours short sessio
 const MAX_PIN_ATTEMPTS = 5;
 const MAX_LOGIN_ATTEMPTS = 5;
 const TOTP_ISSUER = "Khidi";
-const DEFAULT_DEV_TOTP_KEY_HEX =
-  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 export interface AuthenticatedPrincipal {
   userId: string;
@@ -51,62 +52,27 @@ export async function verifySecret(plain: string, hash: string): Promise<boolean
   return bcrypt.compare(plain, hash);
 }
 
-function resolveTotpEncryptionKey(explicitKey?: string): Buffer {
-  const rawKey = explicitKey ?? process.env.HUB_TOTP_ENCRYPTION_KEY ?? DEFAULT_DEV_TOTP_KEY_HEX;
-  if (/^[0-9a-fA-F]{64}$/.test(rawKey)) {
-    return Buffer.from(rawKey, "hex");
-  }
-  return createHash("sha256").update(rawKey, "utf8").digest();
-}
-
 /**
- * Encrypts a Base32 TOTP secret using AES-256-GCM before storing in `users.totp_secret_encrypted`.
+ * Encrypts a Base32 TOTP secret using AES-256-GCM (`@khidi/shared`) before storing in `users.totp_secret_encrypted`.
  * Format: `v1:<iv_hex>:<auth_tag_hex>:<ciphertext_hex>`
  */
-export function encryptTotpSecret(plainBase32Secret: string, explicitKey?: string): string {
-  const key = resolveTotpEncryptionKey(explicitKey);
-  const iv = randomBytes(12); // 96-bit IV for AES-GCM
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const encrypted = Buffer.concat([
-    cipher.update(plainBase32Secret.trim(), "utf8"),
-    cipher.final()
-  ]);
-  const authTag = cipher.getAuthTag();
-  return `v1:${iv.toString("hex")}:${authTag.toString("hex")}:${encrypted.toString("hex")}`;
+export function encryptTotpSecret(
+  plainBase32Secret: string,
+  explicitKey?: string,
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  return encryptSecretAes256Gcm(plainBase32Secret, explicitKey, env);
 }
 
 /**
- * Decrypts `users.totp_secret_encrypted` using AES-256-GCM.
+ * Decrypts `users.totp_secret_encrypted` using AES-256-GCM (`@khidi/shared`).
  */
-export function decryptTotpSecret(encryptedPayload: string, explicitKey?: string): string {
-  const parts = encryptedPayload.split(":");
-  if (parts.length !== 4 || parts[0] !== "v1") {
-    throw new AppError(
-      "UNAUTHORIZED",
-      "Stored TOTP secret is not in valid v1 AES-256-GCM encrypted format."
-    );
-  }
-  const [, ivHex, tagHex, cipherHex] = parts;
-  if (!ivHex || !tagHex || !cipherHex) {
-    throw new AppError("UNAUTHORIZED", "Malformed encrypted TOTP secret payload.");
-  }
-
-  try {
-    const key = resolveTotpEncryptionKey(explicitKey);
-    const decipher = createDecipheriv(
-      "aes-256-gcm",
-      key,
-      Buffer.from(ivHex, "hex")
-    );
-    decipher.setAuthTag(Buffer.from(tagHex, "hex"));
-    const decrypted = Buffer.concat([
-      decipher.update(Buffer.from(cipherHex, "hex")),
-      decipher.final()
-    ]);
-    return decrypted.toString("utf8");
-  } catch {
-    throw new AppError("UNAUTHORIZED", "Failed to decrypt TOTP secret (invalid encryption key or corrupted tag).");
-  }
+export function decryptTotpSecret(
+  encryptedPayload: string,
+  explicitKey?: string,
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  return decryptSecretAes256Gcm(encryptedPayload, explicitKey, env);
 }
 
 export function generateTotpSecret(email: string): {
@@ -250,7 +216,7 @@ export function assertPriceEditAccess(principal: AuthenticatedPrincipal): void {
 }
 
 export async function loadPrincipalByUserId(
-  db: AppDatabase,
+  db: AppDatabase | DbExecutor,
   userId: string,
   authMethod: "OFFICE_PASSWORD_TOTP" | "WAREHOUSE_PIN" = "OFFICE_PASSWORD_TOTP",
   deviceId: string | null = null
@@ -283,7 +249,10 @@ export async function loadPrincipalByUserId(
   };
 }
 
-async function recordAtomicOfficeLoginFailure(db: AppDatabase, userId: string): Promise<void> {
+async function recordAtomicOfficeLoginFailure(
+  db: AppDatabase | DbExecutor,
+  userId: string
+): Promise<void> {
   await db
     .update(users)
     .set({
@@ -298,7 +267,7 @@ async function recordAtomicOfficeLoginFailure(db: AppDatabase, userId: string): 
  * Enforces atomic brute-force lockout (`failed_login_attempts`, `login_locked_until`) and AES-256-GCM TOTP decryption.
  */
 export async function loginOfficeUser(
-  db: AppDatabase,
+  db: AppDatabase | DbExecutor,
   input: {
     email: string;
     password: string;
@@ -383,7 +352,7 @@ export async function loginOfficeUser(
  * Device Registration & Revocation by ADMIN for shared warehouse phones (§13.2).
  */
 export async function registerWarehouseDevice(
-  db: AppDatabase,
+  db: AppDatabase | DbExecutor,
   adminPrincipal: AuthenticatedPrincipal,
   input: { deviceName: string }
 ): Promise<{ deviceId: string; deviceName: string; rawDeviceToken: string }> {
@@ -414,7 +383,7 @@ export async function registerWarehouseDevice(
 }
 
 export async function revokeWarehouseDevice(
-  db: AppDatabase,
+  db: AppDatabase | DbExecutor,
   adminPrincipal: AuthenticatedPrincipal,
   input: { deviceId: string; reason: string }
 ): Promise<void> {
@@ -442,7 +411,7 @@ export async function revokeWarehouseDevice(
  * Uses atomic SQL increment for `failed_pin_attempts` and `pin_locked_until`.
  */
 export async function loginWithWarehousePin(
-  db: AppDatabase,
+  db: AppDatabase | DbExecutor,
   input: {
     rawDeviceToken: string;
     userId: string;
@@ -527,7 +496,7 @@ export async function loginWithWarehousePin(
 }
 
 export async function verifySessionToken(
-  db: AppDatabase,
+  db: AppDatabase | DbExecutor,
   rawSessionToken: string
 ): Promise<AuthenticatedPrincipal> {
   const tokenHash = sha256Hex(rawSessionToken);
@@ -561,7 +530,7 @@ export async function verifySessionToken(
 }
 
 export async function revokeSessionToken(
-  db: AppDatabase,
+  db: AppDatabase | DbExecutor,
   rawSessionToken: string
 ): Promise<void> {
   const tokenHash = sha256Hex(rawSessionToken);
@@ -591,7 +560,7 @@ export async function revokeSessionToken(
  * the request presents a valid, active registered warehouse device token.
  */
 export async function listPinEnabledUsersForRegisteredDevice(
-  db: AppDatabase,
+  db: AppDatabase | DbExecutor,
   rawDeviceToken: string
 ): Promise<{
   device: { id: string; deviceName: string };
@@ -627,7 +596,7 @@ export async function listPinEnabledUsersForRegisteredDevice(
  * Scoped Storefront Service Key issuance and verification (§12.1, §16.2).
  */
 export async function issueStorefrontApiKey(
-  db: AppDatabase,
+  db: AppDatabase | DbExecutor,
   adminPrincipal: AuthenticatedPrincipal,
   input: {
     storefrontId: string;
@@ -677,7 +646,7 @@ export async function issueStorefrontApiKey(
 }
 
 export async function verifyStorefrontServiceCredential(
-  db: AppDatabase,
+  db: AppDatabase | DbExecutor,
   input: {
     requestedStorefrontKey: string;
     rawApiKey: string;
@@ -738,7 +707,7 @@ export async function verifyStorefrontServiceCredential(
 }
 
 export async function listUsersWithMemberships(
-  db: AppDatabase,
+  db: AppDatabase | DbExecutor,
   adminPrincipal: AuthenticatedPrincipal
 ) {
   assertRoleAllowed(adminPrincipal, ["ADMIN"]);

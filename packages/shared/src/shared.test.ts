@@ -3,6 +3,7 @@ import {
   AppError,
   createUuidV7,
   decryptSecretAes256Gcm,
+  DEFAULT_DEV_TOTP_KEY_HEX,
   encryptSecretAes256Gcm,
   formatTbilisiDateTime,
   formatTetri,
@@ -17,6 +18,33 @@ describe("@khidi/shared", () => {
     expect(cipher.startsWith("v1:")).toBe(true);
     expect(decryptSecretAes256Gcm(cipher, key)).toBe("JBSWY3DPEHPK3PXP");
     expect(() => decryptSecretAes256Gcm("JBSWY3DPEHPK3PXP", key)).toThrow(AppError);
+  });
+
+  it("fails fast in NODE_ENV=production if HUB_TOTP_ENCRYPTION_KEY is missing or uses the default dev key", () => {
+    expect(() =>
+      encryptSecretAes256Gcm("JBSWY3DPEHPK3PXP", undefined, {
+        NODE_ENV: "production"
+      })
+    ).toThrow(/CRITICAL: HUB_TOTP_ENCRYPTION_KEY/);
+
+    expect(() =>
+      encryptSecretAes256Gcm("JBSWY3DPEHPK3PXP", undefined, {
+        NODE_ENV: "production",
+        HUB_TOTP_ENCRYPTION_KEY: DEFAULT_DEV_TOTP_KEY_HEX
+      })
+    ).toThrow(/CRITICAL: HUB_TOTP_ENCRYPTION_KEY/);
+
+    const prodKey = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+    const encrypted = encryptSecretAes256Gcm("JBSWY3DPEHPK3PXP", undefined, {
+      NODE_ENV: "production",
+      HUB_TOTP_ENCRYPTION_KEY: prodKey
+    });
+    expect(
+      decryptSecretAes256Gcm(encrypted, undefined, {
+        NODE_ENV: "production",
+        HUB_TOTP_ENCRYPTION_KEY: prodKey
+      })
+    ).toBe("JBSWY3DPEHPK3PXP");
   });
   it("generates monotonic UUIDv7 identifiers", () => {
     const id1 = createUuidV7(1762000000000);

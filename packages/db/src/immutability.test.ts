@@ -4,7 +4,14 @@ import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll } from "vitest";
 import { eq } from "drizzle-orm";
 import { createUuidV7 } from "@khidi/shared";
-import { getDb, auditLogs, outboxEvents, runMigrations } from "./index.ts";
+import {
+  getDb,
+  auditLogs,
+  outboxEvents,
+  runMigrations,
+  resolveAppDatabaseUrl,
+  resolveMigratorDatabaseUrl
+} from "./index.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -82,5 +89,35 @@ describe("Database Foundation: Role Separation, Migration Runner & Append-Only I
     expect(runA.skipped).toContain("0001_foundation.sql");
     expect(runB.applied).toEqual([]);
     expect(runB.skipped).toContain("0001_foundation.sql");
+  });
+
+  it("fails fast in NODE_ENV=production if DATABASE_URL or DATABASE_MIGRATOR_URL is missing or uses dev passwords", () => {
+    expect(() => resolveAppDatabaseUrl({ NODE_ENV: "production" })).toThrow(
+      /CRITICAL: DATABASE_URL/
+    );
+    expect(() =>
+      resolveAppDatabaseUrl({
+        NODE_ENV: "production",
+        DATABASE_URL: "postgresql://hub_app:hub_app_dev_password@localhost:5435/agrotrade_hub"
+      })
+    ).toThrow(/CRITICAL: DATABASE_URL/);
+
+    expect(() => resolveMigratorDatabaseUrl({ NODE_ENV: "production" })).toThrow(
+      /CRITICAL: DATABASE_MIGRATOR_URL/
+    );
+    expect(() =>
+      resolveMigratorDatabaseUrl({
+        NODE_ENV: "production",
+        DATABASE_MIGRATOR_URL:
+          "postgresql://hub_migrator:hub_migrator_dev_password@localhost:5435/agrotrade_hub"
+      })
+    ).toThrow(/CRITICAL: DATABASE_MIGRATOR_URL/);
+
+    expect(
+      resolveAppDatabaseUrl({
+        NODE_ENV: "production",
+        DATABASE_URL: "postgresql://hub_app:s3cr3t_prod_pw@db.internal:5432/khidi_hub"
+      })
+    ).toBe("postgresql://hub_app:s3cr3t_prod_pw@db.internal:5432/khidi_hub");
   });
 });

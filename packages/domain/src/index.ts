@@ -133,13 +133,17 @@ export function createDomainTransactionContext(
 /**
  * Every state-changing domain operation runs in one database transaction
  * with its audit and transactional outbox rows (§3.4, [C10]).
+ *
+ * Accepts either top-level `AppDatabase` OR an already-active `DbExecutor` (`tx`),
+ * in which case Drizzle uses a nested PostgreSQL `SAVEPOINT` inside the outer transaction
+ * (e.g., when called inside `executeIdempotent`).
  */
 export async function withDomainTransaction<T>(
-  db: AppDatabase,
+  dbOrTx: AppDatabase | DbExecutor,
   actor: DomainActor,
   fn: (ctx: DomainTransactionContext) => Promise<T>
 ): Promise<T> {
-  return db.transaction(async (tx) => {
+  return dbOrTx.transaction(async (tx) => {
     const ctx = createDomainTransactionContext(tx, actor);
     return fn(ctx);
   });
@@ -172,7 +176,7 @@ export async function executeIdempotent<
   TPayload,
   TBody extends Record<string, unknown>
 >(
-  db: AppDatabase,
+  db: AppDatabase | DbExecutor,
   options: IdempotentExecutionOptions<TPayload>,
   handler: (tx: DbExecutor) => Promise<{ status: number; body: TBody }>
 ): Promise<IdempotentResult<TBody>> {
@@ -282,7 +286,7 @@ export async function executeIdempotent<
   });
 }
 
-export async function listRecentAuditLogs(db: AppDatabase, limit: number = 50) {
+export async function listRecentAuditLogs(db: AppDatabase | DbExecutor, limit: number = 50) {
   return db
     .select()
     .from(auditLogs)

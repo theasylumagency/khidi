@@ -2,6 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   type AppDatabase,
+  type DbExecutor,
   type ReservationPolicyConfig,
   legalEntities,
   storefronts,
@@ -54,7 +55,7 @@ export const setEntityRelationshipSchema = z.object({
 export type SetEntityRelationshipInput = z.infer<typeof setEntityRelationshipSchema>;
 
 export async function createLegalEntity(
-  db: AppDatabase,
+  db: AppDatabase | DbExecutor,
   actor: DomainActor,
   rawInput: CreateLegalEntityInput
 ) {
@@ -94,11 +95,11 @@ export async function createLegalEntity(
   });
 }
 
-export async function listLegalEntities(db: AppDatabase) {
+export async function listLegalEntities(db: AppDatabase | DbExecutor) {
   return db.select().from(legalEntities).orderBy(legalEntities.key);
 }
 
-export async function getLegalEntityById(db: AppDatabase, id: string) {
+export async function getLegalEntityById(db: AppDatabase | DbExecutor, id: string) {
   const [entity] = await db.select().from(legalEntities).where(eq(legalEntities.id, id)).limit(1);
   if (!entity) {
     throw new AppError("NOT_FOUND", `Legal entity ${id} not found`);
@@ -107,7 +108,7 @@ export async function getLegalEntityById(db: AppDatabase, id: string) {
 }
 
 export async function createStorefront(
-  db: AppDatabase,
+  db: AppDatabase | DbExecutor,
   actor: DomainActor,
   rawInput: CreateStorefrontInput
 ) {
@@ -168,7 +169,7 @@ export async function createStorefront(
   });
 }
 
-export async function listStorefronts(db: AppDatabase) {
+export async function listStorefronts(db: AppDatabase | DbExecutor) {
   return db
     .select({
       id: storefronts.id,
@@ -196,7 +197,7 @@ export async function listStorefronts(db: AppDatabase) {
  * allocations have open reservations or commitments.
  */
 export async function setEntityRelationship(
-  db: AppDatabase,
+  db: AppDatabase | DbExecutor,
   actor: DomainActor,
   rawInput: SetEntityRelationshipInput,
   options?: {
@@ -270,7 +271,7 @@ export async function setEntityRelationship(
 }
 
 export async function getActiveEntityRelationship(
-  db: AppDatabase,
+  db: AppDatabase | DbExecutor,
   fromEntityId: string,
   toEntityId: string
 ): Promise<{ id: string; mode: RelationshipMode; effectiveFrom: Date; notes: string | null } | null> {
@@ -298,6 +299,6 @@ export async function getActiveEntityRelationship(
   };
 }
 
-export async function listEntityRelationships(db: AppDatabase) {
+export async function listEntityRelationships(db: AppDatabase | DbExecutor) {
   return db.select().from(entityRelationships).orderBy(desc(entityRelationships.effectiveFrom));
 }
