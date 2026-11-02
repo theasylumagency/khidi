@@ -11,7 +11,7 @@ export default async function WarehouseScanPage({ params }: { params: Promise<{ 
   const { taskId } = await params;
   try {
     const task = await getAssignedScanTask(getDb(), principal, taskId);
-    return <section className="scanning-panel"><WarehouseScanner task={{ id: task.id, title: task.title, status: task.status, completedCount: task.completedCount, targetCount: task.targetCount }} /></section>;
+    return <section className="scanning-panel"><WarehouseScanner task={{ id: task.id, title: task.title, status: task.status, completedCount: task.completedCount, targetCount: task.targetCount, photosRequired: task.photosRequired }} /></section>;
   } catch (error) {
     if (error instanceof AppError && ["NOT_FOUND", "VALIDATION_ERROR"].includes(error.code)) notFound();
     throw error;

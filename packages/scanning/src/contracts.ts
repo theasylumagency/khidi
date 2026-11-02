@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { discardedPhotoSchema } from "@khidi/media/contracts";
 
 export const SCAN_TASK_TYPES = ["INTAKE_UNIQUE", "PHYSICAL_COUNT", "PHOTO_REQUEST", "EVIDENCE_REQUEST", "PICK"] as const;
 export type ScanTaskType = (typeof SCAN_TASK_TYPES)[number];
@@ -62,6 +63,7 @@ export const discardInputSchema = z.object({
   idempotencyKey: uuidV7Schema, scanIdempotencyKey: z.string().min(1).max(128),
   userId: z.string().uuid(), deviceId: z.string().max(128),
   scannedValue: z.string().max(4096), scannedAt: z.string().max(128),
-  reason: z.string().trim().min(1).max(4000)
-}).strict();
+  reason: z.string().trim().min(1).max(4000),
+  photos: z.array(discardedPhotoSchema).optional(), photoCount: z.number().int().min(0).optional()
+}).strict().refine((value) => value.photos === undefined ? value.photoCount === undefined : value.photoCount === value.photos.length, "Photo metadata count mismatch.");
 export type DiscardInput = z.infer<typeof discardInputSchema>;

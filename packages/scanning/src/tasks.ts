@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, isNotNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, isNotNull, or } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
 import { type DbExecutor, productIntakes, productTypes, scanTasks, skus, users } from "@khidi/db";
 import { executeIdempotent, withDomainTransaction } from "@khidi/domain";
@@ -69,7 +69,7 @@ export async function listIntakes(db: DbExecutor, principal: AuthenticatedPrinci
 function sqlNoReview() { return or(isNull(productIntakes.reviewReason), isNotNull(productIntakes.reviewedAt)); }
 
 const scannerTaskFields = { id: scanTasks.id, title: scanTasks.title, status: scanTasks.status,
-  completedCount: scanTasks.completedCount, targetCount: scanTasks.targetCount, dueDate: scanTasks.dueDate };
+  completedCount: scanTasks.completedCount, targetCount: scanTasks.targetCount, dueDate: scanTasks.dueDate, photosRequired: scanTasks.photosRequired };
 function scannerAssignment(principal: AuthenticatedPrincipal) {
   return principal.role === "ADMIN" ? undefined : or(eq(scanTasks.assigneeUserId, principal.userId), eq(scanTasks.assigneeRole, principal.role));
 }
@@ -91,4 +91,14 @@ export async function getAssignedScanTask(db: DbExecutor, principal: Authenticat
     eq(scanTasks.taskType, "INTAKE_UNIQUE"), scannerAssignment(principal))).limit(1);
   if (!task) throw new AppError("NOT_FOUND", "Assigned intake task not found.");
   return task;
+}
+
+/** A task-scoped duplicate cache contains identifiers and intake references only. */
+export async function listTaskPhotoIdentifiers(db: DbExecutor, principal: AuthenticatedPrincipal, taskId: string, cursor?: string) {
+  await getAssignedScanTask(db, principal, taskId);
+  if (cursor && !/^[a-f0-9-]{36}$/i.test(cursor)) throw new AppError("VALIDATION_ERROR", "Invalid cursor.");
+  const rows = await db.select({ id: productIntakes.id, key: productIntakes.normalizedIdentifier, duplicateOf: productIntakes.duplicateOfIntakeId, internalSku: skus.internalSku })
+    .from(productIntakes).leftJoin(skus, eq(skus.id, productIntakes.matchedSkuId)).where(and(eq(productIntakes.taskId, taskId), cursor ? gt(productIntakes.id, cursor) : undefined)).orderBy(asc(productIntakes.id)).limit(1001);
+  const page = rows.slice(0, 1000);
+  return { identifiers: page.flatMap((row) => [...(row.key ? [{ key: row.key, intakeId: row.duplicateOf ?? row.id }] : []), ...(row.internalSku ? [{ key: `INTERNAL:${row.internalSku}`, intakeId: row.duplicateOf ?? row.id }] : [])]), nextCursor: rows.length > 1000 ? page.at(-1)!.id : null };
 }

@@ -1,4 +1,4 @@
-import { AppError } from "@khidi/shared";
+import { AppError } from "@khidi/shared/errors";
 
 /**
  * Computes the standard GS1 Modulo-10 check digit for the payload digits (excluding the check digit).

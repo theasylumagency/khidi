@@ -16,6 +16,7 @@ export type PhotoUploadInput = z.infer<typeof photoUploadSchema>;
 export interface CaptureSlot { slot: PhotoSlot; required: boolean; titleKa?: string; guidanceKa?: string; alreadyCovered?: boolean }
 export const GENERIC_CAPTURE_SLOTS: CaptureSlot[] = ["MAIN", "SECONDARY", "IDENTIFICATION"].map((slot) => ({ slot: slot as PhotoSlot, required: true }));
 export interface DiscardedPhotoMetadata { idempotencyKey: string; slot: PhotoSlot; sha256: string; bytes: number; capturedAt: string }
+export const discardedPhotoSchema = z.object({ idempotencyKey: uuidV7, slot: z.enum(PHOTO_SLOTS), sha256: z.string().regex(/^[a-f0-9]{64}$/), bytes: z.number().int().positive().max(MAX_PHOTO_BYTES), capturedAt: z.string().datetime({ offset: true }) }).strict();
 export const PHOTO_TARGET_FIELDS = {
   intakeId: z.string().uuid().nullable().default(null), intakeIdempotencyKey: uuidV7.nullable().default(null),
   photoRequestTaskId: z.string().uuid().nullable().default(null), skuId: z.string().uuid().nullable().default(null)
@@ -27,3 +28,6 @@ export const photoAttentionSchema = z.object({ ...PHOTO_TARGET_FIELDS,
   capturedAt: z.string().datetime({ offset: true }), reason: z.string().trim().min(1).max(4000),
   slots: z.array(z.enum(PHOTO_SLOTS)).min(1).max(4)
 }).strict().refine((value) => [value.intakeId, value.intakeIdempotencyKey, value.photoRequestTaskId, value.skuId].filter(Boolean).length === 1, "Choose one photo target.");
+export const photoDiscardSchema = z.object({ ...PHOTO_TARGET_FIELDS, idempotencyKey: uuidV7, userId: z.string().uuid(), deviceId: z.string().uuid(), reason: z.string().trim().min(1).max(4000), photo: discardedPhotoSchema }).strict().refine((value) => [value.intakeId, value.intakeIdempotencyKey, value.photoRequestTaskId, value.skuId].filter(Boolean).length === 1, "Choose one photo target.");
+export type PhotoAttentionInput = z.infer<typeof photoAttentionSchema>;
+export type PhotoDiscardInput = z.infer<typeof photoDiscardSchema>;

@@ -7,6 +7,7 @@ import { createUuidV7 } from "@khidi/shared";
 import { createScanTask, receiveIntake } from "../../scanning/src/index.ts";
 import { getPhotoCaptureContext, reportPhotoAttention } from "./capture.ts";
 import { receivePhoto } from "./upload.ts";
+import { reportOfflinePhotoDiscard } from "./discard.ts";
 import { fixturePhoto } from "./test-fixtures.ts";
 import { FilesystemMediaStorage } from "./storage.ts";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -83,5 +84,17 @@ describe("P4 capture instructions and explicit inability to photograph", () => {
     const [state] = await db.select().from(intakePhotoStatus).where(eq(intakePhotoStatus.intakeId, covered.body.id));
     expect(state).toMatchObject({ status: "COMPLETE", requiredSlotsJson: [] });
     const [intake] = await db.select().from(productIntakes).where(eq(productIntakes.id, covered.body.id)); expect(intake!.photosMissing).toBe(false);
+  });
+  it("reports an owner-discarded blocked photo as metadata and marks the original intake for attention", async () => {
+    const task = await createScanTask(db, admin, { idempotencyKey: createUuidV7(), taskType: "INTAKE_UNIQUE", title: "Discarded photo", assigneeRole: "WAREHOUSE" });
+    const scan = { idempotencyKey: createUuidV7(), userId: warehouse.userId, deviceId: createUuidV7(), scannedAt: new Date().toISOString(), taskId: task.body.id, sourceMode: "TASK", scannedValue: `PHOTO-${createUuidV7()}` };
+    const intake = await receiveIntake(db, warehouse, scan);
+    const report = { idempotencyKey: createUuidV7(), userId: warehouse.userId, deviceId: scan.deviceId, intakeId: intake.body.id, reason: "Upload rejected; owner discarded", photo: { idempotencyKey: createUuidV7(), slot: "MAIN", sha256: "a".repeat(64), bytes: 123, capturedAt: scan.scannedAt } };
+    expect((await reportOfflinePhotoDiscard(db, warehouse, report)).body.needsAttention).toBe(true);
+    expect((await reportOfflinePhotoDiscard(db, warehouse, report)).replayed).toBe(true);
+    await expect(reportOfflinePhotoDiscard(db, warehouse, { ...report, photo: { ...report.photo, blob: "forbidden bytes" } })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(reportOfflinePhotoDiscard(db, operator, report)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const [row] = await db.select().from(productIntakes).where(eq(productIntakes.id, intake.body.id)); expect(row).toMatchObject({ photosMissing: true, photoAttentionReason: report.reason });
+    expect(await db.select().from(auditLogs).where(and(eq(auditLogs.entityId, report.idempotencyKey), eq(auditLogs.action, "OFFLINE_PHOTO_DISCARDED")))).toHaveLength(1);
   });
 });

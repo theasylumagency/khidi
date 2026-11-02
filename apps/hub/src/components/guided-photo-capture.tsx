@@ -6,10 +6,11 @@ import type { QualityConfig, QualityReport } from "@khidi/media/quality";
 import { t, type TranslationKey } from "@khidi/i18n";
 import "./media.css";
 
-export function GuidedPhotoCapture({ slots, acceptedSlots, qualityConfig, disabled, onAccept, onCannotPhotograph, onComplete }: {
+export function GuidedPhotoCapture({ slots, acceptedSlots, qualityConfig, disabled, onAccept, onCannotPhotograph, onComplete, onPhotoTaken, onNativePending }: {
   slots: CaptureSlot[]; acceptedSlots: PhotoSlot[]; qualityConfig: QualityConfig; disabled?: boolean;
   onAccept: (photo: { blob: Blob; slot: PhotoSlot; capturedAt: string; quality: QualityReport }) => Promise<void>;
   onCannotPhotograph: (reason: string, slots: PhotoSlot[]) => Promise<void>; onComplete: () => void;
+  onPhotoTaken?: () => void; onNativePending?: (pending: boolean) => void;
 }) {
   const [index, setIndex] = useState(0), [accepted, setAccepted] = useState(new Set(acceptedSlots));
   const [busy, setBusy] = useState(false), [message, setMessage] = useState(""), [error, setError] = useState("");
@@ -17,6 +18,12 @@ export function GuidedPhotoCapture({ slots, acceptedSlots, qualityConfig, disabl
   const [state, setState] = useState<PhotoCameraState>({ running: false, starting: false, width: 0, height: 0, issue: null });
   const native = useRef<HTMLInputElement>(null), picker = useRef<HTMLInputElement>(null), video = useRef<HTMLVideoElement>(null);
   const camera = useRef<PhotoCamera | null>(null), flight = useRef(false);
+  const pendingCallback = useRef(onNativePending); pendingCallback.current = onNativePending;
+  useEffect(() => {
+    const inputs = [native.current, picker.current], cancel = () => pendingCallback.current?.(false);
+    inputs.forEach((input) => input?.addEventListener("cancel", cancel));
+    return () => inputs.forEach((input) => input?.removeEventListener("cancel", cancel));
+  }, []);
   const acceptedKey = acceptedSlots.toSorted().join("|");
   useEffect(() => { setAccepted(new Set(acceptedKey.split("|").filter(Boolean) as PhotoSlot[])); }, [acceptedKey]);
   useEffect(() => { const controller = browserPhotoCamera(setState); camera.current = controller; return () => { controller.stop(); camera.current = null; }; }, []);
@@ -26,7 +33,7 @@ export function GuidedPhotoCapture({ slots, acceptedSlots, qualityConfig, disabl
   const lowResolution = state.running && Math.max(state.width, state.height) < qualityConfig.minLongEdge;
   async function accept(blob: Blob) {
     if (!current || disabled || flight.current) return;
-    flight.current = true; setBusy(true); setError(""); setMessage("");
+    onPhotoTaken?.(); flight.current = true; setBusy(true); setError(""); setMessage("");
     try {
       const quality = await checkCapturedPhoto(blob, qualityConfig);
       const capturedAt = new Date().toISOString();
@@ -39,13 +46,13 @@ export function GuidedPhotoCapture({ slots, acceptedSlots, qualityConfig, disabl
     } catch (failure) { setError(failure instanceof PhotoCaptureError ? t(`media.error.${failure.reason}` as TranslationKey) : t("media.storage_error")); }
     finally { flight.current = false; setBusy(false); }
   }
-  function selected(event: ChangeEvent<HTMLInputElement>) { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void accept(file); }
+  function selected(event: ChangeEvent<HTMLInputElement>) { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void accept(file); onNativePending?.(false); }
   async function snapshot() {
     try { if (camera.current) await accept(await camera.current.capture(qualityConfig.minLongEdge)); }
     catch (failure) { setError(failure instanceof PhotoCaptureError ? t(`media.error.${failure.reason}` as TranslationKey) : t("scanner.camera_unavailable")); }
   }
   async function explain(event: FormEvent) {
-    event.preventDefault(); if (!reason.trim() || busy || disabled) return;
+    event.preventDefault(); if (!reason.trim() || busy) return;
     setBusy(true); setError("");
     try { await onCannotPhotograph(reason.trim(), missing.map((slot) => slot.slot)); camera.current?.stop(); onComplete(); }
     catch { setError(t("media.storage_error")); }
@@ -71,8 +78,8 @@ export function GuidedPhotoCapture({ slots, acceptedSlots, qualityConfig, disabl
     </div>
     <input hidden ref={native} type="file" accept="image/jpeg" capture="environment" onChange={selected} aria-label={t("media.native_capture")} />
     <input hidden ref={picker} type="file" accept="image/jpeg,image/png,image/webp" onChange={selected} aria-label={t("media.pick_file")} />
-    <div className="scanning-actions"><button type="button" disabled={busy || disabled} onClick={() => { camera.current?.stop(); native.current?.click(); }}>{t("media.native_capture")}</button>
-      <button type="button" disabled={busy || disabled} onClick={() => picker.current?.click()}>{t("media.pick_file")}</button></div>
+    <div className="scanning-actions"><button type="button" disabled={busy || disabled} onClick={() => { camera.current?.stop(); onNativePending?.(true); native.current?.click(); }}>{t("media.native_capture")}</button>
+      <button type="button" disabled={busy || disabled} onClick={() => { onNativePending?.(true); picker.current?.click(); }}>{t("media.pick_file")}</button></div>
     <div className="scanning-actions">{state.running || state.starting
       ? <><button type="button" disabled={busy || lowResolution || disabled || !state.running} onClick={() => { void snapshot(); }}>{t("media.take_photo")}</button><button type="button" onClick={() => camera.current?.stop()}>{t("scanner.camera_stop")}</button></>
       : <button type="button" disabled={busy || disabled} onClick={() => { if (video.current) void camera.current?.start(video.current); }}>{t("media.live_camera")}</button>}
@@ -83,8 +90,8 @@ export function GuidedPhotoCapture({ slots, acceptedSlots, qualityConfig, disabl
     {error ? <p role="alert">{error}</p> : null}
     <button type="button" className="media-next" disabled={busy || disabled || missing.length > 0} onClick={() => { camera.current?.stop(); onComplete(); }}>{t("media.finish_capture")}</button>
     {missing.length ? <><p>{t("media.required_pending").replace("{count}", String(missing.length))}</p>
-      <button type="button" disabled={busy || disabled} onClick={() => setCannot(!cannot)}>{t("media.cannot_photo")}</button></> : null}
+      <button type="button" disabled={busy} onClick={() => setCannot(!cannot)}>{t("media.cannot_photo")}</button></> : null}
     {cannot ? <form onSubmit={explain}><label>{t("media.cannot_reason")}<textarea value={reason} onChange={(event) => setReason(event.target.value)} required maxLength={4000} /></label>
-      <button type="submit" disabled={busy || disabled || !reason.trim()}>{t("media.save_reason")}</button></form> : null}
+      <button type="submit" disabled={busy || !reason.trim()}>{t("media.save_reason")}</button></form> : null}
   </section>;
 }
