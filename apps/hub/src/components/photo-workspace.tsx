@@ -7,8 +7,8 @@ import { t } from "@khidi/i18n";
 import { useScanQueue } from "./scan-queue-provider.tsx";
 import { GuidedPhotoCapture } from "./guided-photo-capture.tsx";
 export interface CaptureContext { target: PhotoTarget; slots: CaptureSlot[]; acceptedSlots: PhotoSlot[]; missingSlots: PhotoSlot[]; isDuplicate: boolean; canCompletePhotos: boolean; qualityConfig: QualityConfig }
-export function PhotoWorkspace({ target, onlyMissing = false, onComplete, onDuplicate }: { target: Partial<PhotoTarget>; onlyMissing?: boolean; onComplete: () => void; onDuplicate?: (context: CaptureContext) => void }) {
-  const queue = useScanQueue(), [context, setContext] = useState<CaptureContext | null>(null), [local, setLocal] = useState<PhotoSlot[]>([]);
+export function PhotoWorkspace({ target, initialContext, onlyMissing = false, onComplete, onDuplicate }: { target: Partial<PhotoTarget>; initialContext?: CaptureContext; onlyMissing?: boolean; onComplete: () => void; onDuplicate?: (context: CaptureContext) => void }) {
+  const queue = useScanQueue(), [context, setContext] = useState<CaptureContext | null>(initialContext ?? null), [local, setLocal] = useState<PhotoSlot[]>([]);
   const taken = useRef(false), nativePending = useRef(false), duplicate = useRef<CaptureContext | null>(null);
   const onDuplicateRef = useRef(onDuplicate); onDuplicateRef.current = onDuplicate;
   const targetKey = JSON.stringify(target), delivery = queue.lastDelivery?.key;

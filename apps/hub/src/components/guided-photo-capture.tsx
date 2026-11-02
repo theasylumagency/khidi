@@ -88,7 +88,7 @@ export function GuidedPhotoCapture({ slots, acceptedSlots, qualityConfig, disabl
     {state.issue ? <p role="alert">{t(state.issue === "permission" ? "scanner.camera_permission" : "scanner.camera_unavailable")}</p> : null}
     <p role="status" aria-live="polite">{busy ? t("media.checking_photo") : message}</p>
     {error ? <p role="alert">{error}</p> : null}
-    <button type="button" className="media-next" disabled={busy || disabled || missing.length > 0} onClick={() => { camera.current?.stop(); onComplete(); }}>{t("media.finish_capture")}</button>
+    <button type="button" className="media-next" disabled={busy || missing.length > 0} onClick={() => { camera.current?.stop(); onComplete(); }}>{t("media.finish_capture")}</button>
     {missing.length ? <><p>{t("media.required_pending").replace("{count}", String(missing.length))}</p>
       <button type="button" disabled={busy} onClick={() => setCannot(!cannot)}>{t("media.cannot_photo")}</button></> : null}
     {cannot ? <form onSubmit={explain}><label>{t("media.cannot_reason")}<textarea value={reason} onChange={(event) => setReason(event.target.value)} required maxLength={4000} /></label>

@@ -6,6 +6,9 @@ import { getSkuWithDetails } from "@khidi/products";
 import { AppError } from "@khidi/shared";
 import { requirePageAuth } from "../../../lib/session.ts";
 import { SkuDetailActions } from "../../../components/sku-detail-actions.tsx";
+import { PhotoRequestForm } from "../../../components/photo-request-form.tsx";
+import { listTaskAssignees } from "@khidi/scanning";
+import { formatStaffName } from "@khidi/i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +23,7 @@ export default async function SkuDetailPage({
 
   const { skuId } = await params;
   const db = getDb();
+  const photoAssignees = principal.role === "ADMIN" ? (await listTaskAssignees(db, principal)).filter((user) => user.role === "WAREHOUSE").map((user) => ({ id: user.id, fullName: formatStaffName(user.fullName) })) : [];
 
   let details: Awaited<ReturnType<typeof getSkuWithDetails>>;
   try {
@@ -442,6 +446,7 @@ export default async function SkuDetailPage({
             </ul>
           )}
         </section>
+        {principal.role === "ADMIN" ? <section><PhotoRequestForm skuId={skuId} assignees={photoAssignees} /></section> : null}
       </div>
     </div>
   );

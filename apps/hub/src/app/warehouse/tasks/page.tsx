@@ -15,7 +15,7 @@ export default async function WarehouseTasksPage({ searchParams }: { searchParam
     <ul>{tasks.rows.map((task) => <li key={task.id}><Link href={`/warehouse/tasks/${task.id}`}>
       <strong>{task.title}</strong><span>{t("scanning.progress")}: {task.completedCount} / {task.targetCount ?? "—"}</span>
       {task.dueDate ? <span>{t("scanning.due")}: {formatTbilisiDateTime(task.dueDate)}</span> : null}
-      <span>{t("scanner.open")} →</span>
+      <span>{t(task.taskType === "PHOTO_REQUEST" ? "media.open_request" : "scanner.open")} →</span>
     </Link></li>)}</ul>
     <nav className="scanning-actions">{page > 1 ? <Link href={`/warehouse/tasks?page=${page - 1}`}>{t("scanning.previous")}</Link> : null}
       {tasks.hasMore ? <Link href={`/warehouse/tasks?page=${page + 1}`}>{t("scanning.next")}</Link> : null}</nav>

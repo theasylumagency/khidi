@@ -72,6 +72,17 @@ export async function refreshIntakePhotoStatus(ctx: DomainTransactionContext, in
   await ctx.tx.update(intakePhotoStatus).set({ status: complete ? "COMPLETE" : state.status === "ATTENTION" ? "ATTENTION" : "PENDING", attentionReason: complete ? null : state.attentionReason, updatedAt: new Date() }).where(eq(intakePhotoStatus.intakeId, intakeId));
   await ctx.tx.update(productIntakes).set({ photosMissing: !complete, photoAttentionReason: complete ? null : state.attentionReason }).where(eq(productIntakes.id, intakeId));
 }
+export async function refreshPhotoRequest(ctx: DomainTransactionContext, taskId: string) {
+  const [task] = await ctx.tx.select().from(scanTasks).where(eq(scanTasks.id, taskId)).for("update");
+  if (!task || task.taskType !== "PHOTO_REQUEST" || !["OPEN", "IN_PROGRESS"].includes(task.status)) return;
+  const images = await ctx.tx.select({ slot: productImages.slot, quality: productImages.tier1QualityJson, status: productImages.status }).from(productImages).where(eq(productImages.photoRequestTaskId, taskId));
+  const accepted = new Set(images.filter((image) => image.quality.passed === true && image.status !== "REJECTED").map((image) => image.slot));
+  const completedCount = task.requestedPhotoSlotsJson!.filter((slot) => accepted.has(slot)).length, complete = completedCount === task.requestedPhotoSlotsJson!.length;
+  await ctx.tx.update(scanTasks).set({ completedCount, status: complete ? "COMPLETED" : "IN_PROGRESS", completedAt: complete ? new Date() : null }).where(eq(scanTasks.id, taskId));
+  const body = { status: complete ? "COMPLETED" : "IN_PROGRESS", completedCount, targetCount: task.requestedPhotoSlotsJson!.length };
+  await ctx.recordAudit({ action: complete ? "SCAN_TASK_COMPLETED" : "PHOTO_REQUEST_PROGRESS_UPDATED", entityType: "scan_task", entityId: taskId, after: body });
+  await ctx.emitOutboxEvent({ eventType: complete ? "SCAN_TASK_COMPLETED" : "PHOTO_REQUEST_PROGRESS_UPDATED", aggregateType: "scan_task", aggregateId: taskId, payload: body, consumers: complete ? ["notifications"] : [] });
+}
 /** Called inside the admin review transaction, never by scan identity matching. */
 export async function linkIntakeImagesToSku(ctx: DomainTransactionContext, intakeId: string, skuId: string) {
   const linked = await ctx.tx.update(productImages).set({ skuId, updatedAt: new Date() }).where(and(eq(productImages.intakeId, intakeId), isNull(productImages.skuId))).returning({ id: productImages.id, version: productImages.masterVersion });

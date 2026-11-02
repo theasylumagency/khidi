@@ -8,7 +8,7 @@ import { MAX_PHOTO_BYTES, photoUploadSchema } from "./contracts.ts";
 import { DEFAULT_QUALITY_CONFIG, evaluatePhotoQuality, qualityConfig, type QualityConfig } from "./quality.ts";
 import { assertMediaPrincipal } from "./principal.ts";
 import { mediaReceipt, queueMediaJob, recordMediaReceipt } from "./transactions.ts";
-import { refreshIntakePhotoStatus, resolveUploadTarget } from "./targets.ts";
+import { refreshIntakePhotoStatus, refreshPhotoRequest, resolveUploadTarget } from "./targets.ts";
 import { digest, privateImageKey, StorageExistsError, type MediaStorage } from "./storage.ts";
 import { sniffPhotoMime } from "./formats.ts";
 
@@ -68,6 +68,7 @@ export async function receivePhoto(db: DbExecutor, storage: MediaStorage, princi
         requestHash, tier1QualityJson: photo.quality, createdBy: principal.userId });
       const jobId = await queueMediaJob(ctx, "process-image", { imageId: id, imageVersion: 1 }, `process-image:${id}:1`);
       if (target.intakeId) await refreshIntakePhotoStatus(ctx, target.intakeId);
+      if (target.photoRequestTaskId) await refreshPhotoRequest(ctx, target.photoRequestTaskId);
       const body = { id, ...target, slot: input.slot, rawSha256, rawBytes: bytes.byteLength };
       await ctx.recordAudit({ action: "IMAGE_UPLOADED", entityType: "product_image", entityId: id, after: { ...body, jobId, submittedIntakeId: input.intakeId, submittedIntakeKey: input.intakeIdempotencyKey } });
       await ctx.emitOutboxEvent({ eventType: "IMAGE_UPLOADED", aggregateType: "product_image", aggregateId: id, payload: body, consumers: [] });

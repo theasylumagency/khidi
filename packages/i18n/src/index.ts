@@ -126,6 +126,13 @@ export function formatStaffName(fullName: string): string {
 }
 
 const SCANNING_LABELS = {
+  "media.photo_request": "ფოტოს მოთხოვნა",
+  "media.request_created": "ფოტოს მოთხოვნა შეიქმნა და შემსრულებლის დავალებებში გამოჩნდება.",
+  "media.open_request": "ფოტოების გადაღება",
+  "media.request_note": "რა უნდა ჩანდეს ფოტოზე",
+  "media.request_slots": "საჭირო ხედები",
+  "media.request_saved": "ფოტოები და შენიშვნა შენახულია. გასაგზავნი ფოტოები ზემოთ ჩანს.",
+  "media.request_new": "ახალი ფოტოს მოთხოვნა",
   "media.jobs": "ფოტოების დამუშავება",
   "media.job_type": "სამუშაო",
   "media.attempts": "მცდელობები",

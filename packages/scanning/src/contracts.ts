@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { discardedPhotoSchema } from "@khidi/media/contracts";
+import { discardedPhotoSchema, PHOTO_SLOTS } from "@khidi/media/contracts";
 
 export const SCAN_TASK_TYPES = ["INTAKE_UNIQUE", "PHYSICAL_COUNT", "PHOTO_REQUEST", "EVIDENCE_REQUEST", "PICK"] as const;
 export type ScanTaskType = (typeof SCAN_TASK_TYPES)[number];
@@ -44,8 +44,14 @@ export const createScanTaskSchema = z.object({
   assigneeRole: z.enum(["ADMIN", "OPERATOR", "STOCK_MANAGER", "WAREHOUSE", "ORDER_MANAGER"]).nullable().default(null),
   productTypeId: z.string().uuid().nullable().default(null),
   targetCount: z.number().int().positive().max(2147483647).nullable().default(null),
+  photosRequired: z.boolean().default(true), targetSkuId: z.string().uuid().nullable().default(null),
+  requestedPhotoSlots: z.array(z.enum(PHOTO_SLOTS)).min(1).max(4).refine((slots) => new Set(slots).size === slots.length, "Duplicate slots.").nullable().default(null),
+  photoRequestNote: z.string().trim().min(1).max(4000).nullable().default(null),
   dueDate: z.string().datetime({ offset: true }).nullable().default(null)
-}).strict().refine((input) => Number(input.assigneeUserId !== null) + Number(input.assigneeRole !== null) === 1, "Choose one assignee user or role.");
+}).strict().refine((input) => Number(input.assigneeUserId !== null) + Number(input.assigneeRole !== null) === 1, "Choose one assignee user or role.").superRefine((input, ctx) => {
+  if (input.taskType === "PHOTO_REQUEST" && (!input.targetSkuId || !input.requestedPhotoSlots || !input.photoRequestNote || !input.photosRequired)) ctx.addIssue({ code: "custom", message: "Photo requests require SKU, requested slots and a note." });
+  if (input.taskType === "INTAKE_UNIQUE" && (input.targetSkuId || input.requestedPhotoSlots || input.photoRequestNote)) ctx.addIssue({ code: "custom", message: "Photo request fields require PHOTO_REQUEST." });
+});
 export const intakeFiltersSchema = z.object({
   resultState: z.enum(RESULT_STATES).optional(), labelStatus: z.enum(LABEL_STATUSES).optional(),
   needsReview: z.enum(["yes", "no"]).optional(),
