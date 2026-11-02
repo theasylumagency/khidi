@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   accountingMappings,
+  auditLogs,
   getDb,
   legalEntities,
   outboxEvents,
@@ -29,12 +30,14 @@ import {
   normalizeAndValidateGtin14,
   normalizeLegacyUrlPath,
   normalizePowerToKw,
-   normalizeUniversalUnits,
+  normalizeUniversalUnits,
   registerLegacyUrl,
   removeSkuIdentifier,
   resolveSkuByScannedIdentifier,
   seedTaxonomyAndProductTypes,
   setComposedBundleComponents,
+  setSkuIdentityConfidence,
+  setSkuIdentityConfidenceManually,
   setStorefrontListing,
   transitionSkuLifecycle,
   transitionSkuToReady,
@@ -47,6 +50,7 @@ import {
 describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9], Bundles & Labels", () => {
   const db = getDb();
   let adminUserId: string;
+  let operatorUserId: string;
   let agroEntityId: string;
   let newBrandEntityId: string;
   let agroStorefrontId: string;
@@ -55,6 +59,7 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
     await seedTaxonomyAndProductTypes(db);
 
     const [admin] = await db.select().from(users).where(eq(users.role, "ADMIN")).limit(1);
+    const [operator] = await db.select().from(users).where(eq(users.role, "OPERATOR")).limit(1);
     const [agro] = await db
       .select()
       .from(legalEntities)
@@ -72,6 +77,7 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
       .limit(1);
 
     adminUserId = admin!.id;
+    operatorUserId = operator!.id;
     agroEntityId = agro!.id;
     newBrandEntityId = newBrand!.id;
     agroStorefrontId = sf!.id;
@@ -277,9 +283,7 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
 
     // 4. Walk state machine to CONTENT_REVIEW while still LOW confidence -> READY must fail due to LOW confidence & missing accounting_mapping
     await transitionSkuLifecycle(db, { userId: adminUserId }, draft.id, "IDENTIFYING");
-    await transitionSkuLifecycle(db, { userId: adminUserId }, draft.id, "IDENTIFIED", {
-      identityConfidence: "LOW"
-    });
+    await transitionSkuLifecycle(db, { userId: adminUserId }, draft.id, "IDENTIFIED");
     await transitionSkuLifecycle(
       db,
       { userId: adminUserId },
@@ -293,25 +297,45 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
       transitionSkuToReady(db, { userId: adminUserId }, draft.id)
     ).rejects.toThrow(/identity_confidence="LOW"/);
 
-    // 5. Upgrade confidence to MEDIUM -> requires humanConfirmedMediumConfidence AND at least one active accounting_mapping
-    await transitionSkuLifecycle(
+    // 5. G1: Manual confidence determination requires ADMIN, a mandatory non-empty reason, and writes a dedicated IDENTITY_CONFIDENCE_SET_MANUALLY audit record
+    await expect(
+      setSkuIdentityConfidence(
+        db,
+        { userId: operatorUserId },
+        draft.id,
+        "HIGH",
+        "Operator trying to set confidence"
+      )
+    ).rejects.toThrow(/Only an active ADMIN user/);
+
+    await expect(
+      setSkuIdentityConfidence(db, { userId: adminUserId }, draft.id, "MEDIUM", "   ")
+    ).rejects.toThrow(/requires a non-empty reason/);
+
+    await setSkuIdentityConfidence(
       db,
       { userId: adminUserId },
       draft.id,
-      "IDENTIFICATION_REQUIRED",
-      { identityConfidence: "MEDIUM" }
+      "MEDIUM",
+      "Admin manually verified model code from supplier carton photo (pre-M5)"
     );
-    await transitionSkuLifecycle(db, { userId: adminUserId }, draft.id, "IDENTIFIED", {
-      identityConfidence: "MEDIUM"
-    });
-    await transitionSkuLifecycle(
-      db,
-      { userId: adminUserId },
-      draft.id,
-      "ACCOUNTING_MAPPING_REQUIRED"
+
+    const confidenceAuditRows = await db
+      .select()
+      .from(auditLogs)
+      .where(
+        and(
+          eq(auditLogs.entityType, "sku"),
+          eq(auditLogs.entityId, draft.id),
+          eq(auditLogs.action, "IDENTITY_CONFIDENCE_SET_MANUALLY")
+        )
+      );
+    expect(confidenceAuditRows).toHaveLength(1);
+    expect(confidenceAuditRows[0]?.beforeJson).toEqual({ identityConfidence: "LOW" });
+    expect(confidenceAuditRows[0]?.afterJson).toEqual({ identityConfidence: "MEDIUM" });
+    expect(confidenceAuditRows[0]?.reason).toBe(
+      "Admin manually verified model code from supplier carton photo (pre-M5)"
     );
-    await transitionSkuLifecycle(db, { userId: adminUserId }, draft.id, "CONTENT_GENERATING");
-    await transitionSkuLifecycle(db, { userId: adminUserId }, draft.id, "CONTENT_REVIEW");
 
     await expect(
       transitionSkuToReady(db, { userId: adminUserId }, draft.id)
@@ -426,9 +450,14 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
         }
       );
       await transitionSkuLifecycle(db, { userId: adminUserId }, variant.id, "IDENTIFYING");
-      await transitionSkuLifecycle(db, { userId: adminUserId }, variant.id, "IDENTIFIED", {
-        identityConfidence: "HIGH"
-      });
+      await setSkuIdentityConfidenceManually(
+        db,
+        { userId: adminUserId },
+        variant.id,
+        "HIGH",
+        "Manufacturer plate verified for variant slug test"
+      );
+      await transitionSkuLifecycle(db, { userId: adminUserId }, variant.id, "IDENTIFIED");
       await transitionSkuLifecycle(
         db,
         { userId: adminUserId },

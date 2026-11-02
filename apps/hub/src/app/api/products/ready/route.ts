@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { getDb } from "@khidi/db";
 import { assertRoleAllowed } from "@khidi/auth";
 import {
-  type IdentityConfidenceLevel,
   type SkuLifecycleState,
   transitionSkuLifecycle,
   transitionSkuToReady,
@@ -23,7 +22,7 @@ export async function POST(request: Request) {
       skuId?: string;
       action?: "TRANSITION_READY" | "TRANSITION_LIFECYCLE" | "UPDATE_SLUG";
       targetState?: Exclude<SkuLifecycleState, "READY">;
-      identityConfidence?: IdentityConfidenceLevel;
+      identityConfidence?: unknown;
       humanConfirmedMediumConfidence?: boolean;
       customCanonicalSlug?: string;
       reason?: string;
@@ -31,6 +30,17 @@ export async function POST(request: Request) {
 
     if (!body.skuId) {
       return NextResponse.json({ error: "skuId is required" }, { status: 400 });
+    }
+
+    if (body.identityConfidence !== undefined) {
+      return NextResponse.json(
+        {
+          error:
+            "identityConfidence cannot be passed to /api/products/ready; use /api/products/confidence with a mandatory reason (G1).",
+          code: "VALIDATION_ERROR"
+        },
+        { status: 400 }
+      );
     }
 
     const db = getDb();
@@ -42,7 +52,6 @@ export async function POST(request: Request) {
         body.skuId,
         body.targetState,
         {
-          identityConfidence: body.identityConfidence,
           reason: body.reason
         }
       );

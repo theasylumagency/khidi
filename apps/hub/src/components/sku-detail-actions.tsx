@@ -19,12 +19,14 @@ interface StorefrontOption {
 export function SkuDetailActions({
   skuId,
   lifecycleState,
+  identityConfidence,
   canonicalSlug,
   entities,
   storefronts
 }: {
   skuId: string;
   lifecycleState: string;
+  identityConfidence: string;
   canonicalSlug: string | null;
   entities: LegalEntityOption[];
   storefronts: StorefrontOption[];
@@ -35,9 +37,47 @@ export function SkuDetailActions({
   const [accountingName, setAccountingName] = useState("");
   const [legacyCode, setLegacyCode] = useState("");
   const [slugInput, setSlugInput] = useState(canonicalSlug ?? "");
+  const [confidenceLevel, setConfidenceLevel] = useState(identityConfidence);
+  const [confidenceReason, setConfidenceReason] = useState("");
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const handleSetConfidenceManually = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!confidenceReason.trim()) {
+      setErrorMsg("Confidence-ის ხელით დადგენისთვის მიზეზი სავალდებულოა");
+      return;
+    }
+    setLoading(true);
+    setErrorMsg(null);
+    setStatusMsg(null);
+    try {
+      const res = await fetch("/api/products/confidence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          skuId,
+          level: confidenceLevel,
+          reason: confidenceReason.trim()
+        })
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        setErrorMsg(data.error ?? "Confidence-ის განახლება ვერ მოხერხდა");
+      } else {
+        setConfidenceReason("");
+        setStatusMsg(
+          `✓ იდენტობის სანდოობა ხელით განისაზღვრა: ${confidenceLevel} (ჩაიწერა audit_logs-ში: IDENTITY_CONFIDENCE_SET_MANUALLY)`
+        );
+        router.refresh();
+      }
+    } catch {
+      setErrorMsg("ქსელური შეცდომა");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleAddMapping = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -273,6 +313,75 @@ export function SkuDetailActions({
           )}
         </div>
       </div>
+
+      {/* 1b. Manual Identity Confidence Override (Pre-M5, G1 / E2) */}
+      {lifecycleState !== "ARCHIVED" && (
+        <form
+          onSubmit={handleSetConfidenceManually}
+          style={{
+            padding: "1rem",
+            background: "#f8fafc",
+            border: "1px solid #cbd5e1",
+            borderRadius: "10px",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+            gap: "0.75rem",
+            alignItems: "end"
+          }}
+        >
+          <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.8rem", fontWeight: 600 }}>
+            Confidence-ის ხელით დადგენა (Pre-M5, G1)
+            <select
+              value={confidenceLevel}
+              onChange={(e) => setConfidenceLevel(e.target.value)}
+              style={{
+                padding: "0.45rem",
+                borderRadius: "6px",
+                border: "1px solid #cbd5e1",
+                fontSize: "0.85rem"
+              }}
+            >
+              <option value="LOW">LOW</option>
+              <option value="MEDIUM">MEDIUM</option>
+              <option value="HIGH">HIGH</option>
+              <option value="CONFLICT">CONFLICT</option>
+            </select>
+          </label>
+
+          <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.8rem", fontWeight: 600 }}>
+            სავალდებულო მიზეზი (`reason`, აისახება აუდიტში)
+            <input
+              required
+              value={confidenceReason}
+              onChange={(e) => setConfidenceReason(e.target.value)}
+              placeholder="მაგ. დადასტურებულია მწარმოებლის ფირფიტითა და შეფუთვით"
+              style={{
+                padding: "0.45rem",
+                borderRadius: "6px",
+                border: "1px solid #cbd5e1",
+                fontSize: "0.85rem"
+              }}
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              padding: "0.5rem 0.9rem",
+              background: "#0369a1",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: "6px",
+              fontWeight: 700,
+              cursor: "pointer",
+              fontSize: "0.85rem"
+            }}
+          >
+            Confidence-ის შენახვა (Audit)
+          </button>
+        </form>
+      )}
 
       {/* 2. Accounting Mapping Form [C9] */}
       <form

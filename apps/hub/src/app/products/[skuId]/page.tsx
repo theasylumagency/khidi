@@ -223,6 +223,7 @@ export default async function SkuDetailPage({
           <SkuDetailActions
             skuId={sku.id}
             lifecycleState={sku.lifecycleState}
+            identityConfidence={sku.identityConfidence}
             canonicalSlug={sku.canonicalSlug}
             entities={entities}
             storefronts={storefrontOptions}

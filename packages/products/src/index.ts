@@ -19,7 +19,8 @@ import {
   skuSlugHistory,
   skus,
   storefrontListings,
-  storefronts
+  storefronts,
+  users
 } from "@khidi/db";
 import { type DomainActor, withDomainTransaction } from "@khidi/domain";
 import { AppError, createUuidV7 } from "@khidi/shared";
@@ -603,6 +604,7 @@ export async function createSkuDraft(
 
 /**
  * §15.1 Transitions a SKU between non-READY states according to `ALLOWED_LIFECYCLE_TRANSITIONS`.
+ * Never mutates `identity_confidence` as a side-effect.
  * If transitioning to `ARCHIVED`, also recomputes collision flags on any shared identifiers.
  */
 export async function transitionSkuLifecycle(
@@ -611,7 +613,6 @@ export async function transitionSkuLifecycle(
   skuId: string,
   targetState: Exclude<SkuLifecycleState, "READY">,
   options?: {
-    identityConfidence?: IdentityConfidenceLevel;
     reason?: string;
   }
 ) {
@@ -629,14 +630,10 @@ export async function transitionSkuLifecycle(
       );
     }
 
-    const nextConfidence =
-      options?.identityConfidence ?? (sku.identityConfidence as IdentityConfidenceLevel);
-
     const [updated] = await ctx.tx
       .update(skus)
       .set({
         lifecycleState: targetState,
-        identityConfidence: nextConfidence,
         updatedAt: new Date()
       })
       .where(eq(skus.id, sku.id))
@@ -667,12 +664,10 @@ export async function transitionSkuLifecycle(
       entityType: "sku",
       entityId: sku.id,
       before: {
-        lifecycleState: sku.lifecycleState,
-        identityConfidence: sku.identityConfidence
+        lifecycleState: sku.lifecycleState
       },
       after: {
-        lifecycleState: targetState,
-        identityConfidence: nextConfidence
+        lifecycleState: targetState
       },
       reason: options?.reason
     });
@@ -680,6 +675,97 @@ export async function transitionSkuLifecycle(
     return updated!;
   });
 }
+
+/**
+ * G1 / E2 — Dedicated manual override action for `identity_confidence` (pre-M5 manual mode until `packages/evidence` computes confidence from evidence).
+ * - ADMIN only (checks `users.role === 'ADMIN'` in DB).
+ * - Requires a mandatory non-empty `reason`.
+ * - Not allowed on `ARCHIVED` SKUs.
+ * - Audits as `IDENTITY_CONFIDENCE_SET_MANUALLY` with before/after values and the reason.
+ * NOTE: In Milestone 5 (`packages/evidence`), `identity_confidence` must be derived from evidence and never accepted from client input.
+ */
+export async function setSkuIdentityConfidence(
+  db: AppDatabase | DbExecutor,
+  actor: DomainActor,
+  skuId: string,
+  level: IdentityConfidenceLevel,
+  reason: string
+) {
+  if (!actor.userId) {
+    throw new AppError(
+      "FORBIDDEN",
+      "Manual identity confidence determination requires an authenticated ADMIN user (actor.userId)."
+    );
+  }
+
+  if (!IDENTITY_CONFIDENCE_LEVELS.includes(level)) {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      `Invalid identity_confidence "${String(level)}". Must be one of: ${IDENTITY_CONFIDENCE_LEVELS.join(", ")}.`
+    );
+  }
+
+  const trimmedReason = reason?.trim() ?? "";
+  if (!trimmedReason) {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "Manual identity confidence determination requires a non-empty reason."
+    );
+  }
+
+  return withDomainTransaction(db, actor, async (ctx) => {
+    const [actorUser] = await ctx.tx
+      .select({ id: users.id, role: users.role, active: users.active })
+      .from(users)
+      .where(eq(users.id, actor.userId!))
+      .limit(1);
+
+    if (!actorUser || !actorUser.active || actorUser.role !== "ADMIN") {
+      throw new AppError(
+        "FORBIDDEN",
+        "Only an active ADMIN user may manually set SKU identity confidence (G1)."
+      );
+    }
+
+    const [sku] = await ctx.tx.select().from(skus).where(eq(skus.id, skuId)).limit(1);
+    if (!sku) {
+      throw new AppError("NOT_FOUND", `SKU ${skuId} not found.`);
+    }
+
+    if (sku.lifecycleState === "ARCHIVED") {
+      throw new AppError(
+        "PRECONDITION_FAILED",
+        `Cannot modify identity_confidence on archived SKU ${sku.internalSku}.`
+      );
+    }
+
+    const [updated] = await ctx.tx
+      .update(skus)
+      .set({
+        identityConfidence: level,
+        updatedAt: new Date()
+      })
+      .where(eq(skus.id, sku.id))
+      .returning();
+
+    await ctx.recordAudit({
+      action: "IDENTITY_CONFIDENCE_SET_MANUALLY",
+      entityType: "sku",
+      entityId: sku.id,
+      before: {
+        identityConfidence: sku.identityConfidence
+      },
+      after: {
+        identityConfidence: level
+      },
+      reason: trimmedReason
+    });
+
+    return updated!;
+  });
+}
+
+export const setSkuIdentityConfidenceManually = setSkuIdentityConfidence;
 
 async function resolveUniqueCanonicalSlug(
   tx: AppDatabase | DbExecutor,

@@ -35,9 +35,13 @@ If two sources conflict and this list does not resolve it, stop and ask. Do not 
 | Milestone | Status |
 | --- | --- |
 | M1 Foundation, auth, PWA shell | Done |
-| M2 Product model | Done, **open fix list in §10** |
-| M3 Scanning, offline queue, backups | Not started — begin only after §10 is complete and reviewed |
+| M2 Product model | Done (F1–F7 and G1–G2 done) |
+| M3 Scanning, offline queue, backups | Not started — ready after `m2-close` review |
 | M4–M11 | Not started |
+
+Shared deployments (any database outside a developer machine): **none yet**.
+Record the date here the first time a database is deployed to a shared or staging server;
+from that moment §6 "Migration squash window" is closed.
 
 Update this table at the end of every milestone.
 
@@ -86,6 +90,12 @@ re-run `init-roles.sh`, then migrate and seed. Never "fix" a dev DB by editing a
 
 - **Never edit an applied migration.** The runner enforces checksums and will fail.
   Every change is a new numbered file in `packages/db/migrations/` (`0003_…sql`, `0004_…sql`).
+- **Migration squash window.** While §3 says "Shared deployments: none yet", an existing
+  migration may be rewritten only when the human owner explicitly asks for it in the task.
+  Say so in the PR and tell developers to reset their databases. Once any shared database
+  exists, the window is closed permanently: new migrations only, no exceptions.
+- History: `0002_product_model.sql` was rewritten once during the M2 fixes. Any database
+  created before commit `ad4ab42` must be dropped and rebuilt.
 - Migrations run as `hub_migrator`. They never create roles or contain passwords; roles are
   provisioned by infrastructure (`docker/postgres/init-roles.sh`).
 - Grant `hub_app` only the privileges it needs, explicitly, in the migration that creates the table.
@@ -113,6 +123,13 @@ re-run `init-roles.sh`, then migrate and seed. Never "fix" a dev DB by editing a
 - Desktop admin: dense, table-first, keyboard-friendly. Mobile: scanning, tasks, photos.
 - AI and automation must never invent specifications, model identity, manufacturers or GTINs.
   Unknown is a valid state (`value: null, status: NOT_FOUND`).
+- **Identity confidence (`skus.identity_confidence`).** Until Milestone 5 (`packages/evidence`),
+  `identity_confidence` may only be set by an `ADMIN` via the dedicated manual action
+  (`setSkuIdentityConfidence` / `POST /api/products/confidence`) with a mandatory non-empty
+  `reason` and its own `IDENTITY_CONFIDENCE_SET_MANUALLY` audit log entry — never as a side-effect
+  of `transitionSkuLifecycle` or `/api/products/ready`. **Starting in M5 (`packages/evidence`),
+  `identity_confidence` must be computed exclusively from evidence and must no longer be accepted
+  from client input.**
 - Business semantics (stock rules, reservation policies, ownership, pricing boundaries,
   lifecycle states, permissions, AI rules) may not be changed on your own. Write an ADR in
   `docs/adr/` marked **Proposed** and stop that item until it is approved.
@@ -120,72 +137,55 @@ re-run `init-roles.sh`, then migrate and seed. Never "fix" a dev DB by editing a
 
 ## 9. Errata (override the documents above)
 
-- **E1 — Internal SKU format.** The specification's example `AGT-000184` is only an example.
-  Internal SKUs and printed labels must not contain a company abbreviation. Use the format
-  `KH-000001`, sequence starting at 1. See F2.
+- **E1 — Internal SKU format.** Internal SKUs and printed labels never contain a company
+  abbreviation. Format `KH-000001`, sequence starting at 1. Applied in M2 (F2); the
+  specification has been updated accordingly.
+- **E2 — Identity confidence is temporarily manual.** Until M5 builds the evidence-based
+  confidence calculator, confidence can only be set by an ADMIN through the dedicated,
+  audited action from G1. It must never arrive as an incidental field in another request.
+  M5 must replace manual confidence with the computed value and decide in an ADR whether a
+  manual override remains at all.
 
-## 10. Open fix list after M2 (do this before M3)
+## 10. Open items before M3
 
-Work on branch `m2-fixes`. One commit per item, message prefixed with the item ID.
-Each item needs tests. New schema changes go into new migrations only.
+Work on branch `m2-close`. One commit per item, message prefixed with the item ID.
+Each item needs tests.
 
-**F1 — Enforce the SKU lifecycle (critical).**
-Today `transitionSkuToReady` moves a SKU from any state, including INTAKE with LOW confidence
-or ARCHIVED, and `createSkuDraft` accepts any initial state and confidence from input.
-- Implement an explicit transition table in `packages/products` (spec §15.1); reject any
-  transition not in it.
-- `createSkuDraft` always creates `INTAKE` with confidence `LOW`; callers cannot set either.
-- READY requires: Product Type assigned; confidence `HIGH`, or `MEDIUM` explicitly confirmed by
-  an admin; verified brand and model; generated display names; at least one active
-  accounting mapping. `ARCHIVED` is terminal.
-- Tests: every forbidden transition is rejected; READY rejected for each missing precondition.
+**Done (M2 fix list):** F1 lifecycle state machine and READY preconditions · F2 neutral
+`KH-` internal SKU · F3 differentiator in variant slugs · F4 status and provenance for
+universal fields · F5 GTIN-14 normalization, system-only internal identifiers, advisory lock ·
+F6 Vitest global setup · F7 no DELETE on core catalog tables.
 
-**F2 — Neutral internal SKU (critical, before any label is printed).**
-- New migration: restart `internal_sku_seq` at 1.
-- Format `KH-` + 6 digits. Update allocation, seed data, label rendering and tests.
-- Grep the repository for `AGT-` and remove every remaining use.
+**G1 — Identity confidence as a separate audited action.**
+`/api/products/ready` currently accepts `identityConfidence` in the request body, so an admin
+can set HIGH and pass the READY gate in the same call.
+- Remove `identityConfidence` from the READY request and from `transitionSkuLifecycle` options.
+- Add `setSkuIdentityConfidence(db, actor, skuId, level, reason)` in `packages/products`:
+  ADMIN only, `reason` mandatory (non-empty), not allowed on ARCHIVED SKUs.
+- Audit it as `IDENTITY_CONFIDENCE_SET_MANUALLY` with before/after values and the reason.
+- Expose it as its own route and its own UI control on the SKU page, with the reason field.
+- Tests: READY request with a confidence field is rejected or ignored; non-admin is rejected;
+  missing reason is rejected; audit row is written.
 
-**F3 — Slugs for variants.**
-SKUs of the same family share brand and model, so the second one gets a meaningless `-2`.
-Include the English key differentiator in the slug whenever the family has more than one SKU
-(or always, if simpler). The auto-suffix stays only as a last resort.
-
-**F4 — Status and provenance for universal fields.**
-`power_kw`, `weight_kg` and the other universal columns are bare numbers, so an unverified
-value looks the same as a verified one.
-- Store per-field metadata for universal fields using the same entry schema as type
-  attributes (`status`, `sourceType`, `evidenceId`), e.g. `universal_field_meta_json`.
-- `VERIFIED` requires `evidenceId` or `verifiedBy` (user id) for both universal and type
-  attributes. Until the evidence table exists (M5), `verifiedBy` is enough.
-
-**F5 — Identifiers.**
-- Normalize GTIN/EAN/UPC to GTIN-14 on attach and on scan lookup; validate the check digit
-  (invalid check digit → validation error, manual entry may override with a reason).
-- `INTERNAL_SKU` and `INTERNAL_QR` are created only by the system, never through the attach
-  API; add a partial unique index on `(identifier_type, value)` for these two types.
-- Serialize collision detection with `pg_advisory_xact_lock(hashtext(type || ':' || value))`.
-- Scan lookup excludes ARCHIVED SKUs by default.
-
-**F6 — Test isolation.**
-On a fresh database the first `pnpm test` run fails because `products.test.ts` relies on
-another test file having migrated first. Add a Vitest `globalSetup` that migrates and seeds once.
+**G2 — Sequential test files.**
+The M2 fixes removed `fileParallelism: false`, so test files now run in parallel against one
+shared database. Restore it in `vitest.config.ts` (keep `globalSetup`), and keep an explicit
+`include` for `packages/**/*.test.ts` and `apps/**/*.test.ts`.
 Acceptance: fresh database → `pnpm test` passes twice in a row.
 
-**F7 — Smaller items.**
-- New migration: revoke DELETE on `skus`, `product_families` and `accounting_mappings` from
-  `hub_app` (archive or deactivate instead).
-- Clear `has_collision` when a collision is resolved; record the resolution in audit.
-- Optional, low priority: rename the dev database and container from `agrotrade_hub` /
-  `agrotrade-hub-postgres` to `khidi` names (requires a dev DB reset; document it).
+**Deferred to M6 (do not do now):** include the slug differentiator whenever it exists,
+not only when a sibling SKU already exists at approval time. Today the first variant of a
+family keeps a generic slug.
 
-When F1–F7 are done: all checks in §4 green, update §3, open a PR, and stop.
-Do not start M3 in the same branch.
+When G1 and G2 are done: all checks in §4 green, update §3, open a PR from `m2-close`, and stop.
 
 ## 11. Working agreement
 
-- One milestone (or fix list) per branch. Small commits. No unrelated refactors.
+- **Never commit directly to `main`.** One milestone (or fix list) per branch, merged by PR.
+  Small commits. No unrelated refactors.
 - At the end of each milestone: run §4 from a fresh database, update §3, and write a short
-  summary in the PR listing every deviation from the documents and every ADR created.
+  summary in the PR listing every deviation from the documents, every ADR created, and every
+  change you made to files in `docs/`.
 - Milestones 8 and 9 (ledger, reservations, fulfillment) get an extra human review before the
   next milestone starts.
 - If something is unclear, list it as an open question in the PR. Do not guess business rules.

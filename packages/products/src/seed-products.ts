@@ -14,6 +14,7 @@ import {
   registerLegacyUrl,
   seedTaxonomyAndProductTypes,
   setComposedBundleComponents,
+  setSkuIdentityConfidenceManually,
   setStorefrontListing,
   transitionSkuLifecycle,
   transitionSkuToReady,
@@ -146,8 +147,14 @@ export async function runProductsSeed() {
 
   // Walk KH-000001 through explicit lifecycle transitions (§15.1) before transitioning to READY ([C8])
   await transitionSkuLifecycle(db, actor, skuRubber.id, "IDENTIFYING");
+  await setSkuIdentityConfidenceManually(
+    db,
+    actor,
+    skuRubber.id,
+    "HIGH",
+    "Manufacturer plate and packaging verified during initial seed"
+  );
   await transitionSkuLifecycle(db, actor, skuRubber.id, "IDENTIFIED", {
-    identityConfidence: "HIGH",
     reason: "Plate and packaging verified"
   });
   await transitionSkuLifecycle(db, actor, skuRubber.id, "ACCOUNTING_MAPPING_REQUIRED");
@@ -202,7 +209,14 @@ export async function runProductsSeed() {
     }
   });
   await transitionSkuLifecycle(db, actor, skuPlough.id, "IDENTIFYING");
-  await transitionSkuLifecycle(db, actor, skuPlough.id, "IDENTIFIED", { identityConfidence: "HIGH" });
+  await setSkuIdentityConfidenceManually(
+    db,
+    actor,
+    skuPlough.id,
+    "HIGH",
+    "Verified WEIMA WM-PL01 attachment plate"
+  );
+  await transitionSkuLifecycle(db, actor, skuPlough.id, "IDENTIFIED");
 
   const skuTrailer = await createSkuDraft(db, actor, {
     productTypeId: trailerType.id,
@@ -222,7 +236,14 @@ export async function runProductsSeed() {
     }
   });
   await transitionSkuLifecycle(db, actor, skuTrailer.id, "IDENTIFYING");
-  await transitionSkuLifecycle(db, actor, skuTrailer.id, "IDENTIFIED", { identityConfidence: "HIGH" });
+  await setSkuIdentityConfidenceManually(
+    db,
+    actor,
+    skuTrailer.id,
+    "HIGH",
+    "Verified WEIMA WM-7C-500 trailer plate"
+  );
+  await transitionSkuLifecycle(db, actor, skuTrailer.id, "IDENTIFIED");
 
   // 7. Composed Bundle SKU: KH-000005 (Motoblock × 1 + Plough × 1 + Trailer × 1, §5.2)
   const skuBundle = await createSkuDraft(db, actor, {
@@ -234,7 +255,14 @@ export async function runProductsSeed() {
     keyDifferentiatorEn: "Full Bundle (Motoblock + Plough + Trailer)"
   });
   await transitionSkuLifecycle(db, actor, skuBundle.id, "IDENTIFYING");
-  await transitionSkuLifecycle(db, actor, skuBundle.id, "IDENTIFIED", { identityConfidence: "HIGH" });
+  await setSkuIdentityConfidenceManually(
+    db,
+    actor,
+    skuBundle.id,
+    "HIGH",
+    "Composed bundle defined by admin from verified component SKUs"
+  );
+  await transitionSkuLifecycle(db, actor, skuBundle.id, "IDENTIFIED");
 
   await setComposedBundleComponents(db, actor, skuBundle.id, [
     { componentSkuId: skuRubber.id, quantity: 1 },
@@ -267,7 +295,14 @@ export async function runProductsSeed() {
     }
   });
   await transitionSkuLifecycle(db, actor, skuKit.id, "IDENTIFYING");
-  await transitionSkuLifecycle(db, actor, skuKit.id, "IDENTIFIED", { identityConfidence: "HIGH" });
+  await setSkuIdentityConfidenceManually(
+    db,
+    actor,
+    skuKit.id,
+    "HIGH",
+    "Verified WEIMA WM1100C-6 factory kit carton and plate"
+  );
+  await transitionSkuLifecycle(db, actor, skuKit.id, "IDENTIFIED");
 
   // 9. Sample Legacy SEO URL (§12.5)
   await registerLegacyUrl(db, actor, {
