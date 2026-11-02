@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./storage": "./src/storage.ts",
+    "./storage-config": "./src/storage-config.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -12,7 +14,10 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1152.0",
     "@khidi/domain": "workspace:*",
-    "@khidi/shared": "workspace:*"
+    "@khidi/shared": "workspace:*",
+    "pg-boss": "12.38.0",
+    "sharp": "0.35.5"
   }
 }
