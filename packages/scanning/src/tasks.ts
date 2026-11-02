@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, isNotNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, isNotNull, or } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
 import { type DbExecutor, productIntakes, productTypes, scanTasks, skus, users } from "@khidi/db";
 import { executeIdempotent, withDomainTransaction } from "@khidi/domain";
@@ -67,3 +67,28 @@ export async function listIntakes(db: DbExecutor, principal: AuthenticatedPrinci
 }
 
 function sqlNoReview() { return or(isNull(productIntakes.reviewReason), isNotNull(productIntakes.reviewedAt)); }
+
+const scannerTaskFields = { id: scanTasks.id, title: scanTasks.title, status: scanTasks.status,
+  completedCount: scanTasks.completedCount, targetCount: scanTasks.targetCount, dueDate: scanTasks.dueDate };
+function scannerAssignment(principal: AuthenticatedPrincipal) {
+  return principal.role === "ADMIN" ? undefined : or(eq(scanTasks.assigneeUserId, principal.userId), eq(scanTasks.assigneeRole, principal.role));
+}
+
+/** Scanner reads expose only assigned intake work, never administration or other users. */
+export async function listAssignedScanTasks(db: DbExecutor, principal: AuthenticatedPrincipal, page = 1) {
+  await assertScanningPrincipal(db, principal);
+  if (!Number.isSafeInteger(page) || page < 1 || page > 100000) throw new AppError("VALIDATION_ERROR", "Invalid page.");
+  const rows = await db.select(scannerTaskFields).from(scanTasks).where(and(scannerAssignment(principal),
+    eq(scanTasks.taskType, "INTAKE_UNIQUE"), inArray(scanTasks.status, ["OPEN", "IN_PROGRESS"])))
+    .orderBy(asc(scanTasks.dueDate), asc(scanTasks.createdAt), asc(scanTasks.id)).limit(51).offset((page - 1) * 50);
+  return { rows: rows.slice(0, 50), hasMore: rows.length > 50 };
+}
+
+export async function getAssignedScanTask(db: DbExecutor, principal: AuthenticatedPrincipal, taskId: string) {
+  await assertScanningPrincipal(db, principal);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(taskId)) throw new AppError("VALIDATION_ERROR", "Invalid task ID.");
+  const [task] = await db.select(scannerTaskFields).from(scanTasks).where(and(eq(scanTasks.id, taskId),
+    eq(scanTasks.taskType, "INTAKE_UNIQUE"), scannerAssignment(principal))).limit(1);
+  if (!task) throw new AppError("NOT_FOUND", "Assigned intake task not found.");
+  return task;
+}

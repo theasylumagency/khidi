@@ -116,7 +116,8 @@ export const NAVIGATION_ITEMS: readonly NavItem[] = [
 ] as const;
 
 export function getNavigationForRole(role: UserRole): NavItem[] {
-  return NAVIGATION_ITEMS.filter((item) => item.allowedRoles.includes(role));
+  return NAVIGATION_ITEMS.filter((item) => item.allowedRoles.includes(role))
+    .map((item) => item.key === "tasks" && role !== "ADMIN" ? { ...item, href: "/warehouse/tasks" } : item);
 }
 
 /** Legacy seed names may include a role/affiliation annotation; display the person's name. */
@@ -125,6 +126,28 @@ export function formatStaffName(fullName: string): string {
 }
 
 const SCANNING_LABELS = {
+  "scanner.my_tasks": "ჩემი დავალებები",
+  "scanner.empty_tasks": "ამჟამად მიღების დავალება არ გაქვთ.",
+  "scanner.open": "სკანირების დაწყება",
+  "scanner.back": "დავალებებთან დაბრუნება",
+  "scanner.camera": "კამერით სკანირება",
+  "scanner.camera_start": "კამერის ჩართვა",
+  "scanner.camera_stop": "კამერის გამორთვა",
+  "scanner.camera_starting": "კამერა ირთვება…",
+  "scanner.camera_permission": "კამერაზე წვდომა გამორთულია. დაუშვით წვდომა ბრაუზერის პარამეტრებში და სცადეთ ხელახლა. კოდი შეგიძლიათ ხელითაც შეიყვანოთ.",
+  "scanner.camera_unavailable": "კამერა ვერ ჩაირთო. სცადეთ ხელახლა ან შეიყვანეთ კოდი ხელით.",
+  "scanner.camera_interrupted": "კამერა შეჩერდა. გასაგრძელებლად ჩართეთ ხელახლა.",
+  "scanner.camera_hint": "მოაქციეთ ერთი კოდი ჩარჩოში. მიღების შემდეგ გადადით შემდეგ პროდუქტზე.",
+  "scanner.retry_camera": "კამერის ხელახლა ჩართვა",
+  "scanner.torch_on": "ფანრის ჩართვა",
+  "scanner.torch_off": "ფანრის გამორთვა",
+  "scanner.manual": "კოდის ხელით შეყვანა",
+  "scanner.progress_hint": "დადასტურებული რაოდენობა. მოლოდინში მყოფი სკანები ზემოთ ჩანს.",
+  "scanner.progress_unavailable": "პროგრესის განახლება ვერ მოხერხდა. სკანები რიგში ინახება.",
+  "scanner.task_unavailable": "დავალება ამჟამად მიღებას არ იღებს ან სხვა შემსრულებელს აქვს. შენახული სკანები არ დაიკარგება.",
+  "scanner.protected": "დაცული შიდა სისტემა — საჭიროა ავტორიზაცია",
+  "scanner.logout": "გასვლა",
+  "scanner.logging_out": "გასვლა…",
   "scanning.review_recorded": "ჩაიწერა, საჭიროებს ადმინის განხილვას",
   "scanning.needs_review": "საჭიროებს განხილვას",
   "scanning.no_review_needed": "განხილვა არ სჭირდება",

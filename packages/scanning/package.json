@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./contracts": "./src/contracts.ts",
-    "./offline": "./src/offline.ts"
+    "./offline": "./src/offline.ts",
+    "./camera": "./src/camera.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -21,6 +22,7 @@
     "@khidi/media": "workspace:*",
     "@khidi/products": "workspace:*",
     "@khidi/shared": "workspace:*",
+    "@zxing/library": "0.21.3",
     "drizzle-orm": "0.40.0",
     "zod": "3.24.2"
   },

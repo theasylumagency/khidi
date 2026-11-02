@@ -16,7 +16,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
   const [tasks, assignees, productTypes] = await Promise.all([listScanTasks(db, principal, page), listTaskAssignees(db, principal), listProductTypes(db)]);
   const names = new Map(assignees.map((user) => [user.id, formatStaffName(user.fullName)]));
   return <section className="scanning-panel"><h1>{t("scanning.tasks")}</h1>
-    <nav className="scanning-actions"><Link href="/scanning/quick">{t("scanning.quick_scan")}</Link><Link href="/intakes">{t("scanning.intakes")}</Link><Link href="/labels">{t("scanning.labels")}</Link></nav>
+    <nav className="scanning-actions"><Link href="/warehouse/tasks">{t("scanner.open")}</Link><Link href="/scanning/quick">{t("scanning.quick_scan")}</Link><Link href="/intakes">{t("scanning.intakes")}</Link><Link href="/labels">{t("scanning.labels")}</Link></nav>
     <ScanTaskForm idempotencyKey={createUuidV7()} assignees={assignees.map(({ id, fullName }) => ({ id, fullName: formatStaffName(fullName) }))} productTypes={productTypes.filter((type) => type.active).map(({ id, nameKa }) => ({ id, nameKa }))} />
     <div className="scanning-table-wrap"><table><thead><tr><th>{t("scanning.title")}</th><th>{t("scanning.assignee")}</th><th>{t("scanning.progress")}</th><th>{t("scanning.status")}</th><th>{t("scanning.due")}</th></tr></thead>
       <tbody>{tasks.rows.map((task) => <tr key={task.id}>

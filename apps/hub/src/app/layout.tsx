@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ScanQueueProvider } from "../components/scan-queue-provider.tsx";
 import "../components/scanning.css";
 import type { ReactNode } from "react";
-import { getNavigationForRole, t } from "@khidi/i18n";
+import { formatStaffName, getNavigationForRole, t, type TranslationKey } from "@khidi/i18n";
 import { PwaRegister } from "../components/pwa-register.tsx";
 import { LogoutButton } from "../components/logout-button.tsx";
 import { getCurrentPrincipal } from "../lib/session.ts";
@@ -95,7 +95,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                 </span>
                 <span>{t("app.title", "ka")}</span>
               </Link>
-              {principal && (
+              {principal?.role === "ADMIN" && (
                 <Link
                   href="/diagnostics/pwa-spike"
                   style={{
@@ -131,6 +131,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                       textDecoration: "none",
                       fontSize: "0.85rem",
                       padding: "0.35rem 0.6rem",
+                      minHeight: "48px",
+                      boxSizing: "border-box",
+                      display: "inline-flex",
+                      alignItems: "center",
                       borderRadius: "6px",
                       background: "rgba(255,255,255,0.06)"
                     }}
@@ -148,13 +152,13 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                     fontWeight: 600
                   }}
                 >
-                  {principal.fullName} ({principal.role})
+                  {formatStaffName(principal.fullName)} ({t(`scanning.role.${principal.role}` as TranslationKey)})
                 </span>
                 <LogoutButton />
               </nav>
             ) : (
               <div style={{ fontSize: "0.82rem", color: "#94a3b8" }}>
-                დაცული შიდა სისტემა — საჭიროა ავტორიზაცია
+                {t("scanner.protected")}
               </div>
             )}
           </div>

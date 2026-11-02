@@ -552,6 +552,9 @@ importers:
       '@khidi/shared':
         specifier: workspace:*
         version: link:../shared
+      '@zxing/library':
+        specifier: 0.21.3
+        version: 0.21.3
       drizzle-orm:
         specifier: 0.40.0
         version: 0.40.0(@types/pg@8.11.11)(pg@8.13.3)

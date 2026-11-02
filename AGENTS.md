@@ -36,7 +36,7 @@ If two sources conflict and this list does not resolve it, stop and ask. Do not 
 | --- | --- |
 | M1 Foundation, auth, PWA shell | Done |
 | M2 Product model | Done (F1–F7, G1–G2 closed) |
-| M3 Scanning, intake, labels, offline queue, backup tooling | S1–S5, S7 and S8 implemented. **S6 (scanner UI) open — see §10** |
+| M3 Scanning, intake, labels, offline queue, backup tooling | Implementation complete (S1–S8). Human pre-pilot checks below remain pending. |
 | M4–M11 | Not started |
 
 Real-device gateway spike (ADR-002 checks):
@@ -51,9 +51,11 @@ be edited; every change is a new migration.
 Backups on the shared server: tooling exists (ADR-004), activation on the server and the first
 real restore test are **pending, human-run**, and must be completed before pilot intake.
 
-M3 local verification (2026-11-02): typecheck and dependency boundaries passed;
-76 tests passed on a fresh isolated PostgreSQL 18.4 database and on its re-run.
-A pgBackRest 2.60.0 local encrypted backup was restored into a separate cluster:
+M3 local verification (2026-11-02): typecheck, dependency boundaries and the production
+Hub build passed. The final 100 tests passed on a fresh isolated PostgreSQL 18.4
+database and on its re-run. Browser checks verified immediate offline acceptance,
+later delivery/progress and a Class A review message without extra progress.
+The earlier S7 pgBackRest 2.60.0 local encrypted backup was restored into a separate cluster:
 migration checksums and 16 core-table row counts matched; all 76 tests passed there.
 This is not the first shared-deployment restore test; off-server storage and that
 human-run test remain pending. See `docs/milestones/m3-scanning.md` and ADR-004/005.
@@ -186,7 +188,8 @@ prefixed with the step ID. Each step needs tests. Schema changes only in new mig
 (`0005_…`); 0001–0004 are frozen (§3).
 
 **Done in M3:** S1 schema · S2 intake service · S3 no-barcode flow and labels · S4 tasks and
-Quick Scan · S5 offline queue · S7 backup and restore tooling. Details:
+Quick Scan · S5 offline queue · S7 backup and restore tooling · S8 physical-scan review ·
+S6 warehouse scanner UI. Details:
 `docs/milestones/m3-scanning.md`.
 
 ### S8 — Implement ADR-005 (Accepted): a physical scan is never lost

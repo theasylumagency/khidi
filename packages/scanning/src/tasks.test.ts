@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { loadPrincipalByUserId, type AuthenticatedPrincipal } from "@khidi/auth";
 import { getDb, scanTasks, users } from "@khidi/db";
 import { createUuidV7 } from "@khidi/shared";
-import { createScanTask, listIntakes, listScanTasks, markLabelsPrinted, receiveIntake } from "./index.ts";
+import { createScanTask, getAssignedScanTask, listAssignedScanTasks, listIntakes, listScanTasks, markLabelsPrinted, receiveIntake } from "./index.ts";
 
 describe("M3 S4 task administration and Quick Scan", () => {
   const db = getDb();
@@ -45,5 +45,24 @@ describe("M3 S4 task administration and Quick Scan", () => {
     await markLabelsPrinted(db, admin, { idempotencyKey: createUuidV7(), intakeIds: [accepted.body.id] });
     expect((await listIntakes(db, admin, { taskId: task.body.id, labelStatus: "PRINTED" })).rows.map((r) => r.intake.id)).toEqual([accepted.body.id]);
     await expect(listIntakes(db, admin, { labelStatus: "INVALID" })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+  it("shows assigned intake work and progress without exposing another user's tasks or administration", async () => {
+    const roleTask = await createScanTask(db, admin, taskInput());
+    const ownTask = await createScanTask(db, admin, { ...taskInput(), assigneeRole: null, assigneeUserId: warehouse.userId });
+    const otherTask = await createScanTask(db, admin, { ...taskInput(), assigneeRole: "OPERATOR" });
+    const cancelled = await createScanTask(db, admin, taskInput());
+    await db.update(scanTasks).set({ status: "CANCELLED" }).where(eq(scanTasks.id, cancelled.body.id));
+    const rows = (await listAssignedScanTasks(db, warehouse)).rows;
+    expect(rows.some((task) => task.id === roleTask.body.id)).toBe(true);
+    expect(rows.some((task) => task.id === ownTask.body.id)).toBe(true);
+    expect(rows.some((task) => task.id === otherTask.body.id || task.id === cancelled.body.id)).toBe(false);
+    const selected = await getAssignedScanTask(db, warehouse, ownTask.body.id);
+    expect(selected).toMatchObject({ targetCount: 27, completedCount: 0 });
+    expect(selected).not.toHaveProperty("createdBy"); expect(selected).not.toHaveProperty("assigneeUserId");
+    await expect(getAssignedScanTask(db, warehouse, otherTask.body.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect((await getAssignedScanTask(db, admin, otherTask.body.id)).id).toBe(otherTask.body.id);
+    await db.update(scanTasks).set({ assigneeRole: "OPERATOR", assigneeUserId: null }).where(eq(scanTasks.id, ownTask.body.id));
+    await expect(getAssignedScanTask(db, warehouse, ownTask.body.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(getAssignedScanTask(db, warehouse, "invalid")).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
 });
