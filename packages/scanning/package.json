@@ -7,7 +7,9 @@
     ".": "./src/index.ts",
     "./contracts": "./src/contracts.ts",
     "./offline": "./src/offline.ts",
-    "./camera": "./src/camera.ts"
+    "./camera": "./src/camera.ts",
+    "./scan-values": "./src/scan-values.ts",
+    "./offline-photos": "./src/offline-photos.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

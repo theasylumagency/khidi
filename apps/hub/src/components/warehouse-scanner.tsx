@@ -4,26 +4,47 @@ import Link from "next/link";
 import { browserCameraEnvironment, ScannerCamera, type CameraState } from "@khidi/scanning/camera";
 import { t, type TranslationKey } from "@khidi/i18n";
 import { useScanQueue } from "./scan-queue-provider.tsx";
+import { PhotoWorkspace, type CaptureContext } from "./photo-workspace.tsx";
+import type { PhotoTarget } from "@khidi/media/contracts";
 
-interface ScannerTask { id: string; title: string; status: string; completedCount: number; targetCount: number | null }
+interface ScannerTask { id: string; title: string; status: string; completedCount: number; targetCount: number | null; photosRequired?: boolean }
 const INITIAL_CAMERA: CameraState = { running: false, starting: false, torchAvailable: false, torchOn: false, issue: null };
 
 export function WarehouseScanner({ task }: { task?: ScannerTask }) {
   const queue = useScanQueue();
   const video = useRef<HTMLVideoElement>(null), field = useRef<HTMLInputElement>(null);
   const camera = useRef<ScannerCamera | null>(null), writing = useRef(false);
+  const resumeCamera = useRef(false);
   const [cameraState, setCameraState] = useState(INITIAL_CAMERA);
   const [busy, setBusy] = useState(false), [accepted, setAccepted] = useState<string | null>(null), [error, setError] = useState("");
   const [progress, setProgress] = useState(task), [progressError, setProgressError] = useState(false);
   const [taskUnavailable, setTaskUnavailable] = useState(task ? !["OPEN", "IN_PROGRESS"].includes(task.status) : false);
-  const ready = queue.ready && !taskUnavailable;
+  const [capture, setCapture] = useState<{ target: Partial<PhotoTarget>; onlyMissing: boolean } | null>(null), [duplicate, setDuplicate] = useState<Partial<PhotoTarget> | null>(null);
+  const [duplicateStatus, setDuplicateStatus] = useState<CaptureContext | null>(null);
+  const duplicateKey = JSON.stringify(duplicate);
+  useEffect(() => {
+    setDuplicateStatus(null); if (!duplicateKey || duplicateKey === "null") return;
+    const controller = new AbortController();
+    const refresh = async () => {
+      try {
+        const response = await fetch(`/api/media/capture?${new URLSearchParams(JSON.parse(duplicateKey))}`, { cache: "no-store", credentials: "same-origin", redirect: "error", signal: controller.signal });
+        if (response.ok) { const status = await response.json(); if (!controller.signal.aborted) setDuplicateStatus(status); }
+      } catch { /* status is explicitly unknown offline */ }
+    };
+    void refresh(); window.addEventListener("online", refresh);
+    return () => { controller.abort(); window.removeEventListener("online", refresh); };
+  }, [duplicateKey, queue.photoVersion]);
+  const ready = queue.ready && !taskUnavailable && !capture;
   async function submit(value: string, noBarcode = false): Promise<boolean> {
     const scannedValue = value.trim();
     if (writing.current || !ready || (!scannedValue && !noBarcode)) return false;
     writing.current = true; setBusy(true); setError("");
     try {
+      const duplicate = task && !noBarcode ? await queue.duplicate(task.id, scannedValue) : null;
       const key = await queue.enqueue({ sourceMode: task ? "TASK" : "QUICK_SCAN", taskId: task?.id ?? null, scannedValue, isNoBarcode: noBarcode });
       setAccepted(key); if (field.current) field.current.value = "";
+      setDuplicate(duplicate ? duplicate.intakeId ? { intakeId: duplicate.intakeId } : { intakeIdempotencyKey: duplicate.intakeIdempotencyKey! } : null);
+      if (task?.photosRequired && !duplicate) { resumeCamera.current = cameraState.running; camera.current?.stop(); setCapture({ target: { intakeIdempotencyKey: key }, onlyMissing: false }); }
       return true;
     } catch { setError(t("scanning.storage_error")); return false; }
     finally { writing.current = false; setBusy(false); }
@@ -37,6 +58,12 @@ export function WarehouseScanner({ task }: { task?: ScannerTask }) {
   useEffect(() => { if (!ready) camera.current?.stop(); }, [ready]);
 
   const taskId = task?.id, deliveryKey = queue.lastDelivery?.key;
+  useEffect(() => {
+    if (!taskId || !queue.ready) return;
+    const cache = () => { void queue.cacheTask(taskId).catch(() => {}); };
+    cache(); window.addEventListener("online", cache); window.addEventListener("focus", cache);
+    return () => { window.removeEventListener("online", cache); window.removeEventListener("focus", cache); };
+  }, [taskId, queue.ready]);
   useEffect(() => {
     if (!taskId) return;
     const abort = new AbortController();
@@ -62,6 +89,10 @@ export function WarehouseScanner({ task }: { task?: ScannerTask }) {
   }, [taskId, deliveryKey]);
   function onSubmit(event: FormEvent) { event.preventDefault(); void submit(field.current?.value ?? ""); }
   const review = accepted && queue.lastDelivery?.key === accepted && queue.lastDelivery.result.reviewReason;
+  function finishCapture() {
+    setCapture(null); setTimeout(() => { field.current?.focus(); if (resumeCamera.current && video.current && document.visibilityState === "visible") void camera.current?.start(video.current); resumeCamera.current = false; }, 0);
+  }
+  if (capture) return <PhotoWorkspace key={JSON.stringify(capture.target)} {...capture} onComplete={finishCapture} onDuplicate={(context: CaptureContext) => { finishCapture(); setDuplicate(context.target); }} />;
   return <div className="warehouse-scanner">
     {task ? <>
       <Link className="scanner-back" href="/warehouse/tasks">{t("scanner.back")}</Link><h1>{task.title}</h1>
@@ -87,12 +118,13 @@ export function WarehouseScanner({ task }: { task?: ScannerTask }) {
     <div className={review ? "scanner-received scanner-review" : "scanner-received"} role="status" aria-live="polite">
       {accepted ? <><strong>{t(review ? "scanning.review_recorded" : "warehouse.scan_accepted")}</strong><p>{t("warehouse.next_scan")}</p></> : <p>{t("scanner.camera_hint")}</p>}
     </div>
+    {duplicate ? <section><p role="status">{t("media.already_scanned")}</p><p>{t(!duplicateStatus ? "media.photos_status_unknown" : duplicateStatus.missingSlots.length ? "media.required_photos_missing" : "media.photos_complete")}</p>{!duplicateStatus || duplicateStatus.missingSlots.length && duplicateStatus.canCompletePhotos ? <button type="button" onClick={() => { camera.current?.stop(); setCapture({ target: duplicate, onlyMissing: true }); }}>{t("media.complete_photos")}</button> : null}</section> : null}
     <form onSubmit={onSubmit}>
       <label>{t("scanner.manual")}<input ref={field} maxLength={512} autoComplete="off" autoCapitalize="off" spellCheck={false} enterKeyHint="send" /></label>
       <div className="scanning-actions"><button disabled={busy || !ready} type="submit">{t("scanning.accept")}</button>
         <button disabled={busy || !ready} type="button" onClick={() => { void submit("", true); }}>{t("scanning.no_barcode")}</button></div>
     </form>
     {error ? <p role="alert">{error}</p> : null}
-    <p className="scanner-hint">{t("scanning.photos_pending")}</p>
+    {!task?.photosRequired ? <p className="scanner-hint">{t("scanning.photos_pending")}</p> : null}
   </div>;
 }

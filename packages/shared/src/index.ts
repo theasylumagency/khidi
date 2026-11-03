@@ -1,3 +1,5 @@
+import { AppError } from "./errors.ts";
+export { AppError, type ErrorCode } from "./errors.ts";
 import { randomBytes, createHash, createCipheriv, createDecipheriv } from "node:crypto";
 import { z } from "zod";
 import { createUuidV7 } from "./uuid.ts";
@@ -171,28 +173,6 @@ export function formatTbilisiDateTime(date: Date | string, locale: "ka" | "en" =
 /**
  * Standardized domain errors.
  */
-export type ErrorCode =
-  | "UNAUTHORIZED"
-  | "FORBIDDEN"
-  | "NOT_FOUND"
-  | "VALIDATION_ERROR"
-  | "CONFLICT"
-  | "PRECONDITION_FAILED"
-  | "INVARIANT_VIOLATION"
-  | "IDEMPOTENCY_CONFLICT";
-
-export class AppError extends Error {
-  public readonly code: ErrorCode;
-  public readonly details?: Record<string, unknown>;
-
-  constructor(code: ErrorCode, message: string, details?: Record<string, unknown>) {
-    super(message);
-    this.name = "AppError";
-    this.code = code;
-    this.details = details;
-  }
-}
-
 /**
  * Core Roles, Relationship Modes, and Zod Schemas (§4.4, §13.1, [C12]).
  */

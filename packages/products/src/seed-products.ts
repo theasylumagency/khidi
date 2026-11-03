@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import {
   closeAppPool,
+  assertSeedDatabaseSafety,
   getDb,
   legalEntities,
   skus,
@@ -22,6 +23,7 @@ import {
 } from "./index.ts";
 
 export async function runProductsSeed() {
+  assertSeedDatabaseSafety();
   const db = getDb();
 
   // 1. Always ensure 9 categories (8 public + UNCLASSIFIED) and 30 initial Product Types exist

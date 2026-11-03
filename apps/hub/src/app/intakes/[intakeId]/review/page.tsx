@@ -6,6 +6,8 @@ import { formatStaffName, t, type TranslationKey } from "@khidi/i18n";
 import { AppError, createUuidV7, formatTbilisiDateTime } from "@khidi/shared";
 import { requirePageAuth } from "../../../../lib/session.ts";
 import { IntakeReviewForm } from "../../../../components/intake-review-form.tsx";
+import { listMediaImageViews } from "@khidi/media";
+import { AdminMediaPanel } from "../../../../components/admin-media-panel.tsx";
 
 export const dynamic = "force-dynamic";
 export default async function IntakeReviewPage({ params }: { params: Promise<{ intakeId: string }> }) {
@@ -17,6 +19,7 @@ export default async function IntakeReviewPage({ params }: { params: Promise<{ i
   const { intake, scanner, taskTitle, taskStatus, matches, referenceSku } = details;
   const reason = intake.reviewReason ?? intake.reviewOriginalReason;
   const candidates = [...new Map(matches.map((sku) => [sku.skuId, sku])).values()];
+  const images = await listMediaImageViews(getDb(), principal, { intakeId });
   return <section className="scanning-panel"><h1>{t("scanning.review")}</h1>
     <nav className="scanning-actions"><Link href="/intakes?needsReview=yes">{t("scanning.needs_review")}</Link><Link href="/products">{t("scanning.product")}</Link><Link href="/labels">{t("scanning.labels")}</Link></nav>
     <dl className="review-metadata">
@@ -36,5 +39,6 @@ export default async function IntakeReviewPage({ params }: { params: Promise<{ i
       candidates={candidates.map(({ internalSku, displayNameKa }) => ({ internalSku, displayNameKa }))} /> : <>
       {intake.reviewedAt ? <p>{t("scanning.review_closed")} · {formatTbilisiDateTime(intake.reviewedAt)} · {intake.reviewNote}</p> : null}
     </>}
+    <AdminMediaPanel images={images} assignees={[]} />
   </section>;
 }

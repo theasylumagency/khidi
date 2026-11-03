@@ -20,7 +20,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
     <ScanTaskForm idempotencyKey={createUuidV7()} assignees={assignees.map(({ id, fullName }) => ({ id, fullName: formatStaffName(fullName) }))} productTypes={productTypes.filter((type) => type.active).map(({ id, nameKa }) => ({ id, nameKa }))} />
     <div className="scanning-table-wrap"><table><thead><tr><th>{t("scanning.title")}</th><th>{t("scanning.assignee")}</th><th>{t("scanning.progress")}</th><th>{t("scanning.status")}</th><th>{t("scanning.due")}</th></tr></thead>
       <tbody>{tasks.rows.map((task) => <tr key={task.id}>
-        <td><Link href={`/intakes?taskId=${task.id}`}>{task.title}</Link></td>
+        <td><Link href={task.taskType === "PHOTO_REQUEST" ? `/warehouse/tasks/${task.id}` : `/intakes?taskId=${task.id}`}>{task.title}</Link>{task.taskType === "PHOTO_REQUEST" ? <span> · {t("media.photo_request")}</span> : null}</td>
         <td>{task.assigneeUserId ? names.get(task.assigneeUserId) ?? t("scanning.unset") : t(`scanning.role.${task.assigneeRole}` as TranslationKey)}</td>
         <td>{task.completedCount} / {task.targetCount ?? "—"}</td><td>{t(`scanning.task.${task.status}` as TranslationKey)}</td>
         <td>{task.dueDate ? formatTbilisiDateTime(task.dueDate) : "—"}</td>

@@ -6,10 +6,10 @@ import * as schema from "./schema.ts";
 const { Pool } = pg;
 
 const DEV_FALLBACK_APP_DB_URL =
-  "postgres://hub_app:hub_app_dev_password@127.0.0.1:5435/agrotrade_hub";
+  "postgres://hub_app:hub_app_dev_password@127.0.0.1:5435/agrotrade_hub_dev";
 
 const DEV_FALLBACK_MIGRATOR_DB_URL =
-  "postgres://hub_migrator:hub_migrator_dev_password@127.0.0.1:5435/agrotrade_hub";
+  "postgres://hub_migrator:hub_migrator_dev_password@127.0.0.1:5435/agrotrade_hub_dev";
 
 export function resolveAppDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   const configured = env.DATABASE_URL?.trim();

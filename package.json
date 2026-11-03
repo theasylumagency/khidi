@@ -13,10 +13,15 @@
     "check:boundaries": "depcruise packages apps --config .dependency-cruiser.cjs",
     "test": "node --import ./scripts/test-environment.mjs ./node_modules/vitest/vitest.mjs run",
     "test:safety": "node --import ./scripts/test-environment.mjs ./node_modules/vitest/vitest.mjs run --config vitest.safety.config.ts",
-    "db:migrate": "corepack pnpm --filter @khidi/db migrate",
-    "db:seed": "corepack pnpm --filter @khidi/db seed && corepack pnpm --filter @khidi/products seed",
+    "db:migrate": "node --env-file-if-exists=.env --import tsx packages/db/src/migrate.ts",
+    "db:seed": "node --env-file-if-exists=.env --import tsx packages/db/src/seed.ts && node --env-file-if-exists=.env --import tsx packages/products/src/seed-products.ts",
     "dev:hub": "corepack pnpm --filter @khidi/hub dev",
-    "dev:worker": "corepack pnpm --filter @khidi/worker dev"
+    "dev:worker": "corepack pnpm --filter @khidi/worker dev",
+    "media:jobs:deploy": "node --env-file-if-exists=.env --import tsx ops/media-jobs-deploy.ts",
+    "media:dev:init": "node --env-file-if-exists=.env --import tsx ops/minio-dev-init.ts",
+    "media:storage": "node --env-file-if-exists=.env --import tsx ops/media-storage.ts",
+    "media:restore": "node --env-file-if-exists=.env --import tsx ops/media-restore.ts",
+    "ops:bootstrap-admin": "node --env-file-if-exists=.env --import tsx ops/bootstrap-admin.ts"
   },
   "devDependencies": {
     "@types/node": "24.0.0",

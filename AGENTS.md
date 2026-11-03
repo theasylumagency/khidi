@@ -36,29 +36,23 @@ If two sources conflict and this list does not resolve it, stop and ask. Do not 
 | --- | --- |
 | M1 Foundation, auth, PWA shell | Done |
 | M2 Product model | Done (F1–F7, G1–G2 closed) |
-| M3 Scanning, intake, labels, offline queue, backup tooling | Implementation complete (S1–S8). Human pre-pilot checks below remain pending. |
-| M4–M11 | Not started |
+| M3 Scanning, intake, labels, offline queue, backup tooling | Done — merged to `main` (PR #1). Human checks below pending |
+| M4 Photo capture and media pipeline | Implemented (P1–P10) on `m4-media`; PR review and human deployment checks pending |
+| M5–M11 | Not started |
 
-Real-device gateway spike (ADR-002 checks):
-- **Android: confirmed** by the owner on 2026-11-02 (install, service worker, camera,
-  IndexedDB, push behind the gateway).
-- **iPhone: not yet tested.** Required before any iPhone is used for pilot intake.
+Human checks still pending (the owner updates these lines):
 
-Shared deployments: **first shared deployment 2026-11-02** (the spike server used for the
-Android test). The migration squash window in §6 is **closed**: migrations 0001–0004 must never
-be edited; every change is a new migration.
+- **iPhone** (ADR-002 checks and the M3 checklist in `docs/milestones/m3-scanning.md`):
+  not yet tested. Required before any iPhone is used for pilot intake.
+- **Thermal label printer:** not available yet. The 58 × 40 mm label has only been checked
+  on screen. A real print-and-scan test is required before pilot no-barcode intake.
+- **Backups on the shared server** (PostgreSQL per ADR-004, object storage per M4) and the
+  first real restore test: pending, to be done before M4 is deployed to the server.
 
-Backups on the shared server: tooling exists (ADR-004), activation on the server and the first
-real restore test are **pending, human-run**, and must be completed before pilot intake.
+Android was confirmed behind the gateway on 2026-11-02.
 
-M3 local verification (2026-11-02): typecheck, dependency boundaries and the production
-Hub build passed. The final 100 tests passed on a fresh isolated PostgreSQL 18.4
-database and on its re-run. Browser checks verified immediate offline acceptance,
-later delivery/progress and a Class A review message without extra progress.
-The earlier S7 pgBackRest 2.60.0 local encrypted backup was restored into a separate cluster:
-migration checksums and 16 core-table row counts matched; all 76 tests passed there.
-This is not the first shared-deployment restore test; off-server storage and that
-human-run test remain pending. See `docs/milestones/m3-scanning.md` and ADR-004/005.
+Shared deployments: **first shared deployment 2026-11-02**. The migration squash window in §6
+is **closed**: every existing migration is frozen; every change is a new migration.
 
 Update this table at the end of every milestone.
 
@@ -96,15 +90,21 @@ the repository script. PostgreSQL 16 or newer is acceptable for running tests; p
 ```bash
 apt-get update && apt-get install -y postgresql
 # start a cluster listening on 127.0.0.1:5435 with superuser hub_migrator
-# (password from .env.example), create database agrotrade_hub, then:
-POSTGRES_USER=hub_migrator POSTGRES_DB=agrotrade_hub \
+# (password from .env.example), create a dedicated database khidi_test, then:
+POSTGRES_USER=hub_migrator POSTGRES_DB=khidi_test \
 HUB_APP_DB_PASSWORD=hub_app_dev_password PGHOST=127.0.0.1 PGPORT=5435 \
 sh docker/postgres/init-roles.sh
+# Set DATABASE_URL and DATABASE_MIGRATOR_URL explicitly to this khidi_test database.
 corepack pnpm test                     # global setup migrates and seeds
 ```
 
 Network access is only needed during setup (package install). Do not add dependencies at
 task time unless the task explicitly allows it (§7).
+
+Seeds are development fixtures: never run seeds or tests on a shared server. Both seed
+entry points reject `NODE_ENV=production` and require explicit `_dev`/`_test` database names.
+For shared setup use `docs/ops/server-setup.md`: migrations, worker queue deployment, then
+the interactive `pnpm ops:bootstrap-admin` command, never development accounts.
 
 ## 5. Architecture rules
 
@@ -181,74 +181,166 @@ task time unless the task explicitly allows it (§7).
   M5 must replace manual confidence with the computed value and decide in an ADR whether a
   manual override remains at all.
 
-## 10. Current task: finish Milestone 3 (S8, then S6)
+## 10. Current task: Milestone 4 — photo capture and media pipeline
 
-Branch: continue on `m3-scanning`. Never commit to `main`. One commit per step, message
-prefixed with the step ID. Each step needs tests. Schema changes only in new migrations
-(`0005_…`); 0001–0004 are frozen (§3).
+Branch: `m4-media` from `main`. Never commit to `main`. One commit per step, message prefixed
+with the step ID (P1…P10). Each step needs tests. Schema changes only in new migrations
+(`0006_…` onward). Specification: §8 (photo intake and media), §15.2 (sellability), §16.3
+(concealment), §16.5 (offline), §16.7 (backups).
 
-**Done in M3:** S1 schema · S2 intake service · S3 no-barcode flow and labels · S4 tasks and
-Quick Scan · S5 offline queue · S7 backup and restore tooling · S8 physical-scan review ·
-S6 warehouse scanner UI. Details:
-`docs/milestones/m3-scanning.md`.
+### Scope boundaries (read first)
 
-### S8 — Implement ADR-005 (Accepted): a physical scan is never lost
+- **No AI, no OCR, no background removal in M4.** Label readability (OCR) and product
+  consistency checks are M5. All image processing in M4 is deterministic (Sharp).
+- **No storefront delivery.** M4 prepares public derivatives and URL building; no CDN, no
+  storefront integration.
+- Allowed new dependencies (exact pinned versions, each at least two weeks old):
+  `pg-boss`, `sharp`, `@aws-sdk/client-s3` (and `@aws-sdk/s3-request-presigner` only if
+  signed S3 URLs are needed), and a MinIO container for development in `docker-compose.yml`.
+- `PHOTO_REQUEST` task type is implemented in M4. `PHYSICAL_COUNT`, `EVIDENCE_REQUEST` and
+  `PICK` stay unavailable.
 
-Read `docs/adr/ADR-005-unknown-internal-label-scans.md` first; it is the specification for
-this step and replaces its Proposed version.
+### Steps
 
-- Migration `0005_intake_review.sql`: `review_reason`, `reviewed_at`, `reviewed_by`,
-  `review_resolution`, `review_note` on `product_intakes`; CHECK constraints for the allowed
-  values and for consistency (a review resolution requires `reviewed_at` and `reviewed_by`);
-  exclude intakes with a `review_reason` from `product_intakes_task_identifier_uq`.
-- Intake service: Class A conditions are recorded for review instead of throwing
-  (`UNKNOWN_INTERNAL_LABEL`, `ARCHIVED_INTERNAL_LABEL`, `IDENTIFIER_COLLISION`,
-  `TASK_NOT_ACCEPTING`, `TASK_NOT_ASSIGNED`). A Class A intake never creates or changes catalog
-  data (no draft, no identifier attachment) and never counts toward task progress; it may only
-  reference an existing matching SKU. For the two task reasons, an unknown external code is
-  stored as `MANUAL_IDENTIFICATION_REQUIRED` without a draft; the draft is created only when an
-  admin chooses "Accept for task" (see ADR-005). Class B conditions keep their current errors.
-- Review actions (ADMIN only, note mandatory, audited, idempotent): link to an existing SKU
-  (with a replacement-label request when the label was wrong or archived), accept for task,
-  dismiss. Choose how replacement labels enter the print queue; if this needs a schema
-  change, make it in 0005 and explain it in the PR.
-- Admin intake list: "Needs review" filter; review screen with the original scanned value,
-  scanned time, scanner, device and task.
-- Offline queue: blocked (Class B) entries are listed with a Georgian reason; their owner can
-  discard after confirmation; the discard is reported to the server as
-  `OFFLINE_SCAN_DISCARDED` when online.
-- Online result message for Class A: "ჩაიწერა, საჭიროებს ადმინის განხილვას".
-- Tests: each Class A condition creates a review intake and no SKU; offline replay of a scan
-  whose task was cancelled meanwhile lands in review, not blocked; Class A intakes do not
-  change task progress; each resolution path; non-admin cannot resolve; discard is audited;
-  Class B conditions still fail as before.
+**P1 — Object storage layer + ADR-006.** One storage interface in `packages/media` with an
+S3 implementation (MinIO in development, S3-compatible in production) and a filesystem
+implementation for tests and Docker-less environments.
+- Write-once for raw originals and evidence: the storage layer refuses to overwrite an
+  existing key; the SHA-256 of every raw file is stored and verified on read.
+- Private area for `raw/`, `master/` and `evidence/`; a separate public area for published
+  derivatives only. Object keys use image ids, never SKU ids or `KH-` numbers.
+- ADR-006 records the storage choice, bucket versioning, replication to a second location,
+  deletion protection for raw and evidence, and how storage is covered by backups and the
+  restore runbook (extend `docs/ops/backup-restore.md`).
 
-### S6 — Warehouse scanner UI (now unblocked)
+**P2 — Schema** (`0006_media.sql`). `product_images` based on plan §2.3, with these changes:
+- `sku_id` nullable, `intake_id` nullable, at least one of them set. Photos of Class A review
+  intakes have no SKU yet; when a review resolution links the intake to a SKU, its photos are
+  linked to that SKU in the same transaction.
+- Foreign keys `ON DELETE RESTRICT` (never CASCADE); no DELETE for `hub_app`.
+- Add `raw_sha256`, `raw_bytes`, `mime_type`, `width`, `height`, `captured_at` (device),
+  `device_id`, `idempotency_key` (unique), `reject_reason`.
+- `IDENTIFICATION` photos default to `usage = INTERNAL_EVIDENCE`, `role = IDENTITY`.
+- Master versions: a reprocessing creates a new version; earlier versions stay.
 
-Android is confirmed behind the gateway; iPhone is not yet tested. Build S6 as specified
-before (mobile, Georgian only, large targets, spec §7.3: camera scanning, manual entry, task
-progress "12 / 27", immediate next scan, "✓ კოდი მიღებულია" before the server answers), with
-these additions:
+**P3 — Upload API.** Uploads go through the Hub API (behind the gateway), never directly from
+the phone to object storage.
+- Idempotent per photo (`Idempotency-Key`), size limit 15 MB, JPEG/PNG/WebP only; other
+  types are rejected with a Georgian message. The raw original is stored byte-for-byte.
+- Permissions: the scanner of an intake uploads its photos; a warehouse user uploads for a
+  `PHOTO_REQUEST` assigned to them; ADMIN uploads for any SKU or intake.
+- Creating the image row and enqueuing its processing job happen in one transaction
+  (outbox or transactional enqueue). No fire-and-forget.
 
-- **Decoder:** use `BarcodeDetector` where it exists; otherwise ZXing. Safari on iPhone has no
-  `BarcodeDetector`, so the ZXing path is the iPhone path and must be fully functional.
-  You may add `@zxing/browser` (exact pinned version, at least two weeks old) if
-  `@zxing/library` alone is not enough for camera decoding.
-- **Camera:** `getUserMedia` with the rear camera preferred; the video element must be
-  inline (`playsinline`, muted); stop all tracks when leaving the screen or locking the phone;
-  handle a denied permission with a Georgian explanation and a retry button.
-- **Torch:** show the toggle only when the track reports torch capability.
-- **Formats:** EAN-8/13, UPC-A/E, Code128, Code39, QR, DataMatrix where the decoder supports it.
-- Show the Class A review message from S8 when the server answers with a review result.
-- Add the iPhone checklist to `docs/milestones/m3-scanning.md` so the owner can run it:
-  install to home screen, camera permission in standalone mode, scanning with the ZXing path,
-  offline scan and later sync, push.
+**P4 — Guided capture UI** (mobile, Georgian only). After an intake is accepted, if the task
+requires photos, the user goes straight into capture; then to the next scan.
+- Slots and instructions come from the Product Type's `photoInstructionsJson` when the SKU's
+  type is known; otherwise the three generic slots of spec §8.1.
+- An overlay frame shows where to place the product.
+- Capture method: choose between camera stream capture and the native camera
+  (`<input type="file" accept="image/jpeg" capture="environment">`) and record the choice in
+  ADR-007. Acceptance criteria for the choice: MAIN and SECONDARY at least 1920 px on the long
+  edge; IDENTIFICATION sharp enough to read a model plate; works on Android and in an
+  installed PWA on iPhone.
+- **Tier-1 checks on the device**, before the photo is accepted, offline-capable: blur
+  (e.g. Laplacian variance on a downscaled grayscale copy), severe under/over-exposure
+  (clipped histogram share), minimum resolution. Thresholds are configuration. Failure shows
+  "⚠ ფოტო ბუნდოვანია, გადაიღეთ თავიდან" or the matching message; success shows
+  "✓ ფოტო მიღებულია".
+- Required slots cannot be skipped. A "can't photograph" action records a reason and marks
+  the intake for admin attention; nothing is lost.
+- **Photos belong to the original intake, never to a duplicate.** A repeat scan in an
+  `INTAKE_UNIQUE` task (a duplicate, or a scan of a printed `KH-` label to confirm attachment)
+  never starts photo capture by itself. It shows "უკვე დასკანერებულია" with the photo status
+  of the original intake. If that original intake still misses required photos, the screen
+  offers "ფოტოების დასრულება", which captures only the missing slots and stores them on the
+  original intake. Any user assigned to the task, and ADMIN, may complete them.
+- **Slots already covered:** when the scan matches a SKU that already has a VERIFIED image for
+  a slot, that slot is optional for this intake (shown as "ფოტო უკვე არსებობს — გამოტოვება ან
+  ხელახლა გადაღება").
+- **Deciding offline whether to start capture.** The warehouse never waits for the server.
+  - When a task is opened online, the device caches the task's already-scanned normalized
+    identifiers; together with the device's own queued scans this is the local duplicate list.
+    Normalization runs with the same shared code as on the server.
+  - A scan found in the local duplicate list → no automatic capture (duplicate rule above).
+    Any other scan → capture starts immediately, online or offline.
+  - If the server answer arrives before the first photo is taken and says "duplicate", the
+    capture screen closes with the duplicate message.
+  - Offline, the "slots already covered" rule cannot be known, so all required slots are asked.
+- **Late duplicate detection.** If photos were already taken for a scan that the server later
+  classifies as a duplicate, they are kept and stored on the original intake as additional
+  UNVERIFIED candidates for their slots. They never replace or overwrite existing images, even
+  when the slot is already filled; the admin chooses in P8, and the P6 perceptual-hash check
+  flags near-identical photos.
 
-### When S8 and S6 are done
+**P5 — Offline photo queue.** Extend the S5 queue:
+- Photos are stored as blobs in IndexedDB with the same per-user ownership rules as scans.
+- A photo is sent only after its intake has been delivered (dependency on the intake's
+  idempotency key).
+- Call `navigator.storage.persist()`; show used storage; warn at 80 % of the estimated quota;
+  at 95 % block new captures with a Georgian explanation. Never drop a queued photo silently.
+- **Photos of a blocked (Class B) scan** are never uploaded on their own: they stay queued
+  and are shown under that blocked scan. If the owner discards the scan, its photos are
+  discarded with it in the same IndexedDB transaction; the confirmation dialog states the
+  number of photos ("სკანი და მისი N ფოტო წაიშლება"). The `OFFLINE_SCAN_DISCARDED` report
+  includes photo metadata only (count, slots, SHA-256, bytes, captured time), never image bytes.
+- **A photo blocked on its own** (Class B rejection of the photo, while its intake was
+  delivered) is shown with its reason; the owner may retake it or discard it. A discard is
+  reported as `OFFLINE_PHOTO_DISCARDED` (metadata only), and the server marks the intake
+  "required photos missing" for admin attention, so an admin can issue a PHOTO_REQUEST.
 
-All checks in §4 green on a fresh database (twice), update §3 and
-`docs/milestones/m3-scanning.md`, open a PR from `m3-scanning` to `main` listing deviations,
-ADRs and `docs/` changes, and stop. Do not start M4.
+**P6 — Worker and image processing.** Introduce `pg-boss` in `apps/worker`.
+- The pg-boss schema is created and migrated by `hub_migrator` in a deploy step; the runtime
+  uses `hub_app` with explicit grants.
+- Job `process-image`: raw → master (auto-orient, sRGB, all metadata including EXIF GPS
+  stripped) → 1:1 canvas on a light neutral background with consistent padding → web
+  derivatives 400/800/1600 px in WebP and AVIF. Deterministic only (spec §8.5).
+- Job `tier2-image-check` (deterministic part only): resolution and perceptual-hash duplicate
+  detection within the same SKU. "Product fully in frame" and label readability are M5.
+- Retries with backoff, idempotent jobs, dead-letter, job status visible to ADMIN with a
+  retry action. Rename the worker service label from `agrotrade-worker` to `khidi-worker`.
+
+**P7 — PHOTO_REQUEST tasks.** ADMIN requests specific slots for a SKU with a note; it appears
+in the assignee's warehouse task list; it completes when every requested slot has an uploaded
+photo that passed Tier-1. Rejecting an image (P8) offers "request a new photo".
+
+**P8 — Admin image management** on the SKU page: raw, master and derivatives (private
+images through short-lived signed URLs); set role, usage and sort order; verify or reject with
+a reason; reprocess. **Sellability:** add "at least one VERIFIED, PUBLIC, MAIN image" to the
+evaluator in `packages/publishing` (spec §15.2).
+
+**P9 — Public derivatives.** Only VERIFIED PUBLIC images of READY SKUs are copied to the
+public area. Public object names use the canonical slug, e.g.
+`{canonical_slug}-{n}-{width}.{webp|avif}`; never internal ids, `KH-` numbers or the Hub
+hostname. A function builds public URLs from a storefront's `media_base_url`. When an image is
+rejected or a SKU leaves READY, its public copies are withdrawn.
+
+**P10 — Operations.** Development MinIO with versioning enabled; ops scripts to enable
+versioning, replication and deletion protection on the production bucket; the restore
+verification covers a sample of raw files (SHA-256 match after restore).
+
+### Acceptance
+
+- Fresh database: §4 checks pass twice in a row (tests use the filesystem storage adapter;
+  S3 integration tests run when MinIO is available).
+- Tests cover: raw stored byte-for-byte and never overwritten; SHA-256 verified; EXIF GPS
+  absent from master and all derivatives (use a fixture JPEG with GPS data); derivative sizes
+  and formats; reprocessing creates a new master version; idempotent upload replay; upload
+  permissions per role; photo for a Class A intake linked to the SKU on review resolution;
+  Tier-1 checks on synthetic sharp/blurred/dark images; offline photo queue ordering after its
+  intake and per-user ownership; quota thresholds; PHOTO_REQUEST lifecycle; job retry and
+  dead-letter; sellability blocked without a verified public main image; public names contain
+  no internal ids; public copies withdrawn on rejection.
+- Update §3, write `docs/milestones/m4-media.md` (including an iPhone and Android capture
+  checklist for the owner), open a PR from `m4-media` listing deviations, ADRs and `docs/`
+  changes, and stop. Do not start M5.
+
+### Notes for later milestones
+
+- **M8 physical counts:** the camera scanner treats a code that leaves the frame for 0.8 s as
+  a new scan. That is harmless for unique intake but would overcount in `PHYSICAL_COUNT`.
+  Counting needs an explicit per-unit confirmation (or an equivalent safeguard); decide it in
+  an ADR during M8.
 
 ## 11. Working agreement
 

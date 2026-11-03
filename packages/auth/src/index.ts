@@ -31,6 +31,7 @@ const WAREHOUSE_PIN_SESSION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours short sessio
 const MAX_PIN_ATTEMPTS = 5;
 const MAX_LOGIN_ATTEMPTS = 5;
 const TOTP_ISSUER = "Khidi";
+export { bootstrapFirstAdmin } from "./bootstrap.ts";
 
 export interface AuthenticatedPrincipal {
   userId: string;
@@ -222,7 +223,7 @@ export async function loadPrincipalByUserId(
   deviceId: string | null = null
 ): Promise<AuthenticatedPrincipal> {
   const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-  if (!user || !user.active) {
+  if (!user || !user.active || user.totpEnrollmentRequired) {
     throw new AppError("UNAUTHORIZED", "User is not active or does not exist.");
   }
 
@@ -301,6 +302,23 @@ export async function loginOfficeUser(
   }
 
   const role = user.role as UserRole;
+  if (user.totpEnrollmentRequired && (!user.totpSecretEncrypted || !input.totpCode)) {
+    const enrollment = await withDomainTransaction(db, { userId: user.id }, async (ctx) => {
+      const [current] = await ctx.tx.select().from(users).where(eq(users.id, user.id)).for("update");
+      if (!current?.active || !current.totpEnrollmentRequired || current.passwordHash !== user.passwordHash) throw new AppError("UNAUTHORIZED", "Please sign in again.");
+      if (current.totpSecretEncrypted) {
+        const base32Secret = decryptTotpSecret(current.totpSecretEncrypted);
+        const totp = new OTPAuth.TOTP({ issuer: TOTP_ISSUER, label: current.email!, secret: OTPAuth.Secret.fromBase32(base32Secret) });
+        return { base32Secret, otpauthUri: totp.toString() };
+      }
+      const secret = generateTotpSecret(current.email!);
+      await ctx.tx.update(users).set({ totpSecretEncrypted: secret.encryptedSecret }).where(eq(users.id, current.id));
+      await ctx.recordAudit({ action: "TOTP_ENROLLMENT_STARTED", entityType: "user", entityId: current.id, after: { enrollmentRequired: true } });
+      await ctx.emitOutboxEvent({ eventType: "TOTP_ENROLLMENT_STARTED", aggregateType: "user", aggregateId: current.id, payload: {}, consumers: [] });
+      return { base32Secret: secret.base32Secret, otpauthUri: secret.otpauthUri };
+    });
+    throw new AppError("PRECONDITION_FAILED", "TOTP enrollment is required before a session can be issued.", { totpEnrollment: enrollment });
+  }
   if (roleRequiresMandatoryTotp(role) || user.totpEnabled) {
     if (!user.totpSecretEncrypted) {
       throw new AppError(
@@ -320,6 +338,14 @@ export async function loginOfficeUser(
   const expiresAt = new Date(Date.now() + OFFICE_SESSION_TTL_MS);
 
   await withDomainTransaction(db, { userId: user.id }, async (ctx) => {
+    const [current] = await ctx.tx.select().from(users).where(eq(users.id, user.id)).for("update");
+    if (!current?.active || current.passwordHash !== user.passwordHash) throw new AppError("UNAUTHORIZED", "Please sign in again.");
+    if (current.totpEnrollmentRequired) {
+      if (!current.totpSecretEncrypted || !input.totpCode || !verifyTotpCode(decryptTotpSecret(current.totpSecretEncrypted), input.totpCode)) throw new AppError("UNAUTHORIZED", "TOTP enrollment must be confirmed.");
+      await ctx.tx.update(users).set({ totpEnrollmentRequired: false, totpEnabled: true }).where(eq(users.id, current.id));
+      await ctx.recordAudit({ action: "TOTP_ENROLLMENT_COMPLETED", entityType: "user", entityId: current.id, after: { totpEnabled: true } });
+      await ctx.emitOutboxEvent({ eventType: "TOTP_ENROLLMENT_COMPLETED", aggregateType: "user", aggregateId: current.id, payload: {}, consumers: [] });
+    }
     await ctx.tx
       .update(users)
       .set({ failedLoginAttempts: 0, loginLockedUntil: null })

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { resolveMigratorDatabaseUrl } from "./client.ts";
-import { assertIsolatedRestoreUrls, captureRestoreSnapshot, checkRestoredMigrations, compareRestoreSnapshots } from "./restore-verification.ts";
+import { assertIsolatedRestoreUrls, assertRestoreTestCopyUrls, captureRestoreSnapshot, checkRestoredMigrations, compareRestoreSnapshots } from "./restore-verification.ts";
 import { OpsRunner, type OpsConfig } from "../../../ops/common.ts";
 import { restoreBackup } from "../../../ops/restore.ts";
 import { verifyRestore } from "../../../ops/verify-restore.ts";
@@ -59,5 +59,13 @@ describe("M3 S7 restore verification safeguards", () => {
   });
   it("requires an explicit source maintenance window before making a backup or restoring", async () => {
     await expect(verifyRestore({})).rejects.toThrow(/Stop Hub, workers/);
+  });
+  it("allows verification only on a separate _test clone on the recovered server", () => {
+    const recovered = "postgres://hub_migrator:local@127.0.0.1:5437/khidi", migrator = "postgres://hub_migrator:local@localhost:5437/khidi_recovery_test", app = migrator.replace("hub_migrator", "hub_app");
+    expect(assertRestoreTestCopyUrls(recovered, migrator, app).testDatabase).toBe("khidi_recovery_test");
+    expect(() => assertRestoreTestCopyUrls(recovered, recovered, recovered.replace("hub_migrator", "hub_app"))).toThrow(/SAFETY:/);
+    expect(() => assertRestoreTestCopyUrls(recovered, migrator.replace("5437", "5435"), app.replace("5437", "5435"))).toThrow(/restored server/);
+    expect(() => assertRestoreTestCopyUrls(recovered, migrator, app, recovered.replace("127.0.0.1", "production.internal"))).toThrow(/loopback/);
+    expect(() => assertRestoreTestCopyUrls(recovered + "?host=production.internal", migrator, app)).toThrow(/overrides/);
   });
 });

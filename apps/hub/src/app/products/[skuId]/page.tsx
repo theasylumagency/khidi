@@ -6,6 +6,11 @@ import { getSkuWithDetails } from "@khidi/products";
 import { AppError } from "@khidi/shared";
 import { requirePageAuth } from "../../../lib/session.ts";
 import { SkuDetailActions } from "../../../components/sku-detail-actions.tsx";
+import { PhotoRequestForm } from "../../../components/photo-request-form.tsx";
+import { listTaskAssignees } from "@khidi/scanning";
+import { formatStaffName } from "@khidi/i18n";
+import { listMediaImageViews } from "@khidi/media";
+import { AdminMediaPanel } from "../../../components/admin-media-panel.tsx";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +25,7 @@ export default async function SkuDetailPage({
 
   const { skuId } = await params;
   const db = getDb();
+  const photoAssignees = principal.role === "ADMIN" ? (await listTaskAssignees(db, principal)).filter((user) => user.role === "WAREHOUSE").map((user) => ({ id: user.id, fullName: formatStaffName(user.fullName) })) : [];
 
   let details: Awaited<ReturnType<typeof getSkuWithDetails>>;
   try {
@@ -58,6 +64,7 @@ export default async function SkuDetailPage({
       enabled: Boolean(found?.enabled)
     };
   });
+  const images = principal.role === "ADMIN" ? await listMediaImageViews(db, principal, { skuId }) : [];
 
   return (
     <div style={{ display: "grid", gap: "1.5rem" }}>
@@ -443,6 +450,12 @@ export default async function SkuDetailPage({
           )}
         </section>
       </div>
+      {principal.role === "ADMIN" ? (
+        <>
+          <AdminMediaPanel skuId={skuId} images={images} assignees={photoAssignees} />
+          <section><PhotoRequestForm skuId={skuId} assignees={photoAssignees} /></section>
+        </>
+      ) : null}
     </div>
   );
 }

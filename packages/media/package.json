@@ -4,7 +4,13 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./storage": "./src/storage.ts",
+    "./storage-config": "./src/storage-config.ts",
+    "./signing": "./src/signing.ts",
+    "./contracts": "./src/contracts.ts",
+    "./quality": "./src/quality.ts",
+    "./capture-browser": "./src/capture-browser.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -12,7 +18,15 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1152.0",
+    "@khidi/auth": "workspace:*",
+    "@khidi/db": "workspace:*",
     "@khidi/domain": "workspace:*",
-    "@khidi/shared": "workspace:*"
+    "@khidi/shared": "workspace:*",
+    "drizzle-orm": "0.40.0",
+    "pg": "8.13.3",
+    "pg-boss": "12.38.0",
+    "sharp": "0.35.5",
+    "zod": "3.24.2"
   }
 }

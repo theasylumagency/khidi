@@ -1,4 +1,5 @@
 import type { SkuLifecycleState } from "@khidi/products";
+import { hasVerifiedPublicMainImage } from "@khidi/media";
 
 /**
  * [C5, C8, C9, C18] Storefront Sellability Evaluator contract (§15.2).
@@ -52,4 +53,8 @@ export function evaluateStorefrontSellability(
     sellable: blockingReasons.length === 0,
     blockingReasons
   };
+}
+/** Server-side media fact: callers cannot substitute a client-supplied image flag. */
+export async function evaluateSkuMediaSellability(db: Parameters<typeof hasVerifiedPublicMainImage>[0], skuId: string, input: Omit<SellabilityEvaluationInput, "hasVerifiedPublicMainImage">) {
+  return evaluateStorefrontSellability({ ...input, hasVerifiedPublicMainImage: await hasVerifiedPublicMainImage(db, skuId) });
 }

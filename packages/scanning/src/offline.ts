@@ -1,5 +1,7 @@
 import { createUuidV7 } from "@khidi/shared/uuid";
 import type { DiscardInput, IntakeInput, ReviewReason } from "./contracts.ts";
+import type { QueuedPhoto, IntakeReceipt } from "./photo-queue-contracts.ts";
+import { normalizeScan } from "./scan-values.ts";
 
 export interface QueuedScan {
   idempotencyKey: string;
@@ -20,7 +22,7 @@ export interface PendingUser { userId: string; userName: string; count: number; 
 
 export class ScanQueueStore {
   constructor(private readonly database: IDBDatabase) {}
-  private transaction<T>(name: string | string[], mode: IDBTransactionMode, run: (store: IDBObjectStore, result: (value: T) => void, tx: IDBTransaction) => void): Promise<T> {
+  transaction<T>(name: string | string[], mode: IDBTransactionMode, run: (store: IDBObjectStore, result: (value: T) => void, tx: IDBTransaction) => void): Promise<T> {
     return new Promise((resolve, reject) => {
       let value: T;
       const tx = this.database.transaction(name, mode);
@@ -46,6 +48,21 @@ export class ScanQueueStore {
   async removeAccepted(key: string): Promise<void> {
     await this.transaction<void>("scans", "readwrite", (store) => { store.delete(key); });
   }
+  async acceptScan(input: IntakeInput, delivery: QueueTransportResult): Promise<void> {
+    await this.transaction<void>(["scans", "receipts", "meta"], "readwrite", (store, _, tx) => {
+      tx.objectStore("receipts").put({ idempotencyKey: input.idempotencyKey, userId: input.userId, intakeId: delivery.intakeId, duplicateOfIntakeId: delivery.duplicateOfIntakeId } satisfies IntakeReceipt);
+      store.delete(input.idempotencyKey);
+      if (input.taskId) {
+        const cacheKey = `identifiers:${input.userId}:${input.taskId}`, meta = tx.objectStore("meta"), r = meta.get(cacheKey);
+        r.onsuccess = () => {
+          const rows = r.result ?? [], intakeId = delivery.duplicateOfIntakeId ?? delivery.intakeId;
+          const keys = [...(!input.isNoBarcode ? [normalizeScan(input.scannedValue, input.identifierType).key] : []), ...(delivery.internalSku ? [normalizeScan(delivery.internalSku).key] : [])];
+          for (const key of keys) if (!rows.some((row: { key: string }) => row.key === key)) rows.push({ key, intakeId, intakeIdempotencyKey: input.idempotencyKey });
+          meta.put(rows, cacheKey);
+        };
+      }
+    });
+  }
   async recordFailure(key: string, nextAttemptAt: number, status: number | null, blocked: boolean, code?: string): Promise<void> {
     await this.transaction<void>("scans", "readwrite", (store) => {
       const request = store.get(key);
@@ -58,7 +75,7 @@ export class ScanQueueStore {
   }
   async discardBlocked(key: string, userId: string, reason: string, confirmed: boolean): Promise<string> {
     if (!confirmed || !reason.trim() || reason.trim().length > 4000) throw new Error("A reason and confirmation are required.");
-    return this.transaction(["scans", "discards"], "readwrite", (store, result, tx) => {
+    return this.transaction(["scans", "discards", "photos", "photoReports"], "readwrite", (store, result, tx) => {
       const request = store.get(key);
       request.onsuccess = () => {
         const scan = request.result as QueuedScan | undefined;
@@ -67,9 +84,18 @@ export class ScanQueueStore {
         const input: DiscardInput = { idempotencyKey: id, scanIdempotencyKey: scan.idempotencyKey,
           userId, deviceId: scan.input.deviceId, scannedValue: scan.input.scannedValue,
           scannedAt: scan.input.scannedAt, reason: reason.trim() };
-        // Moving to the report outbox is atomic: a crash never loses the discard trace.
-        tx.objectStore("discards").add({ idempotencyKey: id, userId, userName: scan.userName, input, attempts: 0, nextAttemptAt: 0 } satisfies QueuedDiscard);
-        store.delete(key); result(id);
+        const photos = tx.objectStore("photos").index("intakeKey").getAll(key);
+        photos.onsuccess = () => {
+          const entries = photos.result as QueuedPhoto[];
+          if (entries.some((photo) => photo.userId !== userId)) { tx.abort(); return; }
+          input.photos = entries.map((photo) => ({ idempotencyKey: photo.idempotencyKey, slot: photo.input.slot, sha256: photo.sha256, bytes: photo.bytes, capturedAt: photo.input.capturedAt }));
+          input.photoCount = entries.length;
+          for (const photo of entries) tx.objectStore("photos").delete(photo.idempotencyKey);
+          const reports = tx.objectStore("photoReports").openCursor();
+          reports.onsuccess = () => { const cursor = reports.result; if (!cursor) return; if (cursor.value.input.intakeIdempotencyKey === key && cursor.value.userId === userId) cursor.delete(); cursor.continue(); };
+          tx.objectStore("discards").add({ idempotencyKey: id, userId, userName: scan.userName, input, attempts: 0, nextAttemptAt: 0 } satisfies QueuedDiscard);
+          store.delete(key); result(id);
+        };
       };
     });
   }
@@ -136,11 +162,16 @@ export class ScanQueueStore {
 export function openScanQueue(factory: IDBFactory = globalThis.indexedDB, name = "khidi-scan-queue"): Promise<ScanQueueStore> {
   return new Promise((resolve, reject) => {
     if (!factory) { reject(new Error("IndexedDB is unavailable.")); return; }
-    const request = factory.open(name, 2);
+    const request = factory.open(name, 3);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains("scans")) request.result.createObjectStore("scans", { keyPath: "idempotencyKey" }).createIndex("userId", "userId");
       if (!request.result.objectStoreNames.contains("meta")) request.result.createObjectStore("meta");
-      request.result.createObjectStore("discards", { keyPath: "idempotencyKey" }).createIndex("userId", "userId");
+      if (!request.result.objectStoreNames.contains("discards")) request.result.createObjectStore("discards", { keyPath: "idempotencyKey" }).createIndex("userId", "userId");
+      if (!request.result.objectStoreNames.contains("photos")) {
+        const store = request.result.createObjectStore("photos", { keyPath: "idempotencyKey" }); store.createIndex("userId", "userId"); store.createIndex("intakeKey", "input.intakeIdempotencyKey");
+      }
+      if (!request.result.objectStoreNames.contains("photoReports")) request.result.createObjectStore("photoReports", { keyPath: "idempotencyKey" }).createIndex("userId", "userId");
+      if (!request.result.objectStoreNames.contains("receipts")) request.result.createObjectStore("receipts", { keyPath: "idempotencyKey" });
     };
     request.onerror = () => reject(request.error);
     request.onblocked = () => reject(new Error("Offline queue upgrade is blocked by another tab."));
@@ -151,7 +182,7 @@ export function openScanQueue(factory: IDBFactory = globalThis.indexedDB, name =
   });
 }
 
-export interface QueueTransportResult { accepted: boolean; status: number; code?: string; reviewReason?: ReviewReason | null }
+export interface QueueTransportResult { accepted: boolean; status: number; code?: string; reviewReason?: ReviewReason | null; intakeId?: string; duplicateOfIntakeId?: string | null; internalSku?: string }
 export interface OfflineQueueOptions {
   localUserId?: string;
   currentUserId: () => Promise<string | null>;
@@ -236,7 +267,7 @@ export class OfflineScanQueue {
         this.changed(); continue;
       }
       if (result.accepted) {
-        await this.store.removeAccepted(entry.idempotencyKey);
+        await this.store.acceptScan(entry.input, result);
         try { this.options.delivered?.(entry.input, result); } catch (error) { this.options.error?.(error); }
       }
       else {

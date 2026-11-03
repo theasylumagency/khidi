@@ -1,26 +1,31 @@
 import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { assertIsolatedRestoreUrls, captureRestoreSnapshot, checkRestoredMigrations, compareRestoreSnapshots } from "../packages/db/src/restore-verification.ts";
+import { assertIsolatedRestoreUrls, assertRestoreTestCopyUrls, captureRestoreSnapshot, checkRestoredMigrations, compareRestoreSnapshots, createRestoreTestCopy } from "../packages/db/src/restore-verification.ts";
 import { latestFullBackup, OpsRunner, readOpsConfig, required } from "./common.ts";
 import { takeBackup } from "./backup.ts";
 import { restoreBackup } from "./restore.ts";
+import { createMediaStorage } from "../packages/media/src/storage-config.ts";
+import { mediaLocation, restoredMediaEnvironment, verifyRawSamples } from "../packages/media/src/restore.ts";
 
 export async function verifyRestore(env: NodeJS.ProcessEnv = process.env) {
   if (env.SOURCE_WRITERS_STOPPED !== "yes") throw new Error("Stop Hub, workers and all other source writers; then set SOURCE_WRITERS_STOPPED=yes.");
   const sourceUrl = required("SOURCE_MIGRATOR_URL", env), restoredMigrator = required("RESTORE_MIGRATOR_URL", env), restoredApp = required("RESTORE_APP_URL", env);
   assertIsolatedRestoreUrls(sourceUrl, restoredMigrator, restoredApp);
+  const testMigrator = required("RESTORE_TEST_MIGRATOR_URL", env), testApp = required("RESTORE_TEST_APP_URL", env), restoreAdmin = env.RESTORE_ADMIN_URL ?? restoredMigrator;
+  assertRestoreTestCopyUrls(restoredMigrator, testMigrator, testApp, restoreAdmin);
   const runner = new OpsRunner(readOpsConfig(env));
   if (!runner.config.container && Number(new URL(restoredMigrator).port || 5432) !== runner.config.restorePort) throw new Error("Restore URL port differs from RESTORE_PORT.");
   await runner.assertCleanRestoreDirectory();
   const reportPath = required("RESTORE_REPORT", env);
   // Reserve a new report, never overwrite an earlier restore record.
-  const report = { startedAt: new Date().toISOString(), backupSet: "", checksumsMatch: false, countsMatch: false, testsPassed: false };
+  const report = { startedAt: new Date().toISOString(), backupSet: "", checksumsMatch: false, countsMatch: false, mediaHashesMatch: false, sampledRawFiles: 0, testDatabase: "", testsPassed: false };
   await writeFile(reportPath, JSON.stringify(report, null, 2), { flag: "wx", mode: 0o600 });
   let started = false;
   try {
     const source = await captureRestoreSnapshot(sourceUrl);
     checkRestoredMigrations(source);
+    if (source.mediaSamples.length) await verifyRawSamples(source.mediaSamples, createMediaStorage(env), { sourceVersions: true });
     await takeBackup(runner);
     report.backupSet = latestFullBackup(JSON.parse(await runner.pgbackrest(["--output=json", "info"], true)), runner.config.stanza);
     await restoreBackup(runner, report.backupSet);
@@ -31,8 +36,16 @@ export async function verifyRestore(env: NodeJS.ProcessEnv = process.env) {
     const restored = await captureRestoreSnapshot(restoredMigrator);
     checkRestoredMigrations(restored); report.checksumsMatch = true;
     compareRestoreSnapshots(source, restored); report.countsMatch = true;
-    // Compare before tests: migrations/seed/test fixtures intentionally mutate the copy.
-    await runner.command("corepack", ["pnpm", "test"], { local: true, env: { ...env, NODE_ENV: "test", DATABASE_URL: restoredApp, DATABASE_MIGRATOR_URL: restoredMigrator } });
+    if (source.mediaSamples.length) {
+      const mediaEnv = restoredMediaEnvironment(env);
+      if (mediaLocation(env) === mediaLocation(mediaEnv)) throw new Error("Media recovery target must differ from source storage.");
+      const verified = await verifyRawSamples(source.mediaSamples, createMediaStorage(mediaEnv), { databaseSamples: restored.mediaSamples });
+      report.sampledRawFiles = verified.sampledFiles;
+    }
+    report.mediaHashesMatch = true;
+    // Keep the recovered database unchanged; tests mutate a fresh dedicated _test clone.
+    report.testDatabase = await createRestoreTestCopy(restoredMigrator, testMigrator, testApp, restoreAdmin);
+    await runner.command("corepack", ["pnpm", "test"], { local: true, env: { ...env, NODE_ENV: "test", DATABASE_URL: testApp, DATABASE_MIGRATOR_URL: testMigrator } });
     report.testsPassed = true;
     await writeFile(reportPath, JSON.stringify({ ...report, finishedAt: new Date().toISOString(), source, restored }, null, 2));
   } finally {

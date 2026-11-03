@@ -36,6 +36,7 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash"),
   totpSecretEncrypted: text("totp_secret_encrypted"),
   totpEnabled: boolean("totp_enabled").notNull().default(false),
+  totpEnrollmentRequired: boolean("totp_enrollment_required").notNull().default(false),
   failedLoginAttempts: integer("failed_login_attempts").notNull().default(0),
   loginLockedUntil: timestamp("login_locked_until", { withTimezone: true }),
   pinHash: text("pin_hash"),
@@ -526,6 +527,8 @@ export const scanTasks = pgTable("scan_tasks", {
   poolId: uuid("pool_id"),
   fulfillmentRequestId: uuid("fulfillment_request_id"),
   photosRequired: boolean("photos_required").notNull().default(true),
+  requestedPhotoSlotsJson: jsonb("requested_photo_slots_json").$type<string[] | null>(),
+  photoRequestNote: text("photo_request_note"),
   dueDate: timestamp("due_date", { withTimezone: true }),
   status: text("status").notNull().default("OPEN"),
   targetCount: integer("target_count"),
@@ -562,6 +565,8 @@ export const productIntakes = pgTable("product_intakes", {
   reviewNote: text("review_note"),
   replacementLabelRequested: boolean("replacement_label_requested").notNull().default(false),
   acceptanceResponseJson: jsonb("acceptance_response_json").$type<Record<string, unknown>>().notNull(),
+  photosMissing: boolean("photos_missing").notNull().default(false),
+  photoAttentionReason: text("photo_attention_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
 });
 
@@ -582,4 +587,66 @@ export const labelEvents = pgTable("label_events", {
   actorUserId: uuid("actor_user_id").notNull().references(() => users.id),
   scanIntakeId: uuid("scan_intake_id").references(() => productIntakes.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export interface MediaDerivative {
+  key: string; sha256: string; bytes: number; width: number; format: "webp" | "avif";
+  contentType: string; versionId?: string;
+}
+export const productImages = pgTable("product_images", {
+  id: uuid("id").primaryKey(),
+  skuId: uuid("sku_id").references(() => skus.id, { onDelete: "restrict" }),
+  intakeId: uuid("intake_id").references(() => productIntakes.id, { onDelete: "restrict" }),
+  photoRequestTaskId: uuid("photo_request_task_id").references(() => scanTasks.id, { onDelete: "restrict" }),
+  slot: text("slot").notNull(), sourceType: text("source_type").notNull().default("WAREHOUSE"), sourceUrl: text("source_url"),
+  role: text("role").notNull().default("IDENTITY"), status: text("status").notNull().default("UNVERIFIED"),
+  usage: text("usage").notNull().default("INTERNAL_EVIDENCE"),
+  rawStorageKey: text("raw_storage_key").notNull(), rawSha256: text("raw_sha256").notNull(),
+  rawBytes: integer("raw_bytes").notNull(), rawVersionId: text("raw_version_id"), mimeType: text("mime_type").notNull(),
+  width: integer("width").notNull(), height: integer("height").notNull(),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(), deviceId: uuid("device_id").notNull(),
+  registeredDeviceId: uuid("registered_device_id").references(() => registeredDevices.id, { onDelete: "restrict" }),
+  idempotencyKey: text("idempotency_key").notNull().unique(), requestHash: text("request_hash").notNull(), rejectReason: text("reject_reason"),
+  masterStorageKey: text("master_storage_key"), masterSha256: text("master_sha256"),
+  masterVersion: integer("master_version").notNull().default(0), requestedVersion: integer("requested_version").notNull().default(1),
+  derivativesJson: jsonb("derivatives_json").$type<Record<string, MediaDerivative>>().notNull().default({}),
+  tier1QualityJson: jsonb("tier1_quality_json").$type<Record<string, unknown>>().notNull(),
+  tier2QualityJson: jsonb("tier2_quality_json").$type<Record<string, unknown> | null>(),
+  perceptualHash: text("perceptual_hash"), processingStatus: text("processing_status").notNull().default("PENDING"),
+  sortOrder: integer("sort_order").notNull().default(0), createdBy: uuid("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  verifiedBy: uuid("verified_by").references(() => users.id, { onDelete: "restrict" }), verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});
+export const imageMasterVersions = pgTable("image_master_versions", {
+  id: uuid("id").primaryKey(), imageId: uuid("image_id").notNull().references(() => productImages.id, { onDelete: "restrict" }),
+  version: integer("version").notNull(), storageKey: text("storage_key").notNull().unique(), sha256: text("sha256").notNull(),
+  bytes: integer("bytes").notNull(), width: integer("width").notNull(), height: integer("height").notNull(), storageVersionId: text("storage_version_id"),
+  derivativesJson: jsonb("derivatives_json").$type<Record<string, MediaDerivative>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [unique().on(table.imageId, table.version)]);
+export const intakePhotoStatus = pgTable("intake_photo_status", {
+  intakeId: uuid("intake_id").primaryKey().references(() => productIntakes.id, { onDelete: "restrict" }),
+  requiredSlotsJson: jsonb("required_slots_json").$type<string[]>().notNull(), status: text("status").notNull().default("PENDING"),
+  coveredSlotsJson: jsonb("covered_slots_json").$type<string[]>().notNull().default([]),
+  attentionReason: text("attention_reason"), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});
+export const mediaJobs = pgTable("media_jobs", {
+  id: uuid("id").primaryKey(), imageId: uuid("image_id").references(() => productImages.id, { onDelete: "restrict" }),
+  skuId: uuid("sku_id").references(() => skus.id, { onDelete: "restrict" }), jobType: text("job_type").notNull(), imageVersion: integer("image_version"),
+  dedupeKey: text("dedupe_key").notNull().unique(), status: text("status").notNull().default("PENDING"),
+  generation: integer("generation").notNull().default(0),
+  attempts: integer("attempts").notNull().default(0), maxAttempts: integer("max_attempts").notNull().default(3), lastError: text("last_error"),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});
+export const mediaActions = pgTable("media_actions", {
+  id: uuid("id").primaryKey(), actorUserId: uuid("actor_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  action: text("action").notNull(), requestHash: text("request_hash").notNull(), responseJson: jsonb("response_json").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+});
+export const imagePublications = pgTable("image_publications", {
+  id: uuid("id").primaryKey(), imageId: uuid("image_id").notNull().references(() => productImages.id, { onDelete: "restrict" }),
+  skuId: uuid("sku_id").notNull().references(() => skus.id, { onDelete: "restrict" }), masterVersion: integer("master_version").notNull(),
+  objectKey: text("object_key").notNull(), width: integer("width").notNull(), format: text("format").notNull(), sha256: text("sha256").notNull(),
+  status: text("status").notNull(), publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(), withdrawnAt: timestamp("withdrawn_at", { withTimezone: true })
 });

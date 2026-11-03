@@ -20,14 +20,15 @@ export default async function IntakesPage({ searchParams }: { searchParams: Prom
     <form method="get"><div className="scanning-fields">
       {filters.taskId ? <input type="hidden" name="taskId" value={filters.taskId} /> : null}
       <label>{t("scanning.needs_review")}<select name="needsReview" defaultValue={filters.needsReview ?? ""}><option value="">{t("scanning.all")}</option><option value="yes">{t("scanning.needs_review")}</option><option value="no">{t("scanning.no_review_needed")}</option></select></label>
+      <label>{t("media.photos_status")}<select name="photosMissing" defaultValue={filters.photosMissing ?? ""}><option value="">{t("scanning.all")}</option><option value="yes">{t("media.required_photos_missing")}</option><option value="no">{t("media.no_required_missing")}</option></select></label>
       <label>{t("scanning.result")}<select name="resultState" defaultValue={filters.resultState ?? ""}><option value="">{t("scanning.all")}</option>{RESULT_STATES.map((state) => <option key={state} value={state}>{t(`scanning.result.${state}`)}</option>)}</select></label>
       <label>{t("scanning.label_status")}<select name="labelStatus" defaultValue={filters.labelStatus ?? ""}><option value="">{t("scanning.all")}</option>{LABEL_STATUSES.map((status) => <option key={status} value={status}>{t(`scanning.label.${status}`)}</option>)}</select></label>
     </div><button type="submit">{t("scanning.filter")}</button></form>
     <div className="scanning-table-wrap"><table><thead><tr><th>{t("scanning.date")}</th><th>{t("scanning.sku")}</th><th>{t("scanning.result")}</th><th>{t("scanning.label_status")}</th><th>{t("scanning.scanner")}</th><th>{t("scanning.photos_pending")}</th></tr></thead>
-      <tbody>{result.rows.map(({ intake, internalSku, scannedByName }) => <tr key={intake.id}>
+      <tbody>{result.rows.map(({ intake, internalSku, scannedByName, photosMissing, photoAttentionReason }) => <tr key={intake.id}>
         <td><Link href={`/intakes/${intake.id}/review`}>{formatTbilisiDateTime(intake.scannedAt)}</Link></td><td>{intake.matchedSkuId ? <Link href={`/products/${intake.matchedSkuId}`}>{internalSku}</Link> : "—"}</td>
         <td>{t(`scanning.result.${intake.resultState}` as TranslationKey)}{intake.duplicateOfIntakeId ? ` · ${t("scanning.duplicate")}` : ""}{intake.reviewReason && !intake.reviewedAt ? ` · ${t("scanning.needs_review")}` : ""}</td>
-        <td>{t(`scanning.label.${intake.labelStatus}` as TranslationKey)}</td><td>{formatStaffName(scannedByName)}</td><td>{t("scanning.photos_pending")}</td>
+        <td>{t(`scanning.label.${intake.labelStatus}` as TranslationKey)}</td><td>{formatStaffName(scannedByName)}</td><td>{t(photosMissing ? "media.required_photos_missing" : "media.no_required_missing")}{photoAttentionReason ? <p>{photoAttentionReason === "SERVER_TIER1_DISAGREEMENT" ? t("media.quality_disagreement") : photoAttentionReason}</p> : null}</td>
       </tr>)}</tbody></table></div>
     {!result.rows.length ? <p>{t("scanning.empty")}</p> : null}
     <nav className="scanning-actions">{filters.page > 1 ? <Link href={pageHref(filters.page - 1)}>{t("scanning.previous")}</Link> : null}{result.hasMore ? <Link href={pageHref(filters.page + 1)}>{t("scanning.next")}</Link> : null}</nav>

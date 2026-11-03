@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import type { UserRole } from "@khidi/shared";
+import { t } from "@khidi/i18n";
 
 interface PinUserOption {
   id: string;
@@ -20,6 +21,7 @@ export function LoginForms({ registeredDevice, pinUsers }: LoginFormsProps) {
   const [totpCode, setTotpCode] = useState("");
   const [officeError, setOfficeError] = useState<string | null>(null);
   const [officeLoading, setOfficeLoading] = useState(false);
+  const [enrollment, setEnrollment] = useState<{ base32Secret: string; otpauthUri: string } | null>(null);
 
   const [selectedUserId, setSelectedUserId] = useState<string>(pinUsers[0]?.id ?? "");
   const [pin, setPin] = useState("");
@@ -54,12 +56,14 @@ export function LoginForms({ registeredDevice, pinUsers }: LoginFormsProps) {
         })
       });
 
-      const data = (await res.json()) as { ok?: boolean; message?: string; redirectTo?: string };
+      const data = (await res.json()) as { ok?: boolean; message?: string; redirectTo?: string; enrollment?: { base32Secret: string; otpauthUri: string } };
       if (!res.ok || !data.ok) {
         setOfficeError(data.message ?? "ავტორიზაცია ვერ მოხერხდა.");
         return;
       }
 
+      if (data.enrollment) { setEnrollment(data.enrollment); setTotpCode(""); return; }
+      setEnrollment(null); setPassword("");
       window.location.href = data.redirectTo ?? "/";
     } catch {
       setOfficeError("ქსელური შეცდომა ავტორიზაციისას.");
@@ -163,7 +167,7 @@ export function LoginForms({ registeredDevice, pinUsers }: LoginFormsProps) {
               required
               autoComplete="username"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => { setEmail(e.target.value); setEnrollment(null); setTotpCode(""); }}
               placeholder="name@company.ge"
               style={{
                 padding: "0.65rem",
@@ -180,7 +184,7 @@ export function LoginForms({ registeredDevice, pinUsers }: LoginFormsProps) {
               required
               autoComplete="current-password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => { setPassword(e.target.value); setEnrollment(null); setTotpCode(""); }}
               style={{
                 padding: "0.65rem",
                 borderRadius: "8px",
@@ -190,11 +194,12 @@ export function LoginForms({ registeredDevice, pinUsers }: LoginFormsProps) {
             />
           </label>
           <label style={{ display: "grid", gap: "0.3rem", fontSize: "0.85rem", fontWeight: 600 }}>
-            TOTP კოდი (6 ციფრი — სავალდებულოა ADMIN / STOCK_MANAGER-ისთვის)
+            {t("auth.totp_code")}
             <input
               type="text"
               inputMode="numeric"
               pattern="[0-9]{6}"
+              autoComplete="one-time-code"
               maxLength={6}
               value={totpCode}
               onChange={(e) => setTotpCode(e.target.value)}
@@ -209,6 +214,12 @@ export function LoginForms({ registeredDevice, pinUsers }: LoginFormsProps) {
               }}
             />
           </label>
+          {enrollment ? <aside role="status">
+            <h3>{t("auth.enroll_title")}</h3><p>{t("auth.enroll_help")}</p>
+            <p><code style={{ overflowWrap: "anywhere" }}>{enrollment.base32Secret}</code></p>
+            <a href={enrollment.otpauthUri}>{t("auth.open_authenticator")}</a>
+            <p>{t("auth.enroll_confirm")}</p>
+          </aside> : null}
           <button
             type="submit"
             disabled={officeLoading}

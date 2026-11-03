@@ -1,11 +1,12 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
-import { type AppDatabase, type DbExecutor, labelEvents, productIntakes, scanTasks } from "@khidi/db";
+import { type AppDatabase, type DbExecutor, labelEvents, productIntakes, scanTasks, skus } from "@khidi/db";
 import { executeIdempotent, withDomainTransaction } from "@khidi/domain";
 import { AppError, createUuidV7, sha256Hex } from "@khidi/shared";
 import { intakeInputSchema, type IntakeResult, type ReviewReason } from "./contracts.ts";
 import { normalizeScan, resolveScanIdentity } from "./identity.ts";
 import { assertScanningPrincipal } from "./principal.ts";
+import { initializeIntakePhotos } from "@khidi/media";
 export * from "./contracts.ts";
 export * from "./identity.ts";
 export * from "./labels.ts";
@@ -63,6 +64,10 @@ export async function receiveIntake(db: AppDatabase | DbExecutor, principal: Aut
       }
       const body: IntakeResult = { id: createUuidV7(), matchedSkuId: identity.skuId, resultState: identity.resultState,
         duplicateOfIntakeId: first?.id ?? null, labelStatus: input.isNoBarcode && !reviewReason ? "TO_PRINT" : "NOT_REQUIRED", reviewReason };
+      if (identity.skuId && !reviewReason) {
+        const [sku] = await ctx.tx.select({ internalSku: skus.internalSku }).from(skus).where(eq(skus.id, identity.skuId)).limit(1);
+        if (sku) body.internalSku = sku.internalSku;
+      }
       await ctx.tx.insert(productIntakes).values({
         id: body.id, taskId: input.taskId, sourceMode: input.sourceMode, scannedBy: principal.userId,
         deviceId: principal.deviceId, clientDeviceId: input.deviceId, scannedAt: new Date(input.scannedAt),
@@ -72,6 +77,7 @@ export async function receiveIntake(db: AppDatabase | DbExecutor, principal: Aut
         labelStatus: body.labelStatus, resultState: body.resultState, idempotencyKey: input.idempotencyKey, requestHash,
         reviewReason, reviewOriginalReason: reviewReason, reviewReferenceSkuId: identity.referenceSkuId, acceptanceResponseJson: body
       });
+      if (task?.photosRequired && !first) await initializeIntakePhotos(ctx, body.id, reviewReason ? null : body.matchedSkuId);
       if (body.labelStatus === "TO_PRINT") await ctx.tx.insert(labelEvents).values({
         id: createUuidV7(), intakeId: body.id, fromStatus: null, toStatus: "TO_PRINT", actorUserId: principal.userId
       });

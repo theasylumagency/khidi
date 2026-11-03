@@ -7,6 +7,7 @@ import { AppError, createUuidV7, sha256Hex, uuidSchema } from "@khidi/shared";
 import { reviewResolutionSchema } from "./contracts.ts";
 import { normalizeScan, resolveScanIdentity } from "./identity.ts";
 import { assertScanningPrincipal } from "./principal.ts";
+import { linkIntakeImagesToSku } from "@khidi/media";
 
 export async function getIntakeReview(db: DbExecutor, principal: AuthenticatedPrincipal, intakeId: string) {
   await assertScanningPrincipal(db, principal, true);
@@ -92,6 +93,7 @@ export async function resolveIntakeReview(db: DbExecutor, principal: Authenticat
         }
       }
       const [updated] = await ctx.tx.update(productIntakes).set(changes).where(eq(productIntakes.id, original.id)).returning();
+      if (resolved && updated!.matchedSkuId && input.resolution !== "DISMISS") await linkIntakeImagesToSku(ctx, original.id, updated!.matchedSkuId);
       const body = { id: original.id, resolved, resolution: updated!.reviewResolution, reviewReason: updated!.reviewReason,
         matchedSkuId: updated!.matchedSkuId, labelStatus: updated!.labelStatus };
       await ctx.recordAudit({ action: resolved ? "INTAKE_REVIEW_RESOLVED" : "INTAKE_REVIEW_STILL_REQUIRED", entityType: "product_intake", entityId: original.id,

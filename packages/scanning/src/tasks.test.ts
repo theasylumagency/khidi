@@ -25,7 +25,7 @@ describe("M3 S4 task administration and Quick Scan", () => {
     await expect(createScanTask(db, admin, { ...taskInput(), assigneeUserId: warehouse.userId })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     await expect(createScanTask(db, admin, { ...taskInput(), targetCount: -1 })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
-  it.each([["PHYSICAL_COUNT", 8], ["PHOTO_REQUEST", 4], ["EVIDENCE_REQUEST", 5], ["PICK", 9]])("reports %s as available from M%s", async (taskType, milestone) => {
+  it.each([["PHYSICAL_COUNT", 8], ["EVIDENCE_REQUEST", 5], ["PICK", 9]])("reports %s as available from M%s", async (taskType, milestone) => {
     await expect(createScanTask(db, admin, { ...taskInput(), taskType })).rejects.toMatchObject({ code: "PRECONDITION_FAILED", details: { milestone } });
   });
   it("rejects every non-admin role for task creation and keeps warehouse users out of task/intake administration", async () => {
