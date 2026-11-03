@@ -60,7 +60,7 @@ describe("M3 S7 restore verification safeguards", () => {
   it("requires an explicit source maintenance window before making a backup or restoring", async () => {
     await expect(verifyRestore({})).rejects.toThrow(/Stop Hub, workers/);
   });
-  it("allows verification only on a separate _test clone on the recovered server", () => {
+  it("allows verification only on a separate _test database on the recovered server", () => {
     const recovered = "postgres://hub_migrator:local@127.0.0.1:5437/khidi", migrator = "postgres://hub_migrator:local@localhost:5437/khidi_recovery_test", app = migrator.replace("hub_migrator", "hub_app");
     expect(assertRestoreTestCopyUrls(recovered, migrator, app).testDatabase).toBe("khidi_recovery_test");
     expect(() => assertRestoreTestCopyUrls(recovered, recovered, recovered.replace("hub_migrator", "hub_app"))).toThrow(/SAFETY:/);
