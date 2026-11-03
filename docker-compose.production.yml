@@ -1,0 +1,17 @@
+services:
+  postgres:
+    build:
+      context: ./docker/postgres
+    image: khidi-postgres:18.4-pgbackrest-2.60.0
+    command:
+      - postgres
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_timeout=60s
+      - -c
+      - archive_command=pgbackrest --config=/etc/pgbackrest/pgbackrest.conf --stanza=khidi archive-push %p
+    env_file:
+      - .backup.env
+    volumes:
+      - ./ops/pgbackrest/pgbackrest.production.conf:/etc/pgbackrest/pgbackrest.conf:ro
