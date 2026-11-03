@@ -13,5 +13,7 @@ services:
       - archive_command=pgbackrest --config=/etc/pgbackrest/pgbackrest.conf --stanza=khidi archive-push %p
     env_file:
       - .backup.env
+    ports:
+      - "127.0.0.1:5436:5436"
     volumes:
       - ./ops/pgbackrest/pgbackrest.production.conf:/etc/pgbackrest/pgbackrest.conf:ro
