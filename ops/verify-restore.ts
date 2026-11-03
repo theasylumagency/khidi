@@ -43,9 +43,24 @@ export async function verifyRestore(env: NodeJS.ProcessEnv = process.env) {
       report.sampledRawFiles = verified.sampledFiles;
     }
     report.mediaHashesMatch = true;
-    // Keep the recovered database unchanged; tests mutate a fresh dedicated _test clone.
+    // Keep the recovered database unchanged; tests use a fresh empty _test database
+    // on the recovered server, then the test harness applies migrations and deterministic seeds.
     report.testDatabase = await createRestoreTestCopy(restoredMigrator, testMigrator, testApp, restoreAdmin);
-    await runner.command("corepack", ["pnpm", "test"], { local: true, env: { ...env, NODE_ENV: "test", DATABASE_URL: testApp, DATABASE_MIGRATOR_URL: testMigrator } });
+    const testEnv: NodeJS.ProcessEnv = {
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+      USER: process.env.USER,
+      LOGNAME: process.env.LOGNAME,
+      SHELL: process.env.SHELL,
+      TMPDIR: process.env.TMPDIR,
+      TEMP: process.env.TEMP,
+      TMP: process.env.TMP,
+      CI: process.env.CI,
+      NODE_ENV: "test",
+      DATABASE_URL: testApp,
+      DATABASE_MIGRATOR_URL: testMigrator
+    };
+    await runner.command("corepack", ["pnpm", "test"], { local: true, env: testEnv });
     report.testsPassed = true;
     await writeFile(reportPath, JSON.stringify({ ...report, finishedAt: new Date().toISOString(), source, restored }, null, 2));
   } finally {
