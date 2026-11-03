@@ -84,7 +84,9 @@ export function assertRestoreTestCopyUrls(restoredValue: string, migratorValue: 
   if (values.some((url) => (url.port || "5432") !== (values[0]!.port || "5432"))) throw new Error("The verification test copy must stay on the restored server.");
   return { restoredDatabase: decodeURI(values[0]!.pathname.slice(1)), testDatabase: decodeURI(values[1]!.pathname.slice(1)), admin: values[3]! };
 }
-/** Infrastructure operation on the isolated restore server. Never drops/reuses a database. */
+/** Infrastructure operation on the isolated restore server. Never drops/reuses a database.
+ * Creates an empty dedicated _test database; the test harness applies migrations and deterministic seeds.
+ */
 export async function createRestoreTestCopy(restoredValue: string, migratorValue: string, appValue: string, adminValue = restoredValue) {
   const config = assertRestoreTestCopyUrls(restoredValue, migratorValue, appValue, adminValue);
   const maintenance = new URL(config.admin); maintenance.pathname = "/postgres";
@@ -92,8 +94,8 @@ export async function createRestoreTestCopy(restoredValue: string, migratorValue
   const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
   try {
     const existing = await pool.query("SELECT 1 FROM pg_database WHERE datname=$1", [config.testDatabase]);
-    if (existing.rowCount) throw new Error("Restore test copy already exists; choose a new dedicated _test name. No database was changed.");
-    await pool.query(`CREATE DATABASE ${quote(config.testDatabase)} WITH TEMPLATE ${quote(config.restoredDatabase)} OWNER hub_migrator`);
+    if (existing.rowCount) throw new Error("Restore test database already exists; choose a new dedicated _test name. No database was changed.");
+    await pool.query(`CREATE DATABASE ${quote(config.testDatabase)} OWNER hub_migrator`);
     await pool.query(`GRANT CONNECT ON DATABASE ${quote(config.testDatabase)} TO hub_app`);
     return config.testDatabase;
   } finally { await pool.end(); }
