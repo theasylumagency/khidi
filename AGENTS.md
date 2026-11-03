@@ -90,15 +90,21 @@ the repository script. PostgreSQL 16 or newer is acceptable for running tests; p
 ```bash
 apt-get update && apt-get install -y postgresql
 # start a cluster listening on 127.0.0.1:5435 with superuser hub_migrator
-# (password from .env.example), create database agrotrade_hub, then:
-POSTGRES_USER=hub_migrator POSTGRES_DB=agrotrade_hub \
+# (password from .env.example), create a dedicated database khidi_test, then:
+POSTGRES_USER=hub_migrator POSTGRES_DB=khidi_test \
 HUB_APP_DB_PASSWORD=hub_app_dev_password PGHOST=127.0.0.1 PGPORT=5435 \
 sh docker/postgres/init-roles.sh
+# Set DATABASE_URL and DATABASE_MIGRATOR_URL explicitly to this khidi_test database.
 corepack pnpm test                     # global setup migrates and seeds
 ```
 
 Network access is only needed during setup (package install). Do not add dependencies at
 task time unless the task explicitly allows it (§7).
+
+Seeds are development fixtures: never run seeds or tests on a shared server. Both seed
+entry points reject `NODE_ENV=production` and require explicit `_dev`/`_test` database names.
+For shared setup use `docs/ops/server-setup.md`: migrations, worker queue deployment, then
+the interactive `pnpm ops:bootstrap-admin` command, never development accounts.
 
 ## 5. Architecture rules
 

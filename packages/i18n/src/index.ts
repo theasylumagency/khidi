@@ -126,6 +126,11 @@ export function formatStaffName(fullName: string): string {
 }
 
 const SCANNING_LABELS = {
+  "auth.totp_code": "ერთჯერადი კოდი (6 ციფრი)",
+  "auth.enroll_title": "ჩართეთ ორფაქტორიანი დაცვა",
+  "auth.enroll_help": "დაამატეთ ეს გასაღები ავტორიზატორის აპში. გასაღები სხვას არ გაუზიაროთ.",
+  "auth.open_authenticator": "ავტორიზატორის აპში დამატება",
+  "auth.enroll_confirm": "შეიყვანეთ აპში ნაჩვენები ერთჯერადი კოდი და დაადასტურეთ შესვლა.",
   "media.quality_reports": "მოწყობილობისა და სერვერის ხარისხის შემოწმება",
   "media.quality_disagreement": "ხარისხის შედეგები განსხვავდება. ფოტო შენახულია; საჭიროა ადმინისტრატორის შემოწმება.",
   "media.pending_photo_reports": "ფოტოს გასაგზავნი შენიშვნები",

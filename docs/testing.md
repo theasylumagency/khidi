@@ -1,5 +1,10 @@
 # Safe database tests
 
+Never run seeds or tests on a shared server (including staging). Use an isolated developer
+or CI machine. See [server setup](ops/server-setup.md) for the production bootstrap sequence.
+Both seed entry points additionally reject production and require explicit `_dev`/`_test`
+names in both database URLs. `pnpm test:safety` checks these guards without PostgreSQL.
+
 `pnpm test` sets `NODE_ENV=test` through a Node preload on Windows and POSIX shells.
 Before loading any database code, Vitest's global setup requires both `DATABASE_URL`
 and `DATABASE_MIGRATOR_URL` to be valid PostgreSQL URLs with explicit database names

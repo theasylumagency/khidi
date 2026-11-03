@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { createUuidV7, encryptSecretAes256Gcm, sha256Hex } from "@khidi/shared";
 import { getDb, closeAppPool } from "./client.ts";
+import { assertSeedDatabaseSafety } from "./seed-database-safety.ts";
 import {
   legalEntities,
   users,
@@ -23,6 +24,7 @@ export const SEED_CONSTANTS = {
 } as const;
 
 export async function runSeed() {
+  assertSeedDatabaseSafety();
   const db = getDb();
 
   // Check if AGROTRADE entity already exists

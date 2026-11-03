@@ -49,6 +49,9 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (err) {
     if (err instanceof AppError) {
+      if (err.code === "PRECONDITION_FAILED" && err.details?.totpEnrollment) {
+        return NextResponse.json({ ok: true, enrollment: err.details.totpEnrollment }, { headers: { "Cache-Control": "no-store" } });
+      }
       const status = err.code === "UNAUTHORIZED" ? 401 : err.code === "FORBIDDEN" ? 403 : 400;
       return NextResponse.json({ error: err.code, message: err.message }, { status });
     }

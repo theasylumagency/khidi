@@ -1,7 +1,8 @@
 # M4 — Photo capture and media pipeline
 
 Branch: `m4-media`, based on `main` at `4b169136cd50564ec67532d7c97dfefd257618a0`.
-P1–P10 are separate commits. M3 history and applied migrations are unchanged.
+P1–P10 are separate commits, followed by the owner's pre-merge fixes below.
+M3 history and applied migrations are unchanged.
 No production environment, shared data, seed contents or storefront/entity records were
 changed by this implementation. No M5 work, AI, OCR, background removal, CDN or storefront
 integration is included.
@@ -58,11 +59,27 @@ database; the hard database test guard is preserved, with no override.
 Technical decisions: [ADR-006](../adr/ADR-006-immutable-object-storage.md) and
 [ADR-007](../adr/ADR-007-photo-capture-and-tier1.md).
 
+## Owner's pre-merge fixes — 2026-11-03
+
+Server Tier-1 is advisory. Device/server quality reports are retained separately and a
+disagreement flags the original intake for admin attention without losing uploaded-slot
+progress or the raw file. Acceptance uses `failOn: "error"`; minor camera JPEG warnings
+are accepted, while unsupported/undecodable files, size and decompression-bomb limits
+still reject. Admin review exposes both reports. ADR-007 records the superseding rule.
+
+Foundation/product seeds now guard production and both explicit database-name suffixes
+before creating a DB client. New local defaults use `_dev`; real shared data and seed
+contents are unchanged. The production-only interactive `ops:bootstrap-admin` creates one
+ADMIN only in an empty users table, with hidden password entry, audit/outbox and mandatory
+first-login TOTP enrollment. New migration `0011_admin_bootstrap.sql` stores that enrollment
+requirement. Enrollment does not issue a session before the code is confirmed. Setup and
+shared-server prohibitions are recorded in [server-setup.md](../ops/server-setup.md).
+
 ## Verification
 
 Automated acceptance uses an isolated PostgreSQL 18.4 container on port 5438 and a dedicated
-`khidi_m4_acceptance_test` database. The full suite passes on a fresh database and on the
-same database a second time: **35 files, 178 tests each**, including the real MinIO S3 test.
+`khidi_m4_followup_acceptance_test` database. The full suite passes on a fresh database and on
+the same database a second time: **38 files, 198 tests each**, including the real MinIO S3 test.
 The storage test uses the restricted runtime account and verifies immutable bytes, pinned
 version reads, hash verification, denial of raw version deletion/delete markers and
 withdrawal of public copies. Protection/replication planning and raw restore hashes have
@@ -83,6 +100,10 @@ physical Android/iPhone camera behavior.
 
 The non-test database safety demonstration aborts with `SAFETY:` before migrations/seeds;
 the isolated database remains without migration or foundation tables afterward.
+Both seed CLI entry points also demonstrate a production-mode `SAFETY:` refusal using local
+fixture URLs. `pnpm test:safety` passes **43 guard tests without PostgreSQL**. An interactive
+bootstrap drill on a separate local `_test` database confirms no password echo, one ADMIN,
+mandatory pending TOTP and an audit row; entities/storefronts/devices/settings stay empty.
 
 ## Owner's Android and iPhone checklist
 
@@ -127,5 +148,6 @@ from the already-confirmed M3 Android gateway spike.
 - Added ADR-006 and ADR-007.
 - Extended `docs/ops/backup-restore.md` with media recovery and safe test clones.
 - Added `docs/ops/media-storage.md` with development, protection and restore commands.
+- Added `docs/ops/server-setup.md` for seed-free production setup and first-admin enrollment.
 - Extended `docs/testing.md` with recovery-clone and MinIO test setup.
 - Added this milestone record and updated the milestone status in AGENTS.md.
