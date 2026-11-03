@@ -3,14 +3,15 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
+import sharp from "sharp";
 import { loadPrincipalByUserId, type AuthenticatedPrincipal } from "@khidi/auth";
-import { auditLogs, getDb, idempotencyKeys, mediaJobs, productImages, scanTasks, skus, users } from "@khidi/db";
+import { auditLogs, getDb, idempotencyKeys, intakePhotoStatus, mediaJobs, productImages, productIntakes, scanTasks, skus, users } from "@khidi/db";
 import { createScanTask, receiveIntake, resolveIntakeReview } from "../../scanning/src/index.ts";
 import { createUuidV7 } from "@khidi/shared";
 import { MAX_PHOTO_BYTES, type PhotoUploadInput } from "./contracts.ts";
 import { receivePhoto } from "./upload.ts";
 import { digest, FilesystemMediaStorage, privateImageKey } from "./storage.ts";
-import { fixturePhoto } from "./test-fixtures.ts";
+import { fixturePhoto, warningFixturePhoto } from "./test-fixtures.ts";
 
 describe("P3 transactional photo intake", () => {
   const db = getDb(), roots: string[] = [];
@@ -30,7 +31,7 @@ describe("P3 transactional photo intake", () => {
   async function storage() { const root = await mkdtemp(path.join(tmpdir(), "khidi-upload-test-")); roots.push(root); return new FilesystemMediaStorage(root); }
   const input = (changes: Partial<PhotoUploadInput> = {}): PhotoUploadInput => ({ idempotencyKey: createUuidV7(), userId: admin.userId, deviceId: createUuidV7(), capturedAt: new Date().toISOString(), slot: "MAIN", skuId, intakeId: null, intakeIdempotencyKey: null, photoRequestTaskId: null, ...changes });
   async function intake(value = `PHOTO-${createUuidV7()}`) {
-    const task = await createScanTask(db, admin, { idempotencyKey: createUuidV7(), taskType: "INTAKE_UNIQUE", title: "Photo intake", assigneeRole: "WAREHOUSE" });
+    const task = await createScanTask(db, admin, { idempotencyKey: createUuidV7(), taskType: "INTAKE_UNIQUE", title: "Photo intake", assigneeRole: "WAREHOUSE", photosRequired: true });
     return receiveIntake(db, warehouse, { idempotencyKey: createUuidV7(), userId: warehouse.userId, deviceId: createUuidV7(), scannedAt: new Date().toISOString(), taskId: task.body.id, sourceMode: "TASK", scannedValue: value, isNoBarcode: false });
   }
   it("stores exact original bytes and atomically creates one image/job/audit on replay, including after cache expiry", async () => {
@@ -83,9 +84,11 @@ describe("P3 transactional photo intake", () => {
     await expect(receivePhoto(db, store, warehouse, { ...photo, slot: "EXTRA" }, bytes)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     expect((await receivePhoto(db, store, warehouse, photo, bytes)).status).toBe(201);
   });
-  it("rejects oversized/unsupported/low-resolution files without rows or jobs and can recover an identical orphan", async () => {
+  it("rejects oversized/unsupported/undecodable/bomb files without rows or jobs and can recover an identical orphan", async () => {
     const store = await storage();
-    for (const [invalid, mediaReason] of [[new Uint8Array(MAX_PHOTO_BYTES + 1), "FILE_TOO_LARGE"], [new TextEncoder().encode("<svg/>"), "UNSUPPORTED_FORMAT"], [await fixturePhoto(64, 64), "RESOLUTION"]] as const) {
+    const bomb = Buffer.from(bytes), sof = bomb.indexOf(Buffer.from([0xff, 0xc0]));
+    expect(sof).toBeGreaterThan(0); bomb.writeUInt16BE(65535, sof + 5); bomb.writeUInt16BE(65535, sof + 7);
+    for (const [invalid, mediaReason] of [[new Uint8Array(MAX_PHOTO_BYTES + 1), "FILE_TOO_LARGE"], [new TextEncoder().encode("<svg/>"), "UNSUPPORTED_FORMAT"], [new Uint8Array([255,216,255,0]), "UNSUPPORTED_FORMAT"], [bomb, "UNSUPPORTED_FORMAT"]] as const) {
       const photo = input(); await expect(receivePhoto(db, store, admin, photo, invalid)).rejects.toMatchObject({ details: { mediaReason } });
       expect(await db.select().from(productImages).where(eq(productImages.id, photo.idempotencyKey))).toHaveLength(0);
     }
@@ -95,5 +98,29 @@ describe("P3 transactional photo intake", () => {
     await expect(receivePhoto(db, { ...store, putPrivate: async () => { throw new Error("Offline storage"); } } as unknown as FilesystemMediaStorage, admin, failing, bytes)).rejects.toThrow("Offline storage");
     expect(await db.select().from(productImages).where(eq(productImages.id, failing.idempotencyKey))).toHaveLength(0);
     expect(await db.select().from(mediaJobs).where(eq(mediaJobs.imageId, failing.idempotencyKey))).toHaveLength(0);
+  });
+  it("retains a device-accepted photo on server Tier-1 disagreement and flags the original intake", async () => {
+    const store = await storage(), accepted = await intake();
+    const deviceQuality = { passed: true, reasons: [], width: 1920, height: 1280, variance: 100, darkShare: 0, brightShare: 0 };
+    const small = await fixturePhoto(64, 64), photo = input({ userId: warehouse.userId, skuId: null, intakeId: accepted.body.id, deviceQuality });
+    expect((await receivePhoto(db, store, warehouse, photo, small)).status).toBe(201);
+    const [row] = await db.select().from(productImages).where(eq(productImages.id, photo.idempotencyKey));
+    expect(row!.tier1QualityJson).toMatchObject({ passed: true, device: deviceQuality, server: { passed: false, reasons: expect.arrayContaining(["RESOLUTION"]) }, disagreement: true });
+    expect(await store.readPrivate(row!.rawStorageKey, row!.rawSha256)).toEqual(small);
+    expect(await db.select().from(mediaJobs).where(eq(mediaJobs.imageId, row!.id))).toHaveLength(1);
+    for (const slot of ["SECONDARY", "IDENTIFICATION"] as const) await receivePhoto(db, store, warehouse, { ...photo, idempotencyKey: createUuidV7(), slot }, bytes);
+    const [state] = await db.select().from(intakePhotoStatus).where(eq(intakePhotoStatus.intakeId, accepted.body.id));
+    const [original] = await db.select().from(productIntakes).where(eq(productIntakes.id, accepted.body.id));
+    expect(state).toMatchObject({ status: "ATTENTION", attentionReason: "SERVER_TIER1_DISAGREEMENT" });
+    expect(original!.photoAttentionReason).toBe("SERVER_TIER1_DISAGREEMENT");
+    expect(original!.photosMissing).toBe(false);
+  });
+  it("accepts a camera JPEG with a minor decoder warning and preserves its exact bytes", async () => {
+    const store = await storage(), camera = await warningFixturePhoto(), photo = input();
+    await expect(sharp(camera, { failOn: "warning" }).resize(256).raw().toBuffer()).rejects.toThrow();
+    expect((await receivePhoto(db, store, admin, photo, camera)).status).toBe(201);
+    const [row] = await db.select().from(productImages).where(eq(productImages.id, photo.idempotencyKey));
+    expect(await store.readPrivate(row!.rawStorageKey, row!.rawSha256)).toEqual(camera);
+    expect(row!.processingStatus).toBe("PENDING");
   });
 });

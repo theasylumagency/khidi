@@ -29,7 +29,7 @@ export async function listMediaImageViews(db: DbExecutor, principal: Authenticat
   const images = await listManagedImages(db, principal, target);
   const versions = images.length ? await db.select().from(imageMasterVersions).where(inArray(imageMasterVersions.imageId, images.map((image) => image.id))).orderBy(asc(imageMasterVersions.version)) : [];
   return images.map((image) => ({ id: image.id, skuId: image.skuId, slot: image.slot, role: image.role, usage: image.usage, status: image.status, rejectReason: image.rejectReason, sortOrder: image.sortOrder,
-    width: image.width, height: image.height, rawBytes: image.rawBytes, rawSha256: image.rawSha256, tier2: image.tier2QualityJson, processingStatus: image.processingStatus,
+    width: image.width, height: image.height, rawBytes: image.rawBytes, rawSha256: image.rawSha256, tier1: image.tier1QualityJson, tier2: image.tier2QualityJson, processingStatus: image.processingStatus,
     masterVersion: image.masterVersion, updatedAt: image.updatedAt.toISOString(),
     rawUrl: signPrivateMedia(principal.userId, image.id, "raw", 0), previewUrl: signPrivateMedia(principal.userId, image.id, image.masterVersion ? "400.webp" : "raw", image.masterVersion || 0),
     versions: versions.filter((version) => version.imageId === image.id).map((version) => ({ version: version.version, masterUrl: signPrivateMedia(principal.userId, image.id, "master", version.version),
@@ -56,7 +56,7 @@ export async function manageImage(db: DbExecutor, principal: AuthenticatedPrinci
       await queueMediaJob(ctx, "process-image", { imageId: image.id, imageVersion: changes.requestedVersion }, `process-image:${image.id}:${changes.requestedVersion}`);
     }
     await ctx.tx.update(productImages).set(changes).where(eq(productImages.id, image.id));
-    if (image.intakeId && input.action === "REJECT") await refreshIntakePhotoStatus(ctx, image.intakeId);
+    if (image.intakeId && ["VERIFY", "REJECT"].includes(input.action)) await refreshIntakePhotoStatus(ctx, image.intakeId);
     if (image.skuId) await queueMediaJob(ctx, "publish-sku-media", { skuId: image.skuId });
     const body = { id: image.id, status: changes.status ?? image.status, requestedVersion: changes.requestedVersion ?? image.requestedVersion };
     await ctx.recordAudit({ action: input.action === "REPROCESS" ? "IMAGE_REPROCESSED" : "IMAGE_UPDATED", entityType: "product_image", entityId: image.id,

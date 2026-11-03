@@ -2,14 +2,14 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import type { QueuedPhoto } from "@khidi/scanning/offline-photos";
 import { checkCapturedPhoto } from "@khidi/media/capture-browser";
-import { DEFAULT_QUALITY_CONFIG } from "@khidi/media/quality";
+import { DEFAULT_QUALITY_CONFIG, type QualityReport } from "@khidi/media/quality";
 import { t, type TranslationKey } from "@khidi/i18n";
 function blockedPhotoMessage(code?: string) {
   if (["FILE_TOO_LARGE", "UNSUPPORTED_FORMAT", "RESOLUTION", "UNDEREXPOSED", "OVEREXPOSED", "BLUR", "DEPENDENCY_PENDING", "TARGET_UNAVAILABLE"].includes(code ?? "")) return t(`media.error.${code}` as TranslationKey);
   if (["UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND", "VALIDATION_ERROR", "CONFLICT", "IDEMPOTENCY_CONFLICT", "PRECONDITION_FAILED", "INVARIANT_VIOLATION"].includes(code ?? "")) return t(`scanning.error.${code}` as TranslationKey);
   return t("media.error.GENERIC");
 }
-function PhotoEntry({ photo, blockedScan, disabled, onDiscard, onRetake }: { photo: QueuedPhoto; blockedScan: boolean; disabled: boolean; onDiscard: (photo: QueuedPhoto, reason: string) => Promise<void>; onRetake: (photo: QueuedPhoto, blob: Blob) => Promise<void> }) {
+function PhotoEntry({ photo, blockedScan, disabled, onDiscard, onRetake }: { photo: QueuedPhoto; blockedScan: boolean; disabled: boolean; onDiscard: (photo: QueuedPhoto, reason: string) => Promise<void>; onRetake: (photo: QueuedPhoto, blob: Blob, quality: QualityReport) => Promise<void> }) {
   const [url, setUrl] = useState(""), [error, setError] = useState(""), [busy, setBusy] = useState(false);
   useEffect(() => { const url = URL.createObjectURL(photo.blob); setUrl(url); return () => URL.revokeObjectURL(url); }, [photo.blob]);
   async function discard(event: FormEvent<HTMLFormElement>) {
@@ -20,7 +20,7 @@ function PhotoEntry({ photo, blockedScan, disabled, onDiscard, onRetake }: { pho
   async function retake(event: ChangeEvent<HTMLInputElement>) {
     const blob = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (!blob) return;
     if (!window.confirm(t("media.retake_confirm"))) return;
-    setBusy(true); setError(""); try { await checkCapturedPhoto(blob, DEFAULT_QUALITY_CONFIG); await onRetake(photo, blob); } catch { setError(t("media.retake_failed")); } finally { setBusy(false); }
+    setBusy(true); setError(""); try { const quality = await checkCapturedPhoto(blob, DEFAULT_QUALITY_CONFIG); await onRetake(photo, blob, quality); } catch { setError(t("media.retake_failed")); } finally { setBusy(false); }
   }
   return <li className="blocked-scan">{url ? <img src={url} alt={t(`media.slot.${photo.input.slot}` as TranslationKey)} width={96} height={96} style={{ objectFit: "contain" }} /> : null}
     <strong>{t(`media.slot.${photo.input.slot}` as TranslationKey)}</strong>
@@ -30,7 +30,7 @@ function PhotoEntry({ photo, blockedScan, disabled, onDiscard, onRetake }: { pho
       <form onSubmit={discard}><label>{t("scanning.discard_reason")}<input name="reason" required maxLength={4000} disabled={busy || disabled} /></label><button disabled={busy || disabled}>{t("scanning.discard")}</button></form></> : null}
     {error ? <p role="alert">{error}</p> : null}</li>;
 }
-export function PendingPhotoList({ photos, blockedScanKeys, ...actions }: { photos: QueuedPhoto[]; blockedScanKeys: string[]; disabled: boolean; onDiscard: (photo: QueuedPhoto, reason: string) => Promise<void>; onRetake: (photo: QueuedPhoto, blob: Blob) => Promise<void> }) {
+export function PendingPhotoList({ photos, blockedScanKeys, ...actions }: { photos: QueuedPhoto[]; blockedScanKeys: string[]; disabled: boolean; onDiscard: (photo: QueuedPhoto, reason: string) => Promise<void>; onRetake: (photo: QueuedPhoto, blob: Blob, quality: QualityReport) => Promise<void> }) {
   const [open, setOpen] = useState(false);
   if (!photos.length) return null;
   return <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}><summary>{t("media.pending_photos")} ({photos.length})</summary>

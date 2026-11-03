@@ -30,8 +30,8 @@ describe("P7 specific PHOTO_REQUEST lifecycle", () => {
     expect(await getAssignedScanTask(db, warehouse, task.body.id)).toMatchObject({ taskType: "PHOTO_REQUEST", targetSkuId: skuId, photoRequestNote: request.photoRequestNote, targetCount: 2 });
     await expect(getAssignedScanTask(db, operator, task.body.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
     const photo = { idempotencyKey: createUuidV7(), userId: warehouse.userId, deviceId: createUuidV7(), capturedAt: new Date().toISOString(), slot: "MAIN", photoRequestTaskId: task.body.id };
-    await expect(receivePhoto(db, storage, warehouse, photo, await fixturePhoto(64, 64))).rejects.toMatchObject({ details: { mediaReason: "RESOLUTION" } });
-    await receivePhoto(db, storage, warehouse, photo, bytes);
+    // Server resolution disagreement cannot veto device acceptance or task progress.
+    await receivePhoto(db, storage, warehouse, { ...photo, deviceQuality: { passed: true, reasons: [], width: 1920, height: 1280, variance: 100, darkShare: 0, brightShare: 0 } }, await fixturePhoto(64, 64));
     let [row] = await db.select().from(scanTasks).where(eq(scanTasks.id, task.body.id)); expect(row).toMatchObject({ status: "IN_PROGRESS", completedCount: 1, completedAt: null });
     const final = { ...photo, idempotencyKey: createUuidV7(), slot: "IDENTIFICATION" }; await receivePhoto(db, storage, warehouse, final, bytes);
     expect((await receivePhoto(db, storage, warehouse, final, bytes)).replayed).toBe(true);

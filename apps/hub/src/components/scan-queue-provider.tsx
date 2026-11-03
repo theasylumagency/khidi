@@ -7,6 +7,7 @@ import { formatStaffName, t } from "@khidi/i18n";
 import { BlockedScanList } from "./blocked-scan-list.tsx";
 import { OfflinePhotoQueue, PhotoQueueStore, storageUsage, type StorageUsage, type QueuedPhoto, type QueuedPhotoReport, type CachedTaskIdentifier } from "@khidi/scanning/offline-photos";
 import type { PhotoTarget, PhotoSlot } from "@khidi/media/contracts";
+import type { QualityReport } from "@khidi/media/quality";
 import { PendingPhotoList } from "./pending-photo-list.tsx";
 
 type ScanDraft = Pick<IntakeInput, "sourceMode" | "taskId" | "scannedValue" | "isNoBarcode">;
@@ -14,7 +15,7 @@ interface QueueContextValue {
   ready: boolean; enqueue: (draft: ScanDraft) => Promise<string>;
   lastDelivery: { key: string; result: QueueTransportResult } | null;
   photos: QueuedPhoto[]; photoVersion: number; usage: StorageUsage | null;
-  enqueuePhoto: (target: Partial<PhotoTarget>, photo: { blob: Blob; slot: PhotoSlot; capturedAt: string }) => Promise<void>;
+  enqueuePhoto: (target: Partial<PhotoTarget>, photo: { blob: Blob; slot: PhotoSlot; capturedAt: string; quality: QualityReport }) => Promise<void>;
   enqueueAttention: (target: Partial<PhotoTarget>, reason: string, slots: PhotoSlot[]) => Promise<void>;
   duplicate: (taskId: string, value: string) => Promise<CachedTaskIdentifier | null>;
   cacheTask: (taskId: string) => Promise<void>;
@@ -132,9 +133,9 @@ export function ScanQueueProvider({ user, children }: {
     if (!queue.current || !userId || !fullName || sessionChanged) throw new Error("Photo queue unavailable.");
     return { userId, deviceId: deviceId ?? await queue.current.store.clientDeviceId(), idempotencyKey: createUuidV7() };
   }
-  async function enqueuePhoto(target: Partial<PhotoTarget>, photo: { blob: Blob; slot: PhotoSlot; capturedAt: string }) {
+  async function enqueuePhoto(target: Partial<PhotoTarget>, photo: { blob: Blob; slot: PhotoSlot; capturedAt: string; quality: QualityReport }) {
     const identity = await photoIdentity(), controller = photoQueue.current!;
-    await controller.store.add({ skuId: null, intakeId: null, intakeIdempotencyKey: null, photoRequestTaskId: null, ...target, ...identity, slot: photo.slot, capturedAt: photo.capturedAt }, photo.blob, fullName!, navigator.storage);
+    await controller.store.add({ skuId: null, intakeId: null, intakeIdempotencyKey: null, photoRequestTaskId: null, ...target, ...identity, slot: photo.slot, capturedAt: photo.capturedAt, deviceQuality: photo.quality }, photo.blob, fullName!, navigator.storage);
     setPhotos(await controller.store.list()); setUsage(await storageUsage(navigator.storage)); setPhotoVersion((v) => v + 1); void controller.flush();
   }
   async function enqueueAttention(target: Partial<PhotoTarget>, reason: string, slots: PhotoSlot[]) {
@@ -177,9 +178,9 @@ export function ScanQueueProvider({ user, children }: {
       }} />
       <PendingPhotoList photos={photos.filter((photo) => photo.userId === userId && !blocked.some((scan) => scan.idempotencyKey === photo.input.intakeIdempotencyKey))} blockedScanKeys={[]} disabled={sessionChanged} onDiscard={async (photo, reason) => {
         await photoQueue.current!.store.discard(photo.idempotencyKey, userId!, reason, true); setPhotos(await photoQueue.current!.store.list()); setPhotoReports(await photoQueue.current!.store.reports()); void photoQueue.current!.flush();
-      }} onRetake={async (photo, blob) => {
+      }} onRetake={async (photo, blob, quality) => {
         const identity = await photoIdentity(), controller = photoQueue.current!;
-        const replacement = await controller.store.prepare({ ...photo.input, ...identity, capturedAt: new Date().toISOString() }, blob, fullName!, navigator.storage);
+        const replacement = await controller.store.prepare({ ...photo.input, ...identity, capturedAt: new Date().toISOString(), deviceQuality: quality }, blob, fullName!, navigator.storage);
         await controller.store.discard(photo.idempotencyKey, userId!, t("media.retake_reason"), true, replacement); setPhotos(await controller.store.list()); setPhotoReports(await controller.store.reports()); void controller.flush();
       }} />
       {own?.count && !sessionChanged ? <button type="button" onClick={() => { void queue.current?.retry().catch(() => setStorageError(true)); }}>{t("scanning.retry")}</button> : null}

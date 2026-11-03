@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
 import { type DbExecutor, intakePhotoStatus, productImages, productIntakes, productTypes, scanTasks, skus } from "@khidi/db";
 import type { DomainTransactionContext } from "@khidi/domain";
@@ -65,12 +65,18 @@ export async function resolveUploadTarget(tx: DbExecutor, principal: Authenticat
 }
 export async function refreshIntakePhotoStatus(ctx: DomainTransactionContext, intakeId: string) {
   const [state] = await ctx.tx.select().from(intakePhotoStatus).where(eq(intakePhotoStatus.intakeId, intakeId)).for("update");
-  if (!state) return;
   const images = await ctx.tx.select({ slot: productImages.slot, tier1: productImages.tier1QualityJson, status: productImages.status }).from(productImages).where(eq(productImages.intakeId, intakeId));
+  const disagreement = images.some((image) => image.status === "UNVERIFIED" && image.tier1.disagreement === true);
+  if (!state) {
+    await ctx.tx.update(productIntakes).set({ photoAttentionReason: disagreement ? "SERVER_TIER1_DISAGREEMENT" : null })
+      .where(and(eq(productIntakes.id, intakeId), or(isNull(productIntakes.photoAttentionReason), eq(productIntakes.photoAttentionReason, "SERVER_TIER1_DISAGREEMENT"))));
+    return;
+  }
   const accepted = new Set(images.filter((image) => image.tier1.passed === true && image.status !== "REJECTED").map((image) => image.slot));
   const complete = state.requiredSlotsJson.every((slot) => accepted.has(slot));
-  await ctx.tx.update(intakePhotoStatus).set({ status: complete ? "COMPLETE" : state.status === "ATTENTION" ? "ATTENTION" : "PENDING", attentionReason: complete ? null : state.attentionReason, updatedAt: new Date() }).where(eq(intakePhotoStatus.intakeId, intakeId));
-  await ctx.tx.update(productIntakes).set({ photosMissing: !complete, photoAttentionReason: complete ? null : state.attentionReason }).where(eq(productIntakes.id, intakeId));
+  const attentionReason = disagreement ? "SERVER_TIER1_DISAGREEMENT" : complete ? null : state.attentionReason;
+  await ctx.tx.update(intakePhotoStatus).set({ status: disagreement ? "ATTENTION" : complete ? "COMPLETE" : state.status === "ATTENTION" ? "ATTENTION" : "PENDING", attentionReason, updatedAt: new Date() }).where(eq(intakePhotoStatus.intakeId, intakeId));
+  await ctx.tx.update(productIntakes).set({ photosMissing: !complete, photoAttentionReason: attentionReason }).where(eq(productIntakes.id, intakeId));
 }
 export async function refreshPhotoRequest(ctx: DomainTransactionContext, taskId: string) {
   const [task] = await ctx.tx.select().from(scanTasks).where(eq(scanTasks.id, taskId)).for("update");

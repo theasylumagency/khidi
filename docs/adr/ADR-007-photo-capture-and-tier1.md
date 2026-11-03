@@ -50,3 +50,25 @@ never upload independently. Confirmed scan discard atomically discards its blobs
 reports only metadata. A separately blocked photo may be retaken/discarded by its
 owner; OFFLINE_PHOTO_DISCARDED flags required photos missing for admin attention.
 Nothing is silently removed. These rules are recorded in AGENTS.md P5.
+
+## Owner decision before merge — server quality is advisory (2026-11-03)
+
+Device acceptance must survive different browser/libvips decoding, resampling or grayscale
+results. The server re-runs Tier-1 as an observation and never rejects a photo for blur,
+exposure or minimum resolution. Upload rejection remains for size above 15 MiB,
+unsupported/undecodable raster data and decompression-bomb limits (64 million pixels,
+single-frame JPEG/PNG/WebP). Existing authorization and metadata/idempotency validation
+still apply.
+
+Acceptance decoding uses Sharp `failOn: "error"`, allowing minor camera JPEG warnings.
+The exact submitted bytes remain the raw original; processing failures follow the worker's
+normal retry/dead-letter path. Device Tier-1 results travel with the durable offline upload.
+`tier1_quality_json` keeps the device and server reports separately, plus a disagreement
+flag; its top-level `passed` records upload acceptance for slot progress. Old queued photos
+without a device report remain deliverable and record `device: null` explicitly.
+
+A disagreement stores/enqueues the image normally and marks its original intake ATTENTION,
+even if all slots have been uploaded. The admin can inspect both reports, review the image
+or issue PHOTO_REQUEST. Admin verification/rejection resolves that image's quality-attention
+flag; neither raw data nor another candidate is replaced automatically. This rule supersedes
+the initial server-side Tier-1 rejection behavior.

@@ -126,6 +126,8 @@ export function formatStaffName(fullName: string): string {
 }
 
 const SCANNING_LABELS = {
+  "media.quality_reports": "მოწყობილობისა და სერვერის ხარისხის შემოწმება",
+  "media.quality_disagreement": "ხარისხის შედეგები განსხვავდება. ფოტო შენახულია; საჭიროა ადმინისტრატორის შემოწმება.",
   "media.pending_photo_reports": "ფოტოს გასაგზავნი შენიშვნები",
   "media.waiting_for_reports": "{name}: {count} შენიშვნა მის შესვლას ელოდება.",
   "media.photos_status": "ფოტოების მდგომარეობა",

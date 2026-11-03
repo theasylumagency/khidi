@@ -19,3 +19,9 @@ export async function gpsFixturePhoto() {
   const exif = Buffer.concat([Buffer.from("Exif\0\0"), tiff]), header = Buffer.from([0xff, 0xe1, 0, 0]); header.writeUInt16BE(exif.length + 2, 2);
   return Buffer.concat([jpeg.subarray(0, 2), header, exif, jpeg.subarray(2)]);
 }
+/** Valid camera-style JPEG with harmless padding before SOS (libjpeg warning). */
+export async function warningFixturePhoto() {
+  const jpeg = await fixturePhoto(), sos = jpeg.indexOf(Buffer.from([0xff, 0xda]));
+  if (sos < 0) throw new Error("JPEG fixture has no scan marker.");
+  return Buffer.concat([jpeg.subarray(0, sos), Buffer.from([0x12, 0x34, 0x56, 0x78]), jpeg.subarray(sos)]);
+}
