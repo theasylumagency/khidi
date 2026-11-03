@@ -20,9 +20,21 @@ services:
       timeout: 3s
       retries: 20
   postgres:
-    image: postgres:18.4
+    build:
+      context: ./docker/postgres
+    image: khidi-postgres:18.4-pgbackrest-2.60.0
     container_name: agrotrade-hub-postgres
     restart: unless-stopped
+    command:
+      - postgres
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_timeout=60s
+      - -c
+      - archive_command=pgbackrest --config=/etc/pgbackrest/pgbackrest.conf --stanza=khidi archive-push %p
+    env_file:
+      - .backup.env
     environment:
       POSTGRES_USER: ${HUB_MIGRATOR_DB_USER:-hub_migrator}
       POSTGRES_PASSWORD: ${HUB_MIGRATOR_DB_PASSWORD:-hub_migrator_dev_password}
@@ -33,6 +45,7 @@ services:
     volumes:
       - agrotrade_pgdata:/var/lib/postgresql
       - ./docker/postgres/init-roles.sh:/docker-entrypoint-initdb.d/01-init-roles.sh:ro
+      - ./ops/pgbackrest/pgbackrest.production.conf:/etc/pgbackrest/pgbackrest.conf:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${HUB_MIGRATOR_DB_USER:-hub_migrator} -d ${HUB_DB_NAME:-agrotrade_hub_dev}"]
       interval: 3s
