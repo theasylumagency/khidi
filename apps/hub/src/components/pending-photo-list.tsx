@@ -4,6 +4,11 @@ import type { QueuedPhoto } from "@khidi/scanning/offline-photos";
 import { checkCapturedPhoto } from "@khidi/media/capture-browser";
 import { DEFAULT_QUALITY_CONFIG } from "@khidi/media/quality";
 import { t, type TranslationKey } from "@khidi/i18n";
+function blockedPhotoMessage(code?: string) {
+  if (["FILE_TOO_LARGE", "UNSUPPORTED_FORMAT", "RESOLUTION", "UNDEREXPOSED", "OVEREXPOSED", "BLUR", "DEPENDENCY_PENDING", "TARGET_UNAVAILABLE"].includes(code ?? "")) return t(`media.error.${code}` as TranslationKey);
+  if (["UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND", "VALIDATION_ERROR", "CONFLICT", "IDEMPOTENCY_CONFLICT", "PRECONDITION_FAILED", "INVARIANT_VIOLATION"].includes(code ?? "")) return t(`scanning.error.${code}` as TranslationKey);
+  return t("media.error.GENERIC");
+}
 function PhotoEntry({ photo, blockedScan, disabled, onDiscard, onRetake }: { photo: QueuedPhoto; blockedScan: boolean; disabled: boolean; onDiscard: (photo: QueuedPhoto, reason: string) => Promise<void>; onRetake: (photo: QueuedPhoto, blob: Blob) => Promise<void> }) {
   const [url, setUrl] = useState(""), [error, setError] = useState(""), [busy, setBusy] = useState(false);
   useEffect(() => { const url = URL.createObjectURL(photo.blob); setUrl(url); return () => URL.revokeObjectURL(url); }, [photo.blob]);
@@ -20,7 +25,7 @@ function PhotoEntry({ photo, blockedScan, disabled, onDiscard, onRetake }: { pho
   return <li className="blocked-scan">{url ? <img src={url} alt={t(`media.slot.${photo.input.slot}` as TranslationKey)} width={96} height={96} style={{ objectFit: "contain" }} /> : null}
     <strong>{t(`media.slot.${photo.input.slot}` as TranslationKey)}</strong>
     <p>{t(blockedScan ? "media.blocked_parent" : photo.blocked ? "media.blocked_photo" : "media.waiting_upload")}</p>
-    {photo.blocked && !blockedScan ? <><p>{t(`media.error.${photo.lastCode}` as TranslationKey) || t("media.error.GENERIC")}</p>
+    {photo.blocked && !blockedScan ? <><p>{blockedPhotoMessage(photo.lastCode)}</p>
       <label>{t("media.retake")}<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" disabled={busy || disabled} onChange={retake} /></label>
       <form onSubmit={discard}><label>{t("scanning.discard_reason")}<input name="reason" required maxLength={4000} disabled={busy || disabled} /></label><button disabled={busy || disabled}>{t("scanning.discard")}</button></form></> : null}
     {error ? <p role="alert">{error}</p> : null}</li>;

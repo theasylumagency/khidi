@@ -449,8 +449,13 @@ export default async function SkuDetailPage({
             </ul>
           )}
         </section>
-        {principal.role === "ADMIN" ? <><AdminMediaPanel skuId={skuId} images={images} assignees={photoAssignees} /><section><PhotoRequestForm skuId={skuId} assignees={photoAssignees} /></section></> : null}
       </div>
+      {principal.role === "ADMIN" ? (
+        <>
+          <AdminMediaPanel skuId={skuId} images={images} assignees={photoAssignees} />
+          <section><PhotoRequestForm skuId={skuId} assignees={photoAssignees} /></section>
+        </>
+      ) : null}
     </div>
   );
 }

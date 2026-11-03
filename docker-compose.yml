@@ -1,4 +1,24 @@
 services:
+  minio:
+    image: khidi-minio-dev:2025-10-15-9e49d5e
+    build:
+      context: ./docker/minio
+    profiles: ["media"]
+    container_name: khidi-minio-dev
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_DEV_ROOT_USER:-khidi-dev}
+      MINIO_ROOT_PASSWORD: ${MINIO_DEV_ROOT_PASSWORD:-khidi_minio_dev_password}
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - khidi_media:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:9000/minio/health/live"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
   postgres:
     image: postgres:18.4
     container_name: agrotrade-hub-postgres
@@ -20,4 +40,5 @@ services:
       retries: 10
 
 volumes:
+  khidi_media:
   agrotrade_pgdata:

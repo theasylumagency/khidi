@@ -11,6 +11,11 @@ const scan = (): IntakeInput => ({ idempotencyKey: createUuidV7(), userId: owner
 const photo = (intakeIdempotencyKey: string, userId = owner): PhotoUploadInput => ({ idempotencyKey: createUuidV7(), userId, deviceId, capturedAt: new Date().toISOString(), slot: "MAIN", intakeIdempotencyKey, intakeId: null, photoRequestTaskId: null, skuId: null });
 const ok = { accepted: true, status: 201 };
 describe("P5 durable photos, intake dependencies and explicit loss reports", () => {
+  it("does not make session/network requests when the photo queue is empty", async () => {
+    const store = await openScanQueue(new IDBFactory()), currentUserId = vi.fn(async () => owner);
+    await new OfflinePhotoQueue(new PhotoQueueStore(store), { currentUserId, send: async () => ok, report: async () => ok }).flush();
+    expect(currentUserId).not.toHaveBeenCalled(); store.close();
+  });
   it("retains exact blobs on reopen and sends only after its own intake receipt", async () => {
     const factory = new IDBFactory(); let store = await openScanQueue(factory), photos = new PhotoQueueStore(store);
     const input = scan(), image = photo(input.idempotencyKey), blob = new Blob([new Uint8Array([1, 2, 3])], { type: "image/jpeg" });
@@ -20,7 +25,9 @@ describe("P5 durable photos, intake dependencies and explicit loss reports", () 
     let current = other; const sent = vi.fn(async () => ok);
     const queue = new OfflinePhotoQueue(photos, { currentUserId: async () => current, send: sent, report: async () => ok });
     await queue.flush(); current = owner; await queue.flush(); expect(sent).not.toHaveBeenCalled();
-    await store.acceptScan(input, { ...ok, intakeId: createUuidV7(), duplicateOfIntakeId: createUuidV7() });
+    const originalIntakeId = createUuidV7();
+    await store.acceptScan(input, { ...ok, intakeId: createUuidV7(), duplicateOfIntakeId: originalIntakeId });
+    expect((await photos.list())[0]).toMatchObject({ deliveredIntakeId: originalIntakeId, userId: owner, input: image });
     await queue.flush(); expect(sent).toHaveBeenCalledOnce(); expect(await photos.list()).toEqual([]); store.close();
   });
   it("never uploads children of a blocked scan; owner discard atomically reports metadata only", async () => {

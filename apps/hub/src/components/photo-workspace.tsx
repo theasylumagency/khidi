@@ -29,13 +29,14 @@ export function PhotoWorkspace({ target, initialContext, onlyMissing = false, on
   }, [targetKey, delivery, queue.photoVersion, onlyMissing]);
   useEffect(() => { void queue.checkStorage(); }, []);
   const fullTarget: PhotoTarget = { skuId: null, intakeId: null, intakeIdempotencyKey: null, photoRequestTaskId: null, ...target };
-  const pending = queue.photos.filter((photo) => sameTarget(photo.input, fullTarget)).map((photo) => photo.input.slot);
+  const originalIntakeId = fullTarget.intakeId ?? context?.target.intakeId;
+  const pending = queue.photos.filter((photo) => sameTarget(photo.input, fullTarget) || !!originalIntakeId && photo.deliveredIntakeId === originalIntakeId).map((photo) => photo.input.slot);
   const accepted = [...new Set([...(context?.acceptedSlots ?? []), ...pending, ...local])];
   const fallbackSlots = target.skuId ? GENERIC_CAPTURE_SLOTS.map((slot) => ({ ...slot, required: false })) : GENERIC_CAPTURE_SLOTS;
   const slots = (context?.slots ?? fallbackSlots).filter((slot) => !onlyMissing || (context ? context.missingSlots.includes(slot.slot) || local.includes(slot.slot) : !pending.includes(slot.slot)));
   return <div>{duplicate.current ? <p role="status">{t("media.already_scanned")}</p> : null}
     {queue.usage?.blocked ? <p role="alert">{t("media.quota_blocked")}</p> : null}
-    {onlyMissing && context && !context.missingSlots.length && !local.length ? <><p>{t("media.photos_complete")}</p><button onClick={onComplete}>{t("media.finish_capture")}</button></> :
+    {onlyMissing && (context ? !context.missingSlots.length && !local.length : !slots.length) ? <><p>{t("media.photos_complete")}</p><button onClick={onComplete}>{t("media.finish_capture")}</button></> :
     <GuidedPhotoCapture slots={slots} acceptedSlots={accepted} qualityConfig={context?.qualityConfig ?? DEFAULT_QUALITY_CONFIG} disabled={queue.usage?.blocked || !queue.ready || context?.canCompletePhotos === false}
       onPhotoTaken={() => { taken.current = true; }} onNativePending={(value) => { nativePending.current = value; if (!value && duplicate.current && !taken.current) onDuplicateRef.current?.(duplicate.current); }}
       onAccept={async (photo) => { await queue.enqueuePhoto(target, photo); setLocal((slots) => [...new Set([...slots, photo.slot])]); }}

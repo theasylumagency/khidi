@@ -22,8 +22,26 @@ export class PhotoQueueStore {
   private listStore<T>(name: string, userId?: string): Promise<T[]> {
     return this.scans.transaction(name, "readonly", (store, result) => { const r = userId ? store.index("userId").getAll(userId) : store.getAll(); r.onsuccess = () => result(r.result); });
   }
-  list(userId?: string) { return this.listStore<QueuedPhoto>("photos", userId); }
+  async list(userId?: string): Promise<QueuedPhoto[]> {
+    const photos = await this.listStore<QueuedPhoto>("photos", userId), keys = [...new Set(photos.map((photo) => photo.input.intakeIdempotencyKey).filter((key): key is string => !!key))];
+    if (!keys.length) return photos;
+    const receipts = await this.scans.transaction<IntakeReceipt[]>("receipts", "readonly", (store, result) => {
+      const rows: IntakeReceipt[] = []; let completed = 0;
+      for (const key of keys) { const request = store.get(key); request.onsuccess = () => { if (request.result) rows.push(request.result); if (++completed === keys.length) result(rows); }; }
+    });
+    return photos.map((photo) => {
+      const receipt = receipts.find((row) => row.idempotencyKey === photo.input.intakeIdempotencyKey && row.userId === photo.userId);
+      return receipt ? { ...photo, deliveredIntakeId: receipt.duplicateOfIntakeId ?? receipt.intakeId } : photo;
+    });
+  }
   reports(userId?: string) { return this.listStore<QueuedPhotoReport>("photoReports", userId); }
+  hasPending(): Promise<boolean> {
+    return this.scans.transaction(["photos", "photoReports"], "readonly", (store, result, tx) => {
+      const photos = store.count(), reports = tx.objectStore("photoReports").count(); let completed = 0;
+      const read = () => { if (++completed === 2) result(photos.result + reports.result > 0); };
+      photos.onsuccess = read; reports.onsuccess = read;
+    });
+  }
   async prepare(input: PhotoUploadInput, blob: Blob, userName: string, storage?: DeviceStorage): Promise<QueuedPhoto> {
     input = photoUploadSchema.parse(input);
     const usage = await storageUsage(storage, blob.size, true);
@@ -113,39 +131,46 @@ export class OfflinePhotoQueue {
   private flight: Promise<void> | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private target?: EventTarget; private running = false;
+  private wakeRequested = false; private failures = 0; private nextDelay: number | null = null;
   constructor(readonly store: PhotoQueueStore, private readonly options: PhotoQueueOptions) {}
   private wake = () => { void this.flush(); };
   start(target?: EventTarget) { this.running = true; this.target = target; target?.addEventListener("online", this.wake); target?.addEventListener("focus", this.wake); this.wake(); }
   stop() { this.running = false; if (this.timer) clearTimeout(this.timer); this.target?.removeEventListener("online", this.wake); this.target?.removeEventListener("focus", this.wake); }
   flush(): Promise<void> {
-    if (this.flight) return this.flight;
-    this.flight = this.drain().catch((error) => this.options.error?.(error)).finally(() => {
+    if (this.flight) { this.wakeRequested = true; return this.flight; }
+    this.flight = this.drain().then((delay) => { this.failures = 0; this.nextDelay = delay; }).catch((error) => { this.nextDelay = retryDelay(this.failures++); this.options.error?.(error); }).finally(() => {
       this.flight = null;
-      if (this.running) this.timer = setTimeout(this.wake, 1000);
+      const delay = this.wakeRequested ? 25 : this.nextDelay; this.wakeRequested = false;
+      if (this.running && delay !== null) this.timer = setTimeout(this.wake, Math.max(25, delay));
     }); return this.flight;
   }
-  private async drain() {
-    const userId = await this.options.currentUserId(); if (!userId) return;
+  private async drain(): Promise<number | null> {
+    if (!await this.store.hasPending()) return null;
+    const userId = await this.options.currentUserId(); if (!userId) return null;
     const now = this.options.now ?? Date.now;
     // Reasons/discards precede replacement photos; a late report cannot undo completion.
     for (const report of await this.store.reports(userId)) {
       if (report.nextAttemptAt > now() || !await this.store.dependencyReady(report.input)) continue;
-      if (await this.options.currentUserId() !== userId) return;
+      if (await this.options.currentUserId() !== userId) return null;
       let result: QueueTransportResult = { accepted: false, status: 0 };
       try { result = await this.options.report(report); } catch { /* durable retry */ }
       await this.store.result("photoReports", report.idempotencyKey, result, now() + retryDelay(report.attempts)); this.options.changed?.();
-      if ([401, 403].includes(result.status)) return;
+      if ([401, 403].includes(result.status)) return null;
     }
     const reports = await this.store.reports(userId);
     for (const photo of await this.store.list(userId)) {
       if (photo.blocked || photo.nextAttemptAt > now() || !await this.store.dependencyReady(photo.input)) continue;
       if (reports.some((r) => sameTarget(r.input, photo.input))) continue;
-      if (await this.options.currentUserId() !== userId) return;
+      if (await this.options.currentUserId() !== userId) return null;
       let result: QueueTransportResult = { accepted: false, status: 0 };
       try { result = await this.options.send(photo); } catch { /* durable retry */ }
       await this.store.result("photos", photo.idempotencyKey, result, now() + retryDelay(photo.attempts)); this.options.changed?.();
-      if ([401, 403].includes(result.status)) return;
+      if ([401, 403].includes(result.status)) return null;
     }
+    const times: number[] = [];
+    for (const photo of await this.store.list(userId)) if (!photo.blocked && await this.store.dependencyReady(photo.input)) times.push(photo.nextAttemptAt);
+    for (const report of await this.store.reports(userId)) if (await this.store.dependencyReady(report.input)) times.push(report.nextAttemptAt);
+    return times.length ? Math.min(...times) - now() : null;
   }
 }
 export function sameTarget(a: PhotoTarget, b: PhotoTarget) { return ["intakeId", "intakeIdempotencyKey", "photoRequestTaskId", "skuId"].some((key) => !!a[key as keyof PhotoTarget] && a[key as keyof PhotoTarget] === b[key as keyof PhotoTarget]); }

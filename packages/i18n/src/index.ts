@@ -126,10 +126,12 @@ export function formatStaffName(fullName: string): string {
 }
 
 const SCANNING_LABELS = {
+  "media.pending_photo_reports": "ფოტოს გასაგზავნი შენიშვნები",
+  "media.waiting_for_reports": "{name}: {count} შენიშვნა მის შესვლას ელოდება.",
   "media.photos_status": "ფოტოების მდგომარეობა",
   "media.required_photos_missing": "სავალდებულო ფოტოები აკლია",
   "media.no_required_missing": "სავალდებულო ფოტო არ აკლია",
-  "media.photos_status_unknown": "ქსელის გარეშე ორიგინალი მიღების სრული მდგომარეობა ჯერ უცნობია.",
+  "media.photos_status_unknown": "ორიგინალი მიღების ფოტოების მდგომარეობა ჯერ არ განახლებულა.",
   "media.images": "პროდუქტის ფოტოები",
   "media.raw": "ორიგინალი",
   "media.sha256": "SHA-256",

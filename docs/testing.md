@@ -30,3 +30,17 @@ Database URLs and credentials are never included in safety error messages.
 Restored databases whose names do not end in `_test` are rejected too. Prepare a
 separate `_test` database for suite execution; a restored production name does not
 qualify merely because the server or port is isolated.
+
+M4's restore verifier checks the recovered database without changing it, then creates
+a new clone on that isolated server using `RESTORE_TEST_MIGRATOR_URL` and
+`RESTORE_TEST_APP_URL`. Both must identify the same new `_test` database, with the
+separate database roles. `RESTORE_ADMIN_URL` may supply an isolated server account
+with CREATEDB when the migrator lacks that infrastructure privilege. Existing test
+copies are refused and never dropped. The same hard global-setup guard applies to
+the suite run against this clone.
+
+Media tests normally use temporary filesystem adapters. To include the S3 integration
+test, prepare the local MinIO test buckets and restricted runtime account as described
+in [media operations](ops/media-storage.md), then export `MEDIA_TEST_S3_ENDPOINT`.
+The full M4 acceptance run includes this test; it refuses a remote endpoint or
+non-test bucket names. No production object-storage credentials are needed.

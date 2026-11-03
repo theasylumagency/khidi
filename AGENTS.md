@@ -37,7 +37,7 @@ If two sources conflict and this list does not resolve it, stop and ask. Do not 
 | M1 Foundation, auth, PWA shell | Done |
 | M2 Product model | Done (F1–F7, G1–G2 closed) |
 | M3 Scanning, intake, labels, offline queue, backup tooling | Done — merged to `main` (PR #1). Human checks below pending |
-| M4 Photo capture and media pipeline | **In progress — see §10** |
+| M4 Photo capture and media pipeline | Implemented (P1–P10) on `m4-media`; PR review and human deployment checks pending |
 | M5–M11 | Not started |
 
 Human checks still pending (the owner updates these lines):

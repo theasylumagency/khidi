@@ -1,4 +1,3 @@
-import { AI_JOB_NAMES } from "@khidi/ai";
 import { nowUtc } from "@khidi/shared";
 import { getDb } from "@khidi/db";
 import { createMediaJobRuntime, dispatchMediaJobs, startMediaWorkers, getMediaStorage, MEDIA_QUEUES } from "@khidi/media";
@@ -7,7 +6,7 @@ export function getWorkerHealthStatus() {
   return {
     service: "khidi-worker",
     status: "ok",
-    registeredQueues: [...MEDIA_QUEUES, ...AI_JOB_NAMES, "outbox-dispatch", "daily-movement-reports"],
+    registeredQueues: [...MEDIA_QUEUES, "media-dead-letter"],
     timestamp: nowUtc().toISOString()
   };
 }
