@@ -10,3 +10,5 @@ coverage/
 .env.*.local
 ops/.restore-test*
 .local-media/
+
+.backup.env
