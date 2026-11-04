@@ -34,6 +34,21 @@ We adopt the **Lucia first-party database session architecture** implemented dir
    - `sw.js` never caches HTML documents or navigation responses, ensuring shared warehouse phones never leak one operator's rendered view to another.
 
 ## Consequences
+
+### Enrollment and server recovery (2026-11-04)
+
+Password-verified pending enrollment applies to any password-based office account. A
+same-device OTPAuth link, locally encoded QR and Base32 copy support guided setup. Refresh
+keeps the unfinished secret; only an explicit, audited restart rotates it. Confirmation is
+required before issuing a session, and normal APIs never reveal an enrolled secret.
+
+The authorized server-only `ops:recover-user` command requires an interactive terminal,
+explicit migrator connection, separate action choices, operator note and retyped email.
+Password/TOTP/session changes and their audit/outbox commit atomically. A reset preserves
+the user's security floor and forces enrollment; warehouse-only users are excluded from
+TOTP/password recovery. No web recovery route or non-interactive production bypass exists.
+See [the operational procedure](../ops/user-recovery.md); provision a second ADMIN before pilot.
+
 - **Positive**:
   - Full transactional integration with `withDomainTransaction()` and `audit_logs` on every login, logout, device registration, and device revocation.
   - Zero third-party auth framework deserialization surface or opaque JWT state; every request verifies `sessions` and `registered_devices` status in PostgreSQL.

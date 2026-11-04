@@ -46,6 +46,10 @@ confirmation. Enrollment secrets/passwords are absent from audit/outbox records.
 enrollment, every ADMIN login requires password plus TOTP. Configure legal entities,
 storefronts, settings and devices through the authenticated admin UI, never via seed scripts.
 
+Before pilot, create and verify a second ADMIN so losing one authenticator cannot lock out
+the organization. See [TOTP enrollment and server-only recovery](user-recovery.md) for the
+guided setup, fallback options and audited interactive `ops:recover-user` procedure.
+
 Configure media storage, backups and the deployment gates in [media-storage.md](media-storage.md)
 and [backup-restore.md](backup-restore.md) before starting real intake. Start Hub and worker
 with `hub_app`, protected production secrets and the same media storage configuration.
