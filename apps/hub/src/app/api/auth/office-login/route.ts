@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
       return json({ error: err.code, message: t("auth.login_failed") }, { status });
     }
     return json(
-      { error: "INTERNAL_ERROR", message: t("auth.login_failed") },
+      { error: "INTERNAL_ERROR", message: t("auth.login_unavailable") },
       { status: 500 }
     );
   }

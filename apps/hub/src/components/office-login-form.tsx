@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { t } from "@khidi/i18n";
 import { TotpEnrollmentSetup, copyTotpSetupKey, type TotpEnrollment } from "./totp-enrollment.tsx";
+import { OfficePasswordField } from "./office-password-field.tsx";
 import "./office-login-form.css";
 
 export function OfficeLoginForm({ beforeLogin }: { beforeLogin(): Promise<void> }) {
+  const codeHintId = useId();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -46,7 +48,7 @@ export function OfficeLoginForm({ beforeLogin }: { beforeLogin(): Promise<void> 
     catch { setCopyNotice(t("auth.copy_failed")); }
   }
 
-  return <form className="office-login" onSubmit={submit} aria-busy={loading}>
+  return <form className="office-login" autoComplete="on" onSubmit={submit} aria-busy={loading}>
     <h2>{enrollment || step === 3 ? t("auth.enroll_title") : t("auth.office_title")}</h2>
     {enrollment || step === 3 ? <ol className="totp-steps" aria-label={t("auth.enroll_steps")}>
       {[t("auth.enroll_add"), t("auth.enroll_verify"), t("auth.enroll_done")].map((label, index) =>
@@ -58,8 +60,10 @@ export function OfficeLoginForm({ beforeLogin }: { beforeLogin(): Promise<void> 
       <a className="auth-primary" href="/">{t("auth.continue")}</a>
     </div> : <fieldset disabled={loading}>
       {!enrollment ? <>
-        <label>{t("auth.email")}<input type="email" autoComplete="username" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-        <label>{t("auth.password")}<input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+        <label>{t("auth.email")}<input name="username" type="email" inputMode="email" autoComplete="username"
+          autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="next"
+          required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+        <OfficePasswordField value={password} onChange={setPassword} />
       </> : null}
       {enrollment && step === 1 ? <>
         <TotpEnrollmentSetup enrollment={enrollment} onCopy={() => void copyKey()} copyNotice={copyNotice} />
@@ -71,8 +75,10 @@ export function OfficeLoginForm({ beforeLogin }: { beforeLogin(): Promise<void> 
         </div> : <button className="auth-secondary" type="button" onClick={() => setConfirmRestart(true)}>{t("auth.restart_enrollment")}</button>}
       </> : <>
         {enrollment ? <p>{t("auth.enroll_confirm")}</p> : null}
-        <label>{t("auth.totp_code")}<input type="text" inputMode="numeric" pattern="[0-9]{6}" maxLength={6}
+        <label>{t("auth.totp_code")}<input name="totpCode" type="text" inputMode="numeric" pattern="[0-9]{6}" minLength={6} maxLength={6}
+          autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="go" aria-describedby={codeHintId}
           required={enrollment !== null} autoComplete="one-time-code" value={code} onChange={(event) => setCode(event.target.value)} /></label>
+        <p className="auth-help" id={codeHintId}>{t("auth.totp_help")}</p>
         <button className="auth-primary" type="submit">{loading ? t("auth.checking") : enrollment ? t("auth.confirm_code") : t("auth.sign_in")}</button>
         {enrollment ? <button className="auth-secondary" type="button" onClick={() => { setStep(1); setError(null); }}>{t("auth.back_to_setup")}</button> : null}
       </>}

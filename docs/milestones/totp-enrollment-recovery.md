@@ -58,6 +58,34 @@ second-ADMIN recommendation. This report is new. The historical TOTP flag is nec
 keep a formerly TOTP-enabled optional user's security floor after clearing its current secret.
 Lockout timers are retained. Session revocation remains a separately confirmed choice.
 
+## Login UX follow-up before merge
+
+- Password starts masked. A native non-submit show/hide button switches the same input
+  without changing its value. Touch/pointer activation preserves typing focus and selection;
+  Enter/Space activation retains button focus. Its accessible action label changes with
+  the action ([WAI button pattern](https://www.w3.org/WAI/ARIA/apg/patterns/button/)).
+- Email/password disable capitalization, correction and spellcheck, including a revealed
+  password. Password-manager/autofill hints remain enabled. OTP stays a six-digit text
+  input with numeric keyboard and one-time-code autofill, preserving leading zeroes
+  ([MDN inputmode](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Global_attributes/inputmode),
+  [password autocomplete](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/input/password)).
+  Fields use at least 16 px text and the toggle has a 48 px touch target.
+- Credential failures give the same Georgian response for unknown/inactive users, bad
+  passwords/codes and lockout: check email/password/current code, with the general 15-minute
+  lockout policy. The UI adds current-code/automatic-clock guidance. Network and internal
+  failures have separate safe messages; no raw internal error or account state is exposed.
+- Eight focused tests pass (six added in this follow-up). Full suite twice on fresh
+  `khidi_totp_ux_full_test` then re-run: **266 pass, one optional S3 test skipped** per run;
+  typecheck, lint/boundaries and production build pass. No new migration/dependency or
+  authentication-policy change in this follow-up.
+- A real production-build Chromium check uses an empty, separate `khidi_totp_ux_ui_test`
+  database and synthetic credentials: touch show/hide retains focus/caret, Enter/Space works
+  without submitting, and the actual request preserves password case/whitespace and OTP
+  leading zeroes. Layout checks pass at 320/390 px and desktop width; input text measures
+  16/19.2 px, the toggle 48 px tall, with no horizontal overflow or console errors.
+  Browser touch emulation does not certify a physical Android/iPhone keyboard or password
+  manager; those owner checks remain as above. No accounts/seeds were created in that UI DB.
+
 ## Changed files
 
 ```text
@@ -65,7 +93,9 @@ apps/hub/src/app/api/auth/office-login/office-login.test.ts
 apps/hub/src/app/api/auth/office-login/route.ts
 apps/hub/src/components/login-forms.tsx
 apps/hub/src/components/office-login-form.css
+apps/hub/src/components/office-login-form.test.tsx
 apps/hub/src/components/office-login-form.tsx
+apps/hub/src/components/office-password-field.tsx
 apps/hub/src/components/totp-enrollment.test.tsx
 apps/hub/src/components/totp-enrollment.tsx
 docs/adr/ADR-003-custom-database-session-and-device-auth.md
