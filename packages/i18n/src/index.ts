@@ -126,6 +126,16 @@ export function formatStaffName(fullName: string): string {
 }
 
 const SCANNING_LABELS = {
+  "camera.close": "კამერის დახურვა",
+  "camera.return_scanner": "სკანერზე დაბრუნება",
+  "camera.return_photos": "გადაღებაზე დაბრუნება",
+  "camera.no_barcode_help": "პროდუქტს შტრიხკოდი არ აქვს. მიღების შემდეგ ეტიკეტი დაიბეჭდება.",
+  "camera.native_guide": "მთელი ობიექტი ჩარჩოში მოაქციეთ. შემდეგ გახსენით კამერა.",
+  "camera.quality_passed": "✓ ხარისხი შემოწმებულია. შეინახეთ ან გადაიღეთ ხელახლა.",
+  "camera.accept_photo": "ფოტოს მიღება",
+  "camera.slot_progress": "სავალდებულო ფოტოები: {done} / {total}",
+  "camera.start_photos": "გადაღების დაწყება",
+  "camera.resume_photos": "ფოტოების გაგრძელება",
   "auth.totp_code": "ერთჯერადი კოდი (6 ციფრი)",
   "auth.enroll_title": "ჩართეთ ორფაქტორიანი დაცვა",
   "auth.enroll_help": "დაამატეთ ეს გასაღები ავტორიზატორის აპში. გასაღები სხვას არ გაუზიაროთ.",
