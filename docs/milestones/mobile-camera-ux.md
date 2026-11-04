@@ -1,5 +1,10 @@
 # Mobile camera UX — pre-M5 task 1
 
+**Revision:** the owner's Android feedback on 2026-11-04 supersedes the photo stream,
+preview/accept and related device-checklist items below. See
+[the native photo workflow revision](native-photo-workflow.md) for the current behavior.
+The full-screen barcode scanner, shell and lifecycle guarantees below remain in force.
+
 Branch: `fix/mobile-camera-ux`, based on `main` at
 `436f111b59f9786a190a9fac9c65503575547747`, after M4 PR #3 was merged.
 No migrations, dependencies, authentication, seed data or business rules changed.
