@@ -19,6 +19,8 @@ export function WarehouseScanner({ task }: { task?: ScannerTask }) {
   const camera = useRef<ScannerCamera | null>(null), writing = useRef(false);
   const [flow, dispatch] = useReducer(cameraFlow, INITIAL_CAMERA_FLOW), capture = flow.photo;
   const [manualValue, setManualValue] = useState(""), [toast, setToast] = useState(false);
+  const [attentionNotice, setAttentionNotice] = useState(false);
+  useEffect(() => { if (!attentionNotice) return; const timer = setTimeout(() => setAttentionNotice(false), 3000); return () => clearTimeout(timer); }, [attentionNotice]);
   const feedbacks = useRef(new Map<string, string>());
   function feedback(key: string, result: "accepted" | "duplicate" | "review") {
     if (feedbacks.current.get(key) === result) return;
@@ -54,7 +56,7 @@ export function WarehouseScanner({ task }: { task?: ScannerTask }) {
       const key = await queue.enqueue({ sourceMode: task ? "TASK" : "QUICK_SCAN", taskId: task?.id ?? null, scannedValue, isNoBarcode: noBarcode });
       setAccepted(key); setManualValue(""); feedback(key, duplicate ? "duplicate" : "accepted"); dispatch({ type: "stored" });
       setDuplicate(duplicate ? duplicate.intakeId ? { intakeId: duplicate.intakeId } : { intakeIdempotencyKey: duplicate.intakeIdempotencyKey! } : null);
-      if (task?.photosRequired && !duplicate) { camera.current?.stop(); dispatch({ type: "photos", photo: { target: { intakeIdempotencyKey: key }, onlyMissing: false } }); }
+      if (task?.photosRequired && !duplicate) { camera.current?.stop(); dispatch({ type: "photos", photo: { target: { intakeIdempotencyKey: key }, onlyMissing: false, scanNotice: !noBarcode } }); }
       return true;
     } catch { setError(t("scanning.storage_error")); return false; }
     finally { writing.current = false; setBusy(false); }
@@ -113,8 +115,9 @@ export function WarehouseScanner({ task }: { task?: ScannerTask }) {
     if (delivery.result.reviewReason) feedback(delivery.key, "review");
     else if (delivery.result.duplicateOfIntakeId) feedback(delivery.key, "duplicate");
   }, [deliveryKey]);
-  function finishCapture() {
+  function finishCapture(notice?: "attention") {
     dispatch({ type: "photos-complete" });
+    setAttentionNotice(notice === "attention");
   }
   const completeOriginal = () => { if (duplicate) { camera.current?.stop(); dispatch({ type: "photos", photo: { target: duplicate, onlyMissing: true } }); } };
   const manualForm = <form onSubmit={onSubmit}>
@@ -139,9 +142,10 @@ export function WarehouseScanner({ task }: { task?: ScannerTask }) {
             {!cameraState.starting ? <button type="button" disabled={!ready || !!flow.sheet} onClick={() => { if (video.current) void camera.current?.start(video.current); }}>{t("scanner.retry_camera")}</button> : null}
           </div>}
         </div>
+        <div className="scanner-instructions"><strong>{t("camera.scanner_place")}</strong><p>{t("camera.scanner_auto")}</p></div>
         {cameraState.torchAvailable ? <div className="camera-toolbar"><button type="button" aria-pressed={cameraState.torchOn} aria-label={t(cameraState.torchOn ? "scanner.torch_off" : "scanner.torch_on")} onClick={() => { void camera.current?.toggleTorch(); }}>☀</button></div> : null}
         <footer className="camera-footer">
-          <p className="camera-status" role="status" aria-live="polite">{toast ? t(review ? "scanning.review_recorded" : duplicate ? "media.already_scanned" : "warehouse.scan_accepted") : ""}</p>
+          <p className="camera-status" role="status" aria-live="polite">{attentionNotice ? t("camera.attention_saved") : toast ? t(review ? "scanning.review_recorded" : duplicate ? "media.already_scanned" : "warehouse.scan_accepted") : ""}</p>
           {duplicate ? <div className="camera-status"><p>{t(!duplicateStatus ? "media.photos_status_unknown" : duplicateStatus.missingSlots.length ? "media.required_photos_missing" : "media.photos_complete")}</p>{!duplicateStatus || duplicateStatus.missingSlots.length && duplicateStatus.canCompletePhotos ? <button type="button" onClick={completeOriginal}>{t("media.complete_photos")}</button> : null}</div> : null}
           {error ? <p role="alert">{error}</p> : null}
           <div className="camera-actions"><button type="button" onClick={() => dispatch({ type: "sheet", sheet: "manual" })}>{t("scanner.manual")}</button><button type="button" onClick={() => dispatch({ type: "sheet", sheet: "no-barcode" })}>{t("scanning.no_barcode")}</button></div>

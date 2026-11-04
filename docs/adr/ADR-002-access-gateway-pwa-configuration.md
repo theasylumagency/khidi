@@ -22,7 +22,12 @@ Per §4.3 and §16.3, **Khidi** runs on a neutral domain behind an access gatewa
    `/manifest.webmanifest` uses neutral `Khidi` branding and separate `"purpose": "any"` (`icon-192.png`, `icon-512.png`) and `"purpose": "maskable"` (`icon-maskable-512.png`) entries.
 2. **Static-Only Service Worker Caching & Logout Purge (`/sw.js`):**
    - `/sw.js` **never** caches `/`, HTML documents (`Accept: text/html`), navigation requests (`request.mode === "navigate"`), or `/api/*` endpoints.
-   - Only static assets (`/manifest.webmanifest`, `/icons/*`, `/_next/static/*`) are cached.
+   - Only PWA bootstrap assets (`/manifest.webmanifest`, `/icons/*`) are cached by the service worker.
+     Next runtime JS/CSS (`/_next/*`) follows Next's HTTP caching policy. Development chunk URLs
+     can keep the same name after code changes; CacheStorage ignores their HTTP freshness headers.
+     Caching them caused fresh SSR to hydrate with an old i18n module (confirmed 2026-11-04).
+     Cache generation `khidi-static-v3` removes legacy runtime entries on activation; registration
+     uses `updateViaCache: "none"`. See `docs/ops/mobile-pwa-update.md` for safe recovery.
    - On logout or warehouse PIN switch, the client posts `{ type: "CLEAR_AUTH_CACHES" }` to `/sw.js` and clears browser caches.
 3. **Gateway Bypass / Service Token Rules for Non-Sensitive PWA Bootstrap Assets Only:**
    In the Access Gateway configuration, exempt **only** static bootstrap assets (`/manifest.webmanifest`, `/sw.js`, `/icons/*`) from interactive `302` redirects.

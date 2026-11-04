@@ -3,7 +3,7 @@
 // Shared warehouse phones switch users via PIN; only static assets may be cached,
 // and CLEAR_AUTH_CACHES purges caches on logout or user switch.
 
-const CACHE_NAME = "khidi-static-v2";
+const CACHE_NAME = "khidi-static-v3";
 const STATIC_PRECACHE_URLS = [
   "/manifest.webmanifest",
   "/icons/apple-touch-icon.png",
@@ -15,10 +15,12 @@ const STATIC_PRECACHE_URLS = [
 ];
 
 function isCacheableStaticAsset(url) {
+  // Next owns JS/CSS freshness. Development chunk URLs are mutable across updates
+  // and restarts; CacheStorage ignores their no-cache headers and can mix old
+  // client modules with fresh SSR HTML. Cache only the PWA bootstrap assets here.
   return (
     url.pathname === "/manifest.webmanifest" ||
-    url.pathname.startsWith("/icons/") ||
-    url.pathname.startsWith("/_next/static/")
+    url.pathname.startsWith("/icons/")
   );
 }
 

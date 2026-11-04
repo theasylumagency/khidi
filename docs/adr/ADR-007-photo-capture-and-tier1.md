@@ -3,6 +3,9 @@
 Status: Accepted (M4 implementation choice authorized by AGENTS.md P4)
 Date: 2026-11-02
 
+The capture UI described below was revised by the owner's 2026-11-04 decision at the
+end of this ADR. That decision supersedes the optional photo stream and explicit acceptance UI.
+
 Use native rear-camera JPEG capture as the primary path (`input[type=file]` with
 `accept=image/jpeg` and `capture=environment`). It provides a full-resolution camera
 file on Android and installed iPhone PWAs without relying on Safari's ImageCapture API.
@@ -72,3 +75,28 @@ even if all slots have been uploaded. The admin can inspect both reports, review
 or issue PHOTO_REQUEST. Admin verification/rejection resolves that image's quality-attention
 flag; neither raw data nor another candidate is replaced automatically. This rule supersedes
 the initial server-side Tier-1 rejection behavior.
+
+## Owner UX revision — native camera and automatic durable acceptance (2026-11-04)
+
+Barcode scanning retains its live stream and existing decoder. Photo capture offers only
+the native rear-camera JPEG chooser and the JPEG/PNG/WebP gallery chooser, in one compact
+workspace. Instructions and ordering come from the existing configured slots. There is no
+photo stream/shutter or second application confirmation after the OS camera accepts a file.
+
+A returned file immediately runs the existing device Tier-1 checks, then enters the existing
+per-user IndexedDB queue unchanged. The step/count advances only after that transaction
+commits, independently of network availability. Cancellation changes nothing. Failed storage
+retains the checked file and its original captured time for retry; failed quality stays on
+the same slot. Required slots still require a photo or the existing explicit attention report.
+
+Saved-slot thumbnails allow retakes. Each ordinary retake adds a new immutable candidate
+to the same original intake; it does not discard, replace or overwrite an earlier candidate.
+The displayed count is distinct saved slots out of configured slots, including optional slots;
+only the required slots gate finishing. Optional slots are labelled and may be skipped.
+
+Local-save feedback and queued/blocked status are distinct from a server receipt. A new
+candidate is shown as received by the server only after the existing upload response validates
+its id and SHA-256. These in-memory UI receipts are bounded and reset per user; the durable
+queue protocol, dependencies, ownership, replay and backoff remain unchanged. On reopening,
+server capture context confirms uploaded slots; queued retakes retain their own pending status
+even when an older photo already filled that slot. No thumbnail download API is added.
