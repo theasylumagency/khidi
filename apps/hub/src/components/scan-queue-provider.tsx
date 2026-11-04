@@ -14,8 +14,8 @@ type ScanDraft = Pick<IntakeInput, "sourceMode" | "taskId" | "scannedValue" | "i
 interface QueueContextValue {
   ready: boolean; enqueue: (draft: ScanDraft) => Promise<string>;
   lastDelivery: { key: string; result: QueueTransportResult } | null;
-  photos: QueuedPhoto[]; photoVersion: number; usage: StorageUsage | null;
-  enqueuePhoto: (target: Partial<PhotoTarget>, photo: { blob: Blob; slot: PhotoSlot; capturedAt: string; quality: QualityReport }) => Promise<void>;
+  photos: QueuedPhoto[]; photoVersion: number; usage: StorageUsage | null; photoReceipts: ReadonlySet<string>;
+  enqueuePhoto: (target: Partial<PhotoTarget>, photo: { blob: Blob; slot: PhotoSlot; capturedAt: string; quality: QualityReport }) => Promise<string>;
   enqueueAttention: (target: Partial<PhotoTarget>, reason: string, slots: PhotoSlot[]) => Promise<void>;
   duplicate: (taskId: string, value: string) => Promise<CachedTaskIdentifier | null>;
   cacheTask: (taskId: string) => Promise<void>;
@@ -35,12 +35,14 @@ export function ScanQueueProvider({ user, children }: {
   const photoQueue = useRef<OfflinePhotoQueue | null>(null);
   const [photos, setPhotos] = useState<QueuedPhoto[]>([]), [photoVersion, setPhotoVersion] = useState(0), [usage, setUsage] = useState<StorageUsage | null>(null);
   const [photoReports, setPhotoReports] = useState<QueuedPhotoReport[]>([]);
+  const [photoReceipts, setPhotoReceipts] = useState<ReadonlySet<string>>(new Set());
   const [ready, setReady] = useState(false), [storageError, setStorageError] = useState(false);
   const [sessionChanged, setSessionChanged] = useState(false), [pending, setPending] = useState<PendingUser[]>([]);
   const [blocked, setBlocked] = useState<QueuedScan[]>([]), [discardReports, setDiscardReports] = useState(0);
   const [lastDelivery, setLastDelivery] = useState<QueueContextValue["lastDelivery"]>(null);
   const userId = user?.userId, fullName = user?.fullName, deviceId = user?.deviceId;
   useEffect(() => {
+    setPhotoReceipts(new Set());
     if (!userId) return;
     let active = true;
     let store: ScanQueueStore | null = null;
@@ -73,7 +75,10 @@ export function ScanQueueProvider({ user, children }: {
           const form = new FormData(); form.set("metadata", JSON.stringify(photo.input)); form.set("file", photo.blob, "capture");
           const response = await fetch("/api/media/uploads", { method: "POST", credentials: "same-origin", redirect: "error", headers: { "Idempotency-Key": photo.idempotencyKey }, body: form });
           const body = await response.json();
-          return { accepted: response.ok && body.id === photo.idempotencyKey && body.rawSha256 === photo.sha256, status: response.status, code: body.mediaReason ?? body.code };
+          const accepted = response.ok && body.id === photo.idempotencyKey && body.rawSha256 === photo.sha256;
+          // UI receipts only; queue removal/replay and delivery validation are unchanged.
+          if (accepted && active && photo.userId === userId) setPhotoReceipts((previous) => new Set([...previous, photo.idempotencyKey].slice(-500)));
+          return { accepted, status: response.status, code: body.mediaReason ?? body.code };
         },
         report: async (report) => {
           const response = await fetch(report.kind === "discard" ? "/api/media/discards" : "/api/media/attention", { method: "POST", credentials: "same-origin", redirect: "error", headers: { "Content-Type": "application/json" }, body: JSON.stringify(report.input) });
@@ -136,7 +141,12 @@ export function ScanQueueProvider({ user, children }: {
   async function enqueuePhoto(target: Partial<PhotoTarget>, photo: { blob: Blob; slot: PhotoSlot; capturedAt: string; quality: QualityReport }) {
     const identity = await photoIdentity(), controller = photoQueue.current!;
     await controller.store.add({ skuId: null, intakeId: null, intakeIdempotencyKey: null, photoRequestTaskId: null, ...target, ...identity, slot: photo.slot, capturedAt: photo.capturedAt, deviceQuality: photo.quality }, photo.blob, fullName!, navigator.storage);
-    setPhotos(await controller.store.list()); setUsage(await storageUsage(navigator.storage)); setPhotoVersion((v) => v + 1); void controller.flush();
+    // The add transaction has committed. A failed quota/UI refresh must not turn a
+    // saved photo into a failed capture and invite a second enqueue of those bytes.
+    try { setPhotos(await controller.store.list()); setUsage(await storageUsage(navigator.storage)); }
+    catch { setStorageError(true); }
+    setPhotoVersion((v) => v + 1); void controller.flush();
+    return identity.idempotencyKey;
   }
   async function enqueueAttention(target: Partial<PhotoTarget>, reason: string, slots: PhotoSlot[]) {
     const identity = await photoIdentity(), controller = photoQueue.current!;
@@ -156,7 +166,7 @@ export function ScanQueueProvider({ user, children }: {
     await controller.store.cacheIdentifiers(userId, taskId, entries);
   }
   const own = pending.find((row) => row.userId === userId);
-  return <QueueContext.Provider value={{ ready: ready && !sessionChanged, enqueue, lastDelivery, photos: photos.filter((photo) => photo.userId === userId), photoVersion, usage, enqueuePhoto, enqueueAttention, cacheTask,
+  return <QueueContext.Provider value={{ ready: ready && !sessionChanged, enqueue, lastDelivery, photos: photos.filter((photo) => photo.userId === userId), photoVersion, usage, photoReceipts, enqueuePhoto, enqueueAttention, cacheTask,
     duplicate: async (taskId, value) => photoQueue.current && userId ? photoQueue.current.store.duplicate(userId, taskId, value) : null,
     checkStorage: async () => setUsage(await storageUsage(navigator.storage, 0, true)) }}>
     {user ? <aside aria-live="polite" className="scan-queue-status">

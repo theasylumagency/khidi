@@ -7,7 +7,7 @@ import { t } from "@khidi/i18n";
 import { useScanQueue } from "./scan-queue-provider.tsx";
 import { GuidedPhotoCapture } from "./guided-photo-capture.tsx";
 export interface CaptureContext { target: PhotoTarget; slots: CaptureSlot[]; acceptedSlots: PhotoSlot[]; missingSlots: PhotoSlot[]; isDuplicate: boolean; canCompletePhotos: boolean; qualityConfig: QualityConfig }
-export function PhotoWorkspace({ target, initialContext, onlyMissing = false, onComplete, onDuplicate }: { target: Partial<PhotoTarget>; initialContext?: CaptureContext; onlyMissing?: boolean; onComplete: () => void; onDuplicate?: (context: CaptureContext) => void }) {
+export function PhotoWorkspace({ target, initialContext, onlyMissing = false, scanNotice = false, onComplete, onDuplicate }: { target: Partial<PhotoTarget>; initialContext?: CaptureContext; onlyMissing?: boolean; scanNotice?: boolean; onComplete: (notice?: "attention") => void; onDuplicate?: (context: CaptureContext) => void }) {
   const queue = useScanQueue(), [context, setContext] = useState<CaptureContext | null>(initialContext ?? null), [local, setLocal] = useState<PhotoSlot[]>([]);
   const taken = useRef(false), nativePending = useRef(false), duplicate = useRef<CaptureContext | null>(null);
   const onDuplicateRef = useRef(onDuplicate); onDuplicateRef.current = onDuplicate;
@@ -30,16 +30,19 @@ export function PhotoWorkspace({ target, initialContext, onlyMissing = false, on
   useEffect(() => { void queue.checkStorage(); }, []);
   const fullTarget: PhotoTarget = { skuId: null, intakeId: null, intakeIdempotencyKey: null, photoRequestTaskId: null, ...target };
   const originalIntakeId = fullTarget.intakeId ?? context?.target.intakeId;
-  const pending = queue.photos.filter((photo) => sameTarget(photo.input, fullTarget) || !!originalIntakeId && photo.deliveredIntakeId === originalIntakeId).map((photo) => photo.input.slot);
+  const queued = queue.photos.filter((photo) => sameTarget(photo.input, fullTarget) || !!originalIntakeId && photo.deliveredIntakeId === originalIntakeId);
+  const pending = queued.map((photo) => photo.input.slot);
   const accepted = [...new Set([...(context?.acceptedSlots ?? []), ...pending, ...local])];
   const fallbackSlots = target.skuId ? GENERIC_CAPTURE_SLOTS.map((slot) => ({ ...slot, required: false })) : GENERIC_CAPTURE_SLOTS;
   const slots = (context?.slots ?? fallbackSlots).filter((slot) => !onlyMissing || (context ? context.missingSlots.includes(slot.slot) || local.includes(slot.slot) : !pending.includes(slot.slot)));
   return <div className="photo-workspace">{duplicate.current ? <p role="status">{t("media.already_scanned")}</p> : null}
     {queue.usage?.blocked ? <p role="alert">{t("media.quota_blocked")}</p> : null}
-    {onlyMissing && (context ? !context.missingSlots.length && !local.length : !slots.length) ? <div className="photo-complete"><p>{t("media.photos_complete")}</p><button onClick={onComplete}>{t("media.finish_capture")}</button></div> :
-    <GuidedPhotoCapture slots={slots} acceptedSlots={accepted} qualityConfig={context?.qualityConfig ?? DEFAULT_QUALITY_CONFIG} disabled={queue.usage?.blocked || !queue.ready || context?.canCompletePhotos === false}
+    {onlyMissing && (context ? !context.missingSlots.length && !local.length : !slots.length) ? <div className="photo-complete"><p>{t("media.photos_complete")}</p><button onClick={() => onComplete()}>{t("media.finish_capture")}</button></div> :
+    <GuidedPhotoCapture slots={slots} acceptedSlots={accepted} syncedSlots={context?.acceptedSlots} scanNotice={scanNotice} photoReceipts={queue.photoReceipts}
+      queuedPhotos={queued.map((photo) => ({ key: photo.idempotencyKey, blob: photo.blob, slot: photo.input.slot, blocked: photo.blocked }))}
+      qualityConfig={context?.qualityConfig ?? DEFAULT_QUALITY_CONFIG} disabled={queue.usage?.blocked || !queue.ready || context?.canCompletePhotos === false}
       onPhotoTaken={() => { taken.current = true; }} onNativePending={(value) => { nativePending.current = value; if (!value && duplicate.current && !taken.current) onDuplicateRef.current?.(duplicate.current); }}
-      onAccept={async (photo) => { await queue.enqueuePhoto(target, photo); setLocal((slots) => [...new Set([...slots, photo.slot])]); }}
+      onAccept={async (photo) => { const key = await queue.enqueuePhoto(target, photo); setLocal((slots) => [...new Set([...slots, photo.slot])]); return key; }}
       onCannotPhotograph={(reason, slots) => queue.enqueueAttention(target, reason, slots)} onComplete={onComplete} />}
   </div>;
 }

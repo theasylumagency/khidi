@@ -1,7 +1,7 @@
 import type { PhotoTarget } from "@khidi/media/contracts";
 export interface CameraFlow {
   open: boolean; sheet: "manual" | "no-barcode" | null;
-  photo: { target: Partial<PhotoTarget>; onlyMissing: boolean } | null;
+  photo: { target: Partial<PhotoTarget>; onlyMissing: boolean; scanNotice?: boolean } | null;
 }
 export const INITIAL_CAMERA_FLOW: CameraFlow = { open: false, sheet: null, photo: null };
 export type CameraFlowAction = { type: "open" | "close" | "stored" | "photos-complete" }
