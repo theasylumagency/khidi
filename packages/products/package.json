@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./identifiers": "./src/identifiers.ts"
+    "./identifiers": "./src/identifiers.ts",
+    "./labels": "./src/labels.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

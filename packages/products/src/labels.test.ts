@@ -3,8 +3,10 @@ import { BinaryBitmap, HybridBinarizer, QRCodeReader, RGBLuminanceSource } from 
 import { buildThermalLabelBatchHtml, buildThermalLabelSpec, renderInternalQrSvg } from "./labels.ts";
 
 describe("M3 S3 printable labels", () => {
-  it("decodes the actual generated SVG modules back to the internal label payload", () => {
-    const payload = "khidi://sku/KH-000123";
+  it.each([
+    { kind: "internal label", payload: "khidi://sku/KH-000123" },
+    { kind: "TOTP enrollment", payload: "otpauth://totp/Khidi:fixture%40khidi.example?issuer=Khidi&secret=JBSWY3DPEHPK3PXP&algorithm=SHA1&digits=6&period=30" }
+  ])("decodes the actual $kind SVG back to the exact payload", ({ payload }) => {
     const svg = renderInternalQrSvg(payload);
     const modules = Number(svg.match(/viewBox="0 0 (\d+)/)![1]);
     const scale = 6;
