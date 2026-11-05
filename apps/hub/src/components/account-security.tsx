@@ -7,16 +7,19 @@ import { StrongReauthentication } from "./strong-reauthentication.tsx";
 import { type TotpEnrollment } from "./totp-enrollment.tsx";
 import { securityRequest } from "../lib/passkey-client.ts";
 import { SecurityActionError } from "../lib/passkey-errors.ts";
-import { SESSION_ENROLLMENT_EVENT } from "../lib/session-client.ts";
+import { leaveSession, SESSION_ENROLLMENT_EVENT } from "../lib/session-client.ts";
 import { PasskeyRegistration } from "./passkey-registration.tsx";
 import "./office-login-form.css";
 import "./account-security.css";
 
-interface Key { id: string; displayName: string; createdAt: string; lastUsedAt: string | null }
+interface Key { id: string; displayName: string; registrationPlatform: string | null; createdAt: string; lastUsedAt: string | null }
 interface State { keys: Key[]; sharedDevice: boolean; totpEnabled: boolean; canStartTotp: boolean }
-const date = (value: string | null) => value ? new Intl.DateTimeFormat("ka-GE", { timeZone: "Asia/Tbilisi", dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : "—";
+const dateFormatter = new Intl.DateTimeFormat(["ka-GE", "en-GB"], {
+  timeZone: "Asia/Tbilisi", dateStyle: "short", timeStyle: "short", hourCycle: "h23"
+});
+const date = (value: string | null) => value ? dateFormatter.format(new Date(value)) : "—";
 
-export function AccountSecurity({ email }: { email: string }) {
+export function AccountSecurity({ email, sessionId, offer }: { email: string; sessionId: string; offer: boolean }) {
   const [state, setState] = useState<State | null>(null), [busy, setBusy] = useState<string | null>(null), [registering, setRegistering] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [notice, setNotice] = useState<{ place: string; message: string; reauth?: boolean } | null>(null);
@@ -45,6 +48,11 @@ export function AccountSecurity({ email }: { email: string }) {
   const disabled = !!busy || registering;
   if (enrollment) return <OfficeLoginForm initialEnrollment={enrollment} beforeLogin={async () => {}}
     passkeysAllowed={!state?.sharedDevice} onAuthenticated={() => window.location.replace("/account/security")} />;
+  if (offer && !state && !loadError) return <div className="auth-entry"><p role="status">{t("auth.checking")}</p></div>;
+  if (offer && state && !state.sharedDevice && !state.canStartTotp && state.keys.length === 0) {
+    return <div className="auth-entry"><PasskeyRegistration offered needsTotp={false} locked={false}
+      onBusyChange={setRegistering} onRegistered={() => window.location.replace("/")} /></div>;
+  }
   return <div className="account-security">
     <h1>{t("passkey.security_title")}</h1>
     {loadError ? <p role="status" className="security-notice">{t("passkey.operation_failed")}</p> : null}
@@ -55,21 +63,19 @@ export function AccountSecurity({ email }: { email: string }) {
         <h2>{t("passkey.keys_title")}</h2><p>{t("passkey.sync_help")}</p>
         {state.sharedDevice ? <p>{t("passkey.shared_unavailable")}</p> : <>
           {!state.keys.length ? <p>{t("passkey.no_keys")}</p> : <div className="security-key-list">{state.keys.map((key) => <div className="security-key" key={key.id}>
-            <label>{t("passkey.name")}<input maxLength={100} value={key.displayName} onChange={(event) => setState((current) => current ? { ...current, keys: current.keys.map((item) => item.id === key.id ? { ...item, displayName: event.target.value } : item) } : current)} /></label>
+            <h3>{key.registrationPlatform === "OTHER" ? t("passkey.device_generic") : key.displayName}</h3>
+            {key.registrationPlatform === null ? <p>{t("passkey.device_unknown")}</p> : null}
             <p>{t("passkey.created")}: {date(key.createdAt)} · {t("passkey.last_used")}: {date(key.lastUsedAt)}</p>
             <div className="security-actions">
-              <button className="auth-secondary" type="button" disabled={disabled} onClick={() => void perform(key.id, async () => {
-                await securityRequest("rename", { id: key.id, displayName: key.displayName }); await refresh(); setNotice({ place: key.id, message: t("passkey.renamed") });
-              })}>{t("passkey.rename")}</button>
               <button className="auth-secondary" type="button" disabled={disabled} onClick={() => setConfirmKey(key.id)}>{t("passkey.revoke")}</button>
             </div>
             {confirmKey === key.id ? <div role="group" aria-label={t("passkey.revoke")}><p>{t("passkey.revoke_warning")}</p>
               <button type="button" disabled={disabled} onClick={() => void perform(key.id, async () => {
                 const result = await securityRequest("revoke", { id: key.id });
-                if (result.currentSessionRevoked) { window.location.replace("/login"); return; }
+                if (result.currentSessionRevoked) { await leaveSession(sessionId, false); return; }
                 await refresh(); setConfirmKey(null); setNotice({ place: "keys", message: t("passkey.revoked") });
               })}>{t("passkey.confirm_revoke")}</button>
-              <button type="button" onClick={() => setConfirmKey(null)}>{t("auth.cancel")}</button></div> : null}
+              <button type="button" onClick={() => setConfirmKey(null)}>{t("passkey.keep")}</button></div> : null}
             {feedback(key.id)}
           </div>)}</div>}
           {feedback("keys")}

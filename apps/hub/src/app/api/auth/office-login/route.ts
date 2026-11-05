@@ -5,6 +5,7 @@ import { AppError } from "@khidi/shared";
 import { renderInternalQrSvg } from "@khidi/products/labels";
 import { t } from "@khidi/i18n";
 import { KHIDI_SESSION_COOKIE, isSharedWarehouseBrowser } from "../../../../lib/session.ts";
+import { QUICK_SIGN_IN_COOKIE, quickSignInCookieOptions, readQuickSignInPreference, signQuickSignInPreference } from "../../../../lib/quick-sign-in-cookie.ts";
 
 const json: typeof NextResponse.json = (body, init) => NextResponse.json(body, {
   ...init, headers: { ...init?.headers, "Cache-Control": "no-store" }
@@ -39,9 +40,15 @@ export async function POST(request: NextRequest) {
       userAgent: request.headers.get("user-agent") ?? undefined
     });
 
+    const shared = await isSharedWarehouseBrowser();
+    const preference = readQuickSignInPreference(request.cookies.get(QUICK_SIGN_IN_COOKIE)?.value);
+    const keys = !shared && (principal.lastStrongAuthAt || preference && preference.mode !== "offered")
+      ? await listOwnPasskeys(db, principal) : [];
+    const offered = preference?.mode === "offered" && preference.id === principal.userId;
+    const offerPasskey = Boolean(principal.lastStrongAuthAt) && !shared && !keys.length && !offered;
     const response = json({
       ok: true,
-      offerPasskey: Boolean(principal.lastStrongAuthAt) && !await isSharedWarehouseBrowser() && !(await listOwnPasskeys(db, principal)).length,
+      offerPasskey,
       principal: {
         userId: principal.userId,
         fullName: principal.fullName,
@@ -57,6 +64,11 @@ export async function POST(request: NextRequest) {
       path: "/",
       maxAge: 12 * 60 * 60
     });
+    if (offerPasskey) {
+      response.cookies.set(QUICK_SIGN_IN_COOKIE, signQuickSignInPreference("offered", principal.userId), quickSignInCookieOptions);
+    } else if (preference && (shared || (!offered && !keys.some((key) => key.id === preference.id)))) {
+      response.cookies.set(QUICK_SIGN_IN_COOKIE, "", { ...quickSignInCookieOptions, maxAge: 0 });
+    }
 
     return response;
   } catch (err) {

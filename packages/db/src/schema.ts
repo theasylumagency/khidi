@@ -160,6 +160,7 @@ export const userPasskeys = pgTable("user_passkeys", {
   backupEligible: boolean("backup_eligible").notNull(),
   backedUp: boolean("backed_up").notNull(),
   displayName: text("display_name").notNull(),
+  registrationPlatform: text("registration_platform"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
   revokedAt: timestamp("revoked_at", { withTimezone: true })

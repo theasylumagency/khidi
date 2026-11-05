@@ -8,13 +8,24 @@ Khidi never receives fingerprint, face or device-PIN data. See [ADR-008](../adr/
 
 ## User paths
 
-- After a strong password/TOTP login, a supported platform with no registered passkey offers
-  **ამ მოწყობილობაზე სწრაფი შესვლის ჩართვა**. The account screen lets the user add several
-  named passkeys, see creation/last-use times, rename and revoke their own credentials.
-- **Passkey-ით შესვლა** uses discoverable credentials; no email lookup is exposed publicly.
+- The signed-out welcome page offers **შესვლა** for password/TOTP. A personal browser that
+  has registered or used an active passkey puts **სწრაფი შესვლა** first. A registered warehouse
+  browser puts **პირადი PIN-ით შესვლა** first.
+- After strong password/TOTP sign-in, an eligible personal browser offers **ჩართეთ სწრაფი
+  შესვლა** once for the remembered account when it has no active passkeys. **მოგვიანებით**
+  continues to the Hub. Setup remains available in **ანგარიშის უსაფრთხოება**. Verification
+  uses Face ID, fingerprint or device unlock code as offered by the operating system.
+- A new credential receives its name automatically from the coarse registration platform.
+  The security page shows the platform, creation date and last use. Older credentials retain
+  their labels, with registration platform shown as unknown. The platform is descriptive
+  metadata, never proof of hardware identity.
+- **სწრაფი შესვლა** uses discoverable credentials; no email lookup is exposed publicly.
   Cancel or failure leaves password/TOTP fallback available. Account existence, revocation
   and internal verifier errors share one anonymous failure message.
-- Registration, rename/revoke, password change, TOTP replacement and security/device management
+- A signed browser preference controls the welcome screen and expires after 180 days.
+  A first-name greeting requires an explicit opt-in during registration and a still-active
+  credential. The preference grants no access to the account.
+- Registration, revocation, password change, TOTP replacement and security/device management
   require recent strong proof, ten minutes by default. Complete the password plus TOTP or
   passkey prompt, then repeat the action. Proof refreshes only the current session and does
   not extend its expiry. Ordinary catalog/scanning work never refreshes proof or prompts.
@@ -22,8 +33,10 @@ Khidi never receives fingerprint, face or device-PIN data. See [ADR-008](../adr/
   current password, adds the authenticator and confirms its code. This ends old sessions;
   only confirmation creates a new one. Then they can register a passkey. An existing
   authenticator uses the protected replacement action with recent proof and a warning.
-- Revoking a passkey immediately ends sessions created with that credential, including the
-  current session when applicable. Other passkeys and password/TOTP remain available.
+- Revoke a credential from the security page on the same or another personal device.
+  This blocks all synced copies and immediately ends sessions created with that credential,
+  including the current session when applicable. Other passkeys and password/TOTP remain
+  available. A lost device's welcome page will drop the revoked credential's hint on reload.
 - A registered warehouse browser hides and rejects passkeys. Device/PIN sign-in stays as
   before. Do not enroll personal office passkeys on shared phones. Browser registration is
   a logical context; clearing browser data is not a claim of physical hardware trust.
@@ -114,16 +127,16 @@ The running `6997bbe` release already has migration `0013`. For this follow-up, 
    checkout run `NODE_ENV=production corepack pnpm ops:check-config` **before** switching
    the service. No additional environment values or queue deployment are needed for this
    change. Never run tests, seeds or bootstrap on the shared server.
-2. Apply forward-only `0014_session_inactivity.sql` using the normal
-   `NODE_ENV=production corepack pnpm db:migrate` step with `hub_migrator`. Existing sessions
-   begin one idle window at migration time, still capped by the original absolute deadline.
-   The migration touches session metadata only; passkeys and encryption keys are preserved.
+2. Apply pending migrations with `NODE_ENV=production corepack pnpm db:migrate` as
+   `hub_migrator`. `0014_session_inactivity.sql` starts one idle window for existing sessions,
+   capped by their original absolute deadlines. `0015_passkey_registration_platform.sql`
+   adds the optional registration platform and preserves existing credentials and names.
 3. Start the reviewed Hub using the gated start command and the existing `hub_app` account.
    Confirm health, then close and reopen the PWA or reload tabs to pick up the new client.
    Smoke-test both login modes before the demo. Cloudflare Access remains independent.
 
 For rollback, stop the new Hub and restart the saved `6997bbe` artifact with the same
-environment, **keeping `0014` applied**. The old binary ignores idle expiry, so before it
+environment, **keeping `0014` and `0015` applied**. The old binary ignores idle expiry, so before it
 accepts requests, have the authorized database operator expire the sessions that are already
 idle under the new policy. Verify the database target in the protected operator session and
 run the following while the Hub is stopped. It shortens only already idle sessions; it does
@@ -151,11 +164,12 @@ The owner confirmed native registration and sign-in on physical Android and iPho
 `6997bbe`, including restoring Android registration by enabling its provider. Repeat the
 checks below on the reviewed follow-up release:
 
-- Android installed PWA: explicit registration, fingerprint/device PIN verification, logout,
-  passkey sign-in, cancellation, fallback, rename and revoke; no password or OTP correction.
+- Android installed PWA: explicit registration without entering a name, fingerprint/device
+  PIN verification, logout, quick sign-in, cancellation and fallback. Confirm the list records
+  Android. Revoke from another device and check the revoked credential can no longer sign in.
 - iPhone installed PWA and Safari: Face ID/Touch ID/passcode, registration and discoverable
   sign-in after reopening, cancellation, reauthentication and password/TOTP fallback.
-- Desktop platform authenticator: same flow; multiple named keys, stale proof prompt,
+- Desktop platform authenticator: same flow; multiple automatically named keys, stale proof prompt,
   reauthenticate without extending expiry; revoke the current key and confirm sign-out.
 - Shared warehouse phone: registered-device/PIN flow, user switch and scanner work unchanged;
   no passkey creation or sign-in controls/API access while in shared browser/PIN context.
@@ -232,3 +246,14 @@ application logic, seed contents or real catalog data.
   on this build still require the physical-device checklist above. Browser simulation
   and synthetic signatures are not evidence of native OS behavior. The running deployment
   and its credentials were untouched.
+
+## Quick sign-in follow-up
+
+- Verified in local Chrome with a disposable account: welcome and password screens,
+  password plus TOTP, the post-login offer without a naming field, the optional first-name
+  checkbox, and the Android entry and revocation confirmation at a 375 px viewport. The
+  Android entry used a synthetic credential; repeat native checks on physical devices.
+- Automated tests cover automatic names, rejected consent-cookie tampering, expiry, account
+  switching and offer suppression, and credential revocation from a separate office session.
+  Revocation invalidates both sessions opened by that credential and leaves another user's
+  credential usable.

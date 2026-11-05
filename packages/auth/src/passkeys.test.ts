@@ -5,7 +5,7 @@ import { createUuidV7, sha256Hex } from "@khidi/shared";
 import { assertTestDatabaseSafety } from "../../db/src/test-database-safety.ts";
 import { hashSecret, generateTotpSecret, generateCurrentTotpToken } from "./credentials.ts";
 import { verifySessionToken, loginOfficeUser } from "./index.ts";
-import { beginPasskeyCeremony, finishPasskeyCeremony, listOwnPasskeys, manageOwnPasskey } from "./passkeys.ts";
+import { beginPasskeyCeremony, finishPasskeyCeremony, getQuickSignInAccount, listOwnPasskeys, manageOwnPasskey } from "./passkeys.ts";
 import { reauthenticateWithPasswordTotp, startOwnTotpEnrollment, changeOwnPassword } from "./account-security.ts";
 import { recoverUser } from "./recovery.ts";
 import { authenticator } from "./passkey-fixtures.test-helper.ts";
@@ -28,7 +28,7 @@ async function fixture(weak = false, warehouse = false) {
 async function registered(f: Awaited<ReturnType<typeof fixture>>, key = authenticator()) {
   const start = await beginPasskeyCeremony(f.db, "REGISTER", f.principal);
   const result = await finishPasskeyCeremony(f.db, { ceremony: "REGISTER", challengeId: start.challengeId, bindingToken: start.bindingToken,
-    principal: f.principal, response: key.registration(start.options.challenge), displayName: "Fixture passkey" });
+    principal: f.principal, response: key.registration(start.options.challenge), userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)" });
   return { key, keyId: result.passkeyId! };
 }
 async function signIn(f: Awaited<ReturnType<typeof fixture>>, key: ReturnType<typeof authenticator>, counter = 1) {
@@ -41,12 +41,15 @@ it("verifies real registration/assertion signatures, stores only credential esse
   const f = await fixture(), { key, keyId } = await registered(f);
   const result = await signIn(f, key);
   expect(result.sessionToken).toBeDefined();
+  expect(result.passkeyId).toBe(keyId);
   const principal = await verifySessionToken(f.db, result.sessionToken!);
   expect(principal).toMatchObject({ userId: f.id, authMethod: "OFFICE_PASSKEY" });
   expect(principal.lastStrongAuthAt).toBeInstanceOf(Date);
   const [stored] = await f.db.select().from(userPasskeys).where(eq(userPasskeys.id, keyId));
   expect(stored).toMatchObject({ userId: f.id, signCounter: 1, backupEligible: false, backedUp: false });
-  expect((await listOwnPasskeys(f.db, principal))[0]).not.toHaveProperty("credentialId");
+  const [listed] = await listOwnPasskeys(f.db, principal);
+  expect(listed).toMatchObject({ displayName: "iPhone", registrationPlatform: "IPHONE" });
+  expect(listed).not.toHaveProperty("credentialId");
   const audits = await f.db.select().from(auditLogs).where(eq(auditLogs.actorUserId, f.id));
   expect(audits.some((a) => a.action === "PASSKEY_REGISTERED")).toBe(true);
   expect(JSON.stringify(audits)).not.toContain(key.id);
@@ -121,8 +124,14 @@ it("lists/manages only own credentials and revocation immediately invalidates pa
   await expect(manageOwnPasskey(a.db, a.principal, { id: two.keyId, action: "revoke" })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await manageOwnPasskey(a.db, a.principal, { id: one.keyId, action: "rename", displayName: "Renamed" });
   const signed = await signIn(a, one.key);
+  const secondUse = await signIn(a, one.key, 2);
+  expect(await getQuickSignInAccount(a.db, one.keyId)).toEqual({ fullName: "Passkey fixture" });
   await manageOwnPasskey(a.db, a.principal, { id: one.keyId, action: "revoke" });
   await expect(verifySessionToken(a.db, signed.sessionToken!)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(verifySessionToken(a.db, secondUse.sessionToken!)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(signIn(a, one.key, 3)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  expect(await getQuickSignInAccount(a.db, one.keyId)).toBeNull();
+  expect(await getQuickSignInAccount(b.db, two.keyId)).toEqual({ fullName: "Passkey fixture" });
   expect(await listOwnPasskeys(a.db, a.principal)).toHaveLength(0);
 });
 
@@ -165,7 +174,7 @@ it("break-glass revokes all keys atomically and never prints/stores raw credenti
 it("consumes successful registration and refuses expired or replayed sign-in proofs", async () => {
   const f = await fixture(), key = authenticator(), start = await beginPasskeyCeremony(f.db, "REGISTER", f.principal);
   const input = { ceremony: "REGISTER" as const, principal: f.principal, challengeId: start.challengeId, bindingToken: start.bindingToken,
-    response: key.registration(start.options.challenge), displayName: "Fixture" };
+    response: key.registration(start.options.challenge) };
   await finishPasskeyCeremony(f.db, input);
   await expect(finishPasskeyCeremony(f.db, input)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   const expired = await beginPasskeyCeremony(f.db, "SIGN_IN", null);

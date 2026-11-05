@@ -1,217 +1,103 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import type { UserRole } from "@khidi/shared";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { formatStaffName, t } from "@khidi/i18n";
 import { OfficeLoginForm } from "./office-login-form.tsx";
-
-interface PinUserOption {
-  id: string;
-  fullName: string;
-  role: UserRole;
-}
+import { PasskeySignIn } from "./passkey-sign-in.tsx";
+import "./office-login-form.css";
 
 interface LoginFormsProps {
   sharedWarehouseDevice?: boolean;
   registeredDevice: { id: string; deviceName: string } | null;
-  pinUsers: PinUserOption[];
+  pinUsers: { id: string; fullName: string }[];
+  quickSignInPreferred?: boolean;
+  firstName?: string;
 }
 
-export function LoginForms({ registeredDevice, pinUsers, sharedWarehouseDevice = false }: LoginFormsProps) {
-  const [selectedUserId, setSelectedUserId] = useState<string>(pinUsers[0]?.id ?? "");
+export function LoginForms({
+  registeredDevice, pinUsers, sharedWarehouseDevice = false, quickSignInPreferred = false, firstName
+}: LoginFormsProps) {
+  const [view, setView] = useState<"welcome" | "password" | "pin">("welcome");
+  const [supportsQuickSignIn, setSupportsQuickSignIn] = useState(quickSignInPreferred);
+  const [selectedUserId, setSelectedUserId] = useState(pinUsers.length === 1 ? pinUsers[0]!.id : "");
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState<string | null>(null);
   const [pinLoading, setPinLoading] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
 
-  async function clearClientCachesBeforeSwitch() {
-    try {
-      if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({ type: "CLEAR_AUTH_CACHES" });
-      }
-    } catch {
-      // Ignore
-    }
+  useEffect(() => { setSupportsQuickSignIn(typeof PublicKeyCredential !== "undefined"); }, []);
+
+  function changeView(next: typeof view) {
+    setView(next);
+    setPin("");
+    setPinError(null);
+    heading.current?.focus({ preventScroll: true });
   }
 
-  async function handlePinSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function clearClientCachesBeforeSwitch() {
+    try { navigator.serviceWorker?.controller?.postMessage({ type: "CLEAR_AUTH_CACHES" }); }
+    catch { /* Login does not depend on the service worker. */ }
+  }
+
+  async function handlePinSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (pinLoading || !selectedUserId) return;
     setPinError(null);
     setPinLoading(true);
 
     try {
       await clearClientCachesBeforeSwitch();
-      const res = await fetch("/api/auth/warehouse-pin", {
+      const response = await fetch("/api/auth/warehouse-pin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({
-          userId: selectedUserId,
-          pin
-        })
+        body: JSON.stringify({ userId: selectedUserId, pin })
       });
-
-      const data = (await res.json()) as { ok?: boolean; message?: string; redirectTo?: string };
-      if (!res.ok || !data.ok) {
-        setPinError(data.message ?? "PIN კოდი არასწორია.");
+      const data = await response.json() as { ok?: boolean; message?: string; redirectTo?: string };
+      if (!response.ok || !data.ok) {
+        setPinError(data.message ?? t("auth.pin_invalid"));
         return;
       }
-
-      window.location.href = data.redirectTo ?? "/";
-    } catch {
-      setPinError("ქსელური შეცდომა PIN ავტორიზაციისას.");
-    } finally {
-      setPinLoading(false);
-    }
+      window.location.assign(data.redirectTo ?? "/");
+    } catch { setPinError(t("auth.network_error")); }
+    finally { setPin(""); setPinLoading(false); }
   }
 
-  return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))",
-        gap: "1.5rem"
-      }}
-    >
-      <OfficeLoginForm beforeLogin={clearClientCachesBeforeSwitch} passkeysAllowed={!sharedWarehouseDevice} />
+  const canUsePin = Boolean(registeredDevice && pinUsers.length);
+  const personalBrowser = !sharedWarehouseDevice && !registeredDevice;
+  const canUseQuickSignIn = personalBrowser && supportsQuickSignIn;
+  const quickFirst = canUseQuickSignIn && quickSignInPreferred;
+  const greeting = quickFirst && firstName ? t("auth.welcome_name").replace("{name}", () => firstName) : t("auth.welcome");
 
-      {/* 2. Warehouse Shared Phone PIN Switcher */}
-      <div
-        style={{
-          background: "#0f172a",
-          color: "#f8fafc",
-          border: "2px solid #22c55e",
-          borderRadius: "12px",
-          padding: "1.5rem"
-        }}
-      >
-        <div
-          style={{
-            display: "inline-block",
-            background: "#14532d",
-            color: "#bbf7d0",
-            padding: "0.2rem 0.6rem",
-            borderRadius: "999px",
-            fontSize: "0.75rem",
-            fontWeight: 700,
-            marginBottom: "0.75rem"
-          }}
-        >
-          WAREHOUSE_PIN (საწყობის რეგისტრირებული ტელეფონი)
-        </div>
-        <h2 style={{ margin: "0 0 0.5rem 0", fontSize: "1.15rem" }}>
-          საწყობის სწრაფი გადართვა (პირადი PIN)
-        </h2>
-
-        {!registeredDevice ? (
-          <div
-            style={{
-              background: "#1e293b",
-              border: "1px solid #334155",
-              borderRadius: "8px",
-              padding: "1rem",
-              fontSize: "0.85rem",
-              color: "#cbd5e1",
-              lineHeight: 1.5
-            }}
-          >
-            ეს ბრაუზერი/ტელეფონი ჯერ არ არის რეგისტრირებული საწყობის ტერმინალად.
-            <br />
-            <br />
-            საწყობის PIN გადამრთველის გასააქტიურებლად ჯერ შედით <code>ADMIN</code> ანგარიშით და{" "}
-            <strong>მომხმარებლების</strong> გვერდზე დააჭირეთ{" "}
-            <em>„ამ მოწყობილობის რეგისტრაცია საწყობის ტერმინალად“</em>.
-          </div>
-        ) : (
-          <form onSubmit={handlePinSubmit} style={{ display: "grid", gap: "0.8rem" }}>
-            <div style={{ fontSize: "0.8rem", color: "#86efac" }}>
-              ✓ რეგისტრირებული ტერმინალი: <strong>{registeredDevice.deviceName}</strong>
-            </div>
-
-            {pinError && (
-              <div
-                style={{
-                  background: "#450a0a",
-                  border: "1px solid #ef4444",
-                  color: "#fecaca",
-                  padding: "0.65rem",
-                  borderRadius: "8px",
-                  fontSize: "0.85rem",
-                  fontWeight: 600
-                }}
-              >
-                {pinError}
-              </div>
-            )}
-
-            <div style={{ display: "grid", gap: "0.5rem" }}>
-              {pinUsers.map((u) => {
-                const selected = u.id === selectedUserId;
-                return (
-                  <button
-                    key={u.id}
-                    type="button"
-                    onClick={() => setSelectedUserId(u.id)}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      padding: "0.75rem",
-                      background: selected ? "#14532d" : "#1e293b",
-                      border: selected ? "2px solid #22c55e" : "1px solid #334155",
-                      borderRadius: "8px",
-                      color: "#f8fafc",
-                      cursor: "pointer",
-                      textAlign: "left"
-                    }}
-                  >
-                    <span style={{ fontWeight: 700 }}>{u.fullName}</span>
-                    <span style={{ fontSize: "0.78rem", color: "#86efac" }}>{u.role}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <label style={{ display: "grid", gap: "0.3rem", fontSize: "0.85rem", fontWeight: 600 }}>
-              პირადი PIN კოდი (4–6 ციფრი)
-              <input
-                type="password"
-                inputMode="numeric"
-                required
-                maxLength={6}
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                placeholder="••••"
-                style={{
-                  padding: "0.75rem",
-                  borderRadius: "8px",
-                  border: "1px solid #475569",
-                  background: "#020617",
-                  color: "#ffffff",
-                  fontSize: "1.25rem",
-                  letterSpacing: "0.3em",
-                  textAlign: "center"
-                }}
-              />
+  return <div className="auth-entry">
+    <h1 ref={heading} tabIndex={-1}>{greeting}</h1>
+    {view === "welcome" ? <section className="office-login auth-welcome-actions">
+      {canUsePin ? <button className="auth-primary" type="button" onClick={() => changeView("pin")}>{t("auth.pin_sign_in")}</button> : null}
+      {quickFirst ? <PasskeySignIn primary /> : null}
+      <button className={canUsePin || quickFirst ? "auth-secondary" : "auth-primary"} type="button" onClick={() => changeView("password")}>
+        {t(canUsePin || quickFirst ? "auth.password_sign_in" : "auth.sign_in")}
+      </button>
+      {canUseQuickSignIn && !quickFirst ? <PasskeySignIn /> : null}
+    </section> : <>
+      {view === "password" ? <OfficeLoginForm beforeLogin={clearClientCachesBeforeSwitch} passkeysAllowed={personalBrowser} />
+        : <form className="office-login" onSubmit={handlePinSubmit} aria-busy={pinLoading}>
+          <h2>{t("auth.pin_sign_in")}</h2>
+          {pinError ? <p role="alert" className="auth-error">{pinError}</p> : null}
+          <fieldset disabled={pinLoading}>
+            <label>{t("auth.pin_user")}
+              <select value={selectedUserId} required onChange={(event) => { setSelectedUserId(event.target.value); setPin(""); setPinError(null); }}>
+                <option value="" disabled>{t("auth.pin_choose_user")}</option>
+                {pinUsers.map((user) => <option key={user.id} value={user.id}>{formatStaffName(user.fullName)}</option>)}
+              </select>
             </label>
-
-            <button
-              type="submit"
-              disabled={pinLoading || !selectedUserId}
-              style={{
-                padding: "0.85rem",
-                borderRadius: "8px",
-                border: "none",
-                background: "#16a34a",
-                color: "#ffffff",
-                fontWeight: 700,
-                fontSize: "1rem",
-                cursor: pinLoading ? "wait" : "pointer"
-              }}
-            >
-              {pinLoading ? "მოწმდება..." : "PIN-ით სწრაფი შესვლა"}
-            </button>
-          </form>
-        )}
-      </div>
-    </div>
-  );
+            <label>{t("auth.pin_code")}
+              <input type="password" name="pin" inputMode="numeric" autoComplete="off" required pattern="[0-9]{4,6}" maxLength={6}
+                value={pin} onChange={(event) => setPin(event.target.value)} />
+            </label>
+            <button type="submit" className="auth-primary" disabled={!selectedUserId}>{t(pinLoading ? "auth.checking" : "auth.sign_in")}</button>
+          </fieldset>
+        </form>}
+      <button className="auth-entry-back auth-secondary" type="button" onClick={() => changeView("welcome")} disabled={pinLoading}>{t("auth.login_back")}</button>
+    </>}
+  </div>;
 }

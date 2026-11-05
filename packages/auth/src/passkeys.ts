@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { generateRegistrationOptions, generateAuthenticationOptions, verifyRegistrationResponse, verifyAuthenticationResponse,
   type RegistrationResponseJSON, type AuthenticationResponseJSON, type AuthenticatorTransport } from "@simplewebauthn/server";
@@ -9,6 +9,7 @@ import { AppError, createUuidV7, sha256Hex } from "@khidi/shared";
 import { loadPrincipalByUserId, OFFICE_ROLES, type AuthenticatedPrincipal } from "./principal.ts";
 import { assertRecentStrongAuth, requireOfficeSession } from "./security-session.ts";
 import { webauthnConfig } from "./webauthn-config.ts";
+import { describeRegistrationPlatform } from "./passkey-registration-platform.ts";
 
 type Ceremony = "REGISTER" | "SIGN_IN" | "REAUTH";
 const TTL = 5 * 60 * 1000;
@@ -47,7 +48,7 @@ export async function beginPasskeyCeremony(db: DbExecutor, ceremony: Ceremony, p
 /** Consumption, verification, counter/session writes and audit commit together, including failures. */
 export async function finishPasskeyCeremony(db: DbExecutor, input: {
   ceremony: Ceremony; challengeId: string; bindingToken: string; response: RegistrationResponseJSON | AuthenticationResponseJSON;
-  displayName?: string; principal?: AuthenticatedPrincipal | null; sharedDevice?: boolean; ipAddress?: string; userAgent?: string;
+  principal?: AuthenticatedPrincipal | null; sharedDevice?: boolean; ipAddress?: string; userAgent?: string; desktopIpad?: boolean;
 }) {
   if (input.sharedDevice || !z.string().uuid().safeParse(input.challengeId).success || !/^[a-f0-9]{64}$/.test(input.bindingToken)) throw invalid();
   const config = webauthnConfig();
@@ -77,13 +78,13 @@ export async function finishPasskeyCeremony(db: DbExecutor, input: {
         expectedChallenge, expectedOrigin: config.origin, expectedRPID: config.rpID, requireUserVerification: true, requireUserPresence: true }); }
       catch { return fail(); }
       if (!verified.verified || !verified.registrationInfo.userVerified) return fail();
-      const name = z.string().trim().min(1).max(100).safeParse(input.displayName);
-      if (!name.success) return fail();
+      const registration = describeRegistrationPlatform(input.userAgent, input.desktopIpad);
       const info = verified.registrationInfo, id = createUuidV7();
       const inserted = await ctx.tx.insert(userPasskeys).values({ id, userId: account.id, credentialId: info.credential.id,
         publicKey: Buffer.from(info.credential.publicKey).toString("base64url"), signCounter: info.credential.counter,
         transports: info.credential.transports ?? [], backupEligible: info.credentialDeviceType === "multiDevice",
-        backedUp: info.credentialBackedUp, displayName: name.data }).onConflictDoNothing().returning({ id: userPasskeys.id });
+        backedUp: info.credentialBackedUp, displayName: registration.name, registrationPlatform: registration.platform
+      }).onConflictDoNothing().returning({ id: userPasskeys.id });
       if (!inserted.length) return fail();
       await audit(ctx, "PASSKEY_REGISTERED", input.ceremony, account.id, id);
       return { passkeyId: id };
@@ -116,27 +117,41 @@ export async function finishPasskeyCeremony(db: DbExecutor, input: {
       ipAddress: input.ipAddress ?? null, userAgent: input.userAgent ?? null });
     await audit(ctx, "PASSKEY_SIGN_IN", input.ceremony, account.id, key.id);
     const principal = await loadPrincipalByUserId(ctx.tx, account.id, "OFFICE_PASSKEY");
-    return { sessionToken, principal: { ...principal, sessionId, lastStrongAuthAt: now } };
+    return { sessionToken, passkeyId: key.id, principal: { ...principal, sessionId, lastStrongAuthAt: now } };
   });
   if (!outcome) throw invalid();
   return outcome;
 }
 
+function listActivePasskeys(db: DbExecutor, userId: string) {
+  return db.select({
+    id: userPasskeys.id, displayName: userPasskeys.displayName, registrationPlatform: userPasskeys.registrationPlatform,
+    createdAt: userPasskeys.createdAt, lastUsedAt: userPasskeys.lastUsedAt
+  }).from(userPasskeys).where(and(eq(userPasskeys.userId, userId), isNull(userPasskeys.revokedAt))).orderBy(userPasskeys.createdAt);
+}
+
 export async function listOwnPasskeys(db: DbExecutor, principal: AuthenticatedPrincipal) {
   return db.transaction(async (tx) => {
     await requireOfficeSession(tx, principal);
-    return tx.select({ id: userPasskeys.id, displayName: userPasskeys.displayName, createdAt: userPasskeys.createdAt,
-      lastUsedAt: userPasskeys.lastUsedAt }).from(userPasskeys).where(and(eq(userPasskeys.userId, principal.userId), isNull(userPasskeys.revokedAt))).orderBy(userPasskeys.createdAt);
+    return listActivePasskeys(tx, principal.userId);
   });
 }
 
 export async function ownSecurityState(db: DbExecutor, principal: AuthenticatedPrincipal, sharedDevice: boolean) {
   return db.transaction(async (tx) => {
     const { user } = await requireOfficeSession(tx, principal);
-    const keys = sharedDevice ? [] : await tx.select({ id: userPasskeys.id, displayName: userPasskeys.displayName,
-      createdAt: userPasskeys.createdAt, lastUsedAt: userPasskeys.lastUsedAt }).from(userPasskeys).where(and(eq(userPasskeys.userId, user.id), isNull(userPasskeys.revokedAt)));
+    const keys = sharedDevice ? [] : await listActivePasskeys(tx, user.id);
     return { keys, sharedDevice, totpEnabled: user.totpEnabled, canStartTotp: !user.totpEverEnabled && !user.totpEnabled && !user.totpSecretEncrypted };
   });
+}
+
+/** Presentation hint only. Call with an ID from a verified, browser-local preference. */
+export async function getQuickSignInAccount(db: DbExecutor, keyId: string) {
+  const [account] = await db.select({ fullName: users.fullName }).from(userPasskeys)
+    .innerJoin(users, eq(users.id, userPasskeys.userId))
+    .where(and(eq(userPasskeys.id, keyId), isNull(userPasskeys.revokedAt), eq(users.active, true),
+      eq(users.totpEnrollmentRequired, false), isNotNull(users.email), isNotNull(users.passwordHash), inArray(users.role, OFFICE_ROLES)));
+  return account ?? null;
 }
 
 export async function manageOwnPasskey(db: DbExecutor, principal: AuthenticatedPrincipal, input: { id: string; action: "rename" | "revoke"; displayName?: string }) {

@@ -4,7 +4,6 @@ import { useId, useState, type FormEvent } from "react";
 import { t } from "@khidi/i18n";
 import { TotpEnrollmentSetup, copyTotpSetupKey, type TotpEnrollment } from "./totp-enrollment.tsx";
 import { OfficePasswordField } from "./office-password-field.tsx";
-import { PasskeySignIn } from "./passkey-sign-in.tsx";
 import { platformPasskeyAvailable } from "../lib/passkey-client.ts";
 import "./office-login-form.css";
 
@@ -93,6 +92,5 @@ export function OfficeLoginForm({ beforeLogin, passkeysAllowed = true, initialEn
         {enrollment ? <button className="auth-secondary" type="button" onClick={() => { setStep(1); setError(null); }}>{t("auth.back_to_setup")}</button> : null}
       </>}
     </fieldset>}
-    {!enrollment && step !== 3 && passkeysAllowed ? <PasskeySignIn /> : null}
   </form>;
 }

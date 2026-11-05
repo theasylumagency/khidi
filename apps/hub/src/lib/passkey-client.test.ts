@@ -35,15 +35,17 @@ it("does not verify cancelled registration and retries only with a fresh options
   const controller = new AbortController();
   mockFetch.mockResolvedValueOnce(Response.json({ ok: true, challengeId: "first", options: { challenge: "synthetic-one" } }));
   sdk.startRegistration.mockImplementationOnce(async () => { controller.abort(); return { id: "synthetic" }; });
-  await expect(runPasskey("register", "My key", { signal: controller.signal })).rejects.toMatchObject({ code: "CANCELLED", message: t("passkey.cancelled") });
+  await expect(runPasskey("register", { signal: controller.signal })).rejects.toMatchObject({ code: "CANCELLED", message: t("passkey.cancelled") });
   expect(sdk.cancelCeremony).toHaveBeenCalledOnce();
   expect(mockFetch).toHaveBeenCalledTimes(1);
   mockFetch.mockResolvedValueOnce(Response.json({ ok: true, challengeId: "second", options: { challenge: "synthetic-two" } }));
   mockFetch.mockResolvedValueOnce(Response.json({ ok: true }));
   sdk.startRegistration.mockResolvedValueOnce({ id: "synthetic" });
-  await runPasskey("register", "My key");
+  await runPasskey("register", { rememberName: true });
   expect(mockFetch.mock.calls.map(([, options]) => JSON.parse(options.body).action)).toEqual(["register-options", "register-options", "register-verify"]);
-  expect(JSON.parse(mockFetch.mock.calls[2]![1].body).challengeId).toBe("second");
+  const verification = JSON.parse(mockFetch.mock.calls[2]![1].body);
+  expect(verification).toMatchObject({ challengeId: "second", rememberName: true });
+  expect(verification).not.toHaveProperty("displayName");
 });
 
 it("does not call the server on unsupported WebAuthn and distinguishes Android and desktop-mode iPad help", async () => {

@@ -1,15 +1,13 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { t } from "@khidi/i18n";
 import { runPasskey } from "../lib/passkey-client.ts";
 import { passkeyErrorMessage } from "../lib/passkey-errors.ts";
 
-export function PasskeySignIn() {
-  const [available, setAvailable] = useState(false), [busy, setBusy] = useState(false), [message, setMessage] = useState("");
-  useEffect(() => { setAvailable(typeof PublicKeyCredential !== "undefined"); }, []);
-  if (!available) return null;
+export function PasskeySignIn({ primary = false }: { primary?: boolean }) {
+  const [busy, setBusy] = useState(false), [message, setMessage] = useState("");
   return <div>
-    <button className="auth-secondary" type="button" disabled={busy} onClick={async () => {
+    <button className={primary ? "auth-primary" : "auth-secondary"} type="button" disabled={busy} onClick={async () => {
       setBusy(true); setMessage("");
       try {
         await runPasskey("sign-in");

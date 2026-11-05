@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { AppError } from "@khidi/shared";
 import { renderInternalQrSvg } from "@khidi/products/labels";
+import { QUICK_SIGN_IN_COOKIE, readQuickSignInPreference } from "../../../../lib/quick-sign-in-cookie.ts";
 const login = vi.hoisted(() => vi.fn());
 const passkeys = vi.hoisted(() => vi.fn());
 const shared = vi.hoisted(() => vi.fn());
@@ -69,4 +70,21 @@ it.each(["strong", "weak", "shared", "existing"])("offers explicit passkey setup
   expect(response.status).toBe(200);
   expect(response.headers.get("set-cookie")).toContain("khidi_session=khidi_sess_synthetic");
   expect(await response.json()).toMatchObject({ offerPasskey: kind === "strong" });
+});
+
+it("offers setup once for the remembered account and offers it separately to another account", async () => {
+  const firstUser = "019a11a1-1111-7111-8111-111111111111";
+  const secondUser = "019a11a1-1111-7111-8111-111111111112";
+  async function signIn(userId: string, preference = "") {
+    login.mockResolvedValueOnce({ sessionToken: "khidi_sess_synthetic", principal: { userId, lastStrongAuthAt: new Date() } });
+    return POST(new NextRequest("http://localhost:3100/api/auth/office-login", { method: "POST",
+      headers: { Cookie: `${QUICK_SIGN_IN_COOKIE}=${preference}` },
+      body: JSON.stringify({ email: "fixture@khidi.example", password: "Synthetic-test-password", totpCode: "001234" }) }));
+  }
+  const first = await signIn(firstUser);
+  expect(await first.json()).toMatchObject({ offerPasskey: true });
+  const value = first.cookies.get(QUICK_SIGN_IN_COOKIE)?.value;
+  expect(readQuickSignInPreference(value)).toEqual({ id: firstUser, mode: "offered" });
+  expect(await (await signIn(firstUser, value)).json()).toMatchObject({ offerPasskey: false });
+  expect(await (await signIn(secondUser, value)).json()).toMatchObject({ offerPasskey: true });
 });

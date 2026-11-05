@@ -20,8 +20,8 @@ export async function platformPasskeyAvailable(): Promise<boolean> {
   try { return typeof PublicKeyCredential !== "undefined" && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(); }
   catch { return false; }
 }
-export async function runPasskey(ceremony: "register" | "sign-in" | "reauth", displayName?: string, options?: {
-  signal?: AbortSignal; onPhase?: (phase: "prompt" | "verify") => void;
+export async function runPasskey(ceremony: "register" | "sign-in" | "reauth", options?: {
+  signal?: AbortSignal; onPhase?: (phase: "prompt" | "verify") => void; rememberName?: boolean;
 }) {
   if (typeof PublicKeyCredential === "undefined") throw new SecurityActionError("UNSUPPORTED");
   const signal = options?.signal;
@@ -44,5 +44,9 @@ export async function runPasskey(ceremony: "register" | "sign-in" | "reauth", di
   if (signal?.aborted) throw new SecurityActionError("CANCELLED");
   // Once verification starts, the browser cannot promise to undo a credential write.
   options?.onPhase?.("verify");
-  return securityRequest(`${ceremony}-verify`, { challengeId: start.challengeId, response, displayName });
+  const registrationPreferences = ceremony === "register" ? {
+    rememberName: options?.rememberName === true,
+    desktopIpad: /Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1
+  } : {};
+  return securityRequest(`${ceremony}-verify`, { challengeId: start.challengeId, response, ...registrationPreferences });
 }

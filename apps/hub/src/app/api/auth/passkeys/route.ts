@@ -9,6 +9,7 @@ import { beginPasskeyCeremony, finishPasskeyCeremony, ownSecurityState, manageOw
 import { renderInternalQrSvg } from "@khidi/products/labels";
 import { getCurrentPrincipal, isSharedWarehouseBrowser, KHIDI_SESSION_COOKIE } from "../../../../lib/session.ts";
 import { assertSecurityOrigin } from "../../../../lib/security-origin.ts";
+import { QUICK_SIGN_IN_COOKIE, quickSignInCookieOptions, readQuickSignInPreference, signQuickSignInPreference } from "../../../../lib/quick-sign-in-cookie.ts";
 
 const BINDING_COOKIE = "khidi_webauthn";
 const cookieOptions = { httpOnly: true, sameSite: "strict" as const, secure: process.env.NODE_ENV === "production", path: "/api/auth/passkeys", maxAge: 300 };
@@ -55,13 +56,19 @@ export async function POST(request: NextRequest) {
     if (["register-verify", "sign-in-verify", "reauth-verify"].includes(action)) {
       const result = await finishPasskeyCeremony(db, { ceremony: action === "register-verify" ? "REGISTER" : action === "reauth-verify" ? "REAUTH" : "SIGN_IN",
         challengeId: String(body.challengeId ?? ""), bindingToken: request.cookies.get(BINDING_COOKIE)?.value ?? "",
-        response: body.response as RegistrationResponseJSON | AuthenticationResponseJSON, displayName: typeof body.displayName === "string" ? body.displayName : undefined,
+        response: body.response as RegistrationResponseJSON | AuthenticationResponseJSON, desktopIpad: body.desktopIpad === true,
         principal: publicSignIn ? null : principal, sharedDevice,
         ipAddress: request.headers.get("x-forwarded-for") ?? undefined, userAgent: request.headers.get("user-agent") ?? undefined });
       const response = json({ ok: true });
       response.cookies.set(BINDING_COOKIE, "", { ...cookieOptions, maxAge: 0 });
       if ("sessionToken" in result && result.sessionToken) response.cookies.set(KHIDI_SESSION_COOKIE, result.sessionToken, {
         httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 12 * 60 * 60 });
+      if (result.passkeyId && action !== "reauth-verify") {
+        const preference = readQuickSignInPreference(request.cookies.get(QUICK_SIGN_IN_COOKIE)?.value);
+        const named = action === "register-verify" ? body.rememberName === true
+          : preference?.mode === "named" && preference.id === result.passkeyId;
+        response.cookies.set(QUICK_SIGN_IN_COOKIE, signQuickSignInPreference(named ? "named" : "key", result.passkeyId), quickSignInCookieOptions);
+      }
       return response;
     }
     if (action === "password-reauth") {
@@ -92,6 +99,9 @@ export async function POST(request: NextRequest) {
     });
     const response = json(result.body, result.status);
     if (result.body.currentSessionRevoked) response.cookies.set(KHIDI_SESSION_COOKIE, "", { path: "/", maxAge: 0 });
+    if (action === "revoke" && readQuickSignInPreference(request.cookies.get(QUICK_SIGN_IN_COOKIE)?.value)?.id === body.id) {
+      response.cookies.set(QUICK_SIGN_IN_COOKIE, "", { ...quickSignInCookieOptions, maxAge: 0 });
+    }
     return response;
   } catch (error) {
     const response = failure(error, publicSignIn);

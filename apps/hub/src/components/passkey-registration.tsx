@@ -6,10 +6,11 @@ import { runPasskey } from "../lib/passkey-client.ts";
 import { AuthDialog } from "./auth-dialog.tsx";
 import { StrongReauthentication } from "./strong-reauthentication.tsx";
 
-export function PasskeyRegistration({ needsTotp, locked, onBusyChange, onRegistered }: {
-  needsTotp: boolean; locked: boolean; onBusyChange: (busy: boolean) => void; onRegistered: () => void;
+export function PasskeyRegistration({ needsTotp, locked, offered = false, onBusyChange, onRegistered }: {
+  needsTotp: boolean; locked: boolean; offered?: boolean; onBusyChange: (busy: boolean) => void; onRegistered: () => void;
 }) {
-  const [name, setName] = useState(""), [phase, setPhase] = useState<"prepare" | "prompt" | "verify" | null>(null);
+  const [rememberName, setRememberName] = useState(false);
+  const [phase, setPhase] = useState<"prepare" | "prompt" | "verify" | null>(null);
   const [status, setStatus] = useState(""), [issue, setIssue] = useState<PasskeyIssue | null>(null);
   const [showHelp, setShowHelp] = useState(false), [reauth, setReauth] = useState(false);
   const [platform, setPlatform] = useState<ReturnType<typeof passkeyPlatform>>("other");
@@ -23,8 +24,8 @@ export function PasskeyRegistration({ needsTotp, locked, onBusyChange, onRegiste
     attempt.current = controller; onBusyChange(true); setPhase("prepare"); setStatus(""); setIssue(null); setShowHelp(false);
     setPlatform(passkeyPlatform(navigator.userAgent, navigator.maxTouchPoints));
     try {
-      await runPasskey("register", name.trim() || t("passkey.default_name"), { signal: controller.signal, onPhase: setPhase });
-      setName(""); setStatus(t("passkey.added")); onRegistered();
+      await runPasskey("register", { signal: controller.signal, onPhase: setPhase, rememberName });
+      setRememberName(false); setStatus(t("passkey.added")); onRegistered();
     } catch (error) {
       const code = classifyPasskeyError(error);
       if (code === "RECENT_AUTH_REQUIRED") { setReauth(true); setStatus(passkeyErrorMessage(error)); }
@@ -33,14 +34,19 @@ export function PasskeyRegistration({ needsTotp, locked, onBusyChange, onRegiste
     } finally { attempt.current = null; onBusyChange(false); setPhase(null); }
   }
 
-  return <section className="office-login" aria-label={t("passkey.enable")}>
-    <h2>{t("passkey.enable")}</h2><p>{t("passkey.device_choice")}</p>
+  const title = t(offered ? "passkey.offer_title" : "passkey.enable");
+  return <section className="office-login" aria-label={title}>
+    {offered ? <h1>{title}</h1> : <h2>{title}</h2>}<p>{t("passkey.device_choice")}</p>
     {needsTotp ? <p><a href="#totp-settings">{t("passkey.enable_totp_first")}</a></p> : null}
-    <form onSubmit={(event) => { event.preventDefault(); void register(); }} aria-busy={phase !== null}>
-      <label>{t("passkey.name")}<input maxLength={100} value={name} onChange={(event) => setName(event.target.value)} autoComplete="off" /></label>
+    <form className="auth-welcome-actions" onSubmit={(event) => { event.preventDefault(); void register(); }} aria-busy={phase !== null}>
+      {!needsTotp ? <label className="quick-name-choice">
+        <input type="checkbox" checked={rememberName} onChange={(event) => setRememberName(event.target.checked)} disabled={!!phase || locked} />
+        {t("passkey.remember_name")}
+      </label> : null}
       <button ref={addButton} className="auth-primary" type="submit" disabled={!!phase || locked || needsTotp || reauth}>{t("passkey.add")}</button>
       {phase && phase !== "verify" ? <button className="auth-secondary" type="button" onClick={() => attempt.current?.abort()}>{t("auth.cancel")}</button> : null}
     </form>
+    {offered && !phase ? <a className="auth-secondary auth-later" href="/">{t("passkey.later")}</a> : null}
     <p role="status" className="security-action-status">{phase ? t(phase === "prompt" ? "passkey.prompt" : "auth.checking") : status}</p>
     {reauth ? <StrongReauthentication onSuccess={() => { setReauth(false); setStatus(t("passkey.reauth_done")); }} /> : null}
     {issue ? <AuthDialog title={t("passkey.add_failed")} description={passkeyErrorMessage(new SecurityActionError(issue))} returnFocus={addButton} onClose={() => setIssue(null)}>
