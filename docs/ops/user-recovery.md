@@ -2,8 +2,9 @@
 
 ## Enrollment
 
-Office login keeps its email/password/TOTP model. An account marked for enrollment gets no
-session until it confirms a valid six-digit code. The three steps are add, confirm, complete.
+Password/TOTP remains enrollment and recovery fallback for [office passkeys](office-passkeys.md).
+An account marked for enrollment gets no session until it confirms a valid six-digit code.
+The three steps are add, confirm, complete.
 On a phone, open the authenticator on the same device; if the app does not handle `otpauth:`,
 copy the Base32 key or show the QR on another device. Desktop makes the QR primary. The QR
 encodes exactly the server-generated OTPAuth URI with issuer **Khidi**, using the repository's
@@ -60,12 +61,15 @@ token, non-interactive production mode or password-from-environment option.
    - Revoke all user sessions: includes office and warehouse sessions for that user. Select
      this whenever a device or credential may be compromised. Password/TOTP changes do not
      implicitly select this separately confirmed action.
+   - Revoke all passkeys: separately offered for office accounts. All active credentials are
+     revoked atomically. Sessions created with them immediately become invalid even if the
+     separate all-sessions action was declined; password/TOTP fallback remains available.
 4. Enter a mandatory operator note describing authorization and the incident, **without any
    password, TOTP key, QR/OTPAuth URI or other secret**. Retype the target email to commit.
    Cancellation, mismatched confirmation, invalid input or any transaction failure leaves
    no partially applied recovery. At least one action must be selected.
 5. All selected changes, `USER_RECOVERY_PERFORMED` audit row and outbox event commit together.
-   The record identifies the target user, selected actions, revoked-session count and note;
+   The record identifies the target user, selected actions, revoked-session/passkey counts and note;
    it contains no password/hash, secret or QR. The server operator is not impersonated as a
    signed-in Hub user (`actor_user_id` is null). Existing brute-force lockout timers remain
    in force; wait for an active lockout to expire before trying the recovered account.
@@ -76,7 +80,7 @@ token, non-interactive production mode or password-from-environment option.
 If a terminal disconnects around commit, inspect the audit before repeating the procedure;
 do not assume that missing terminal output proves rollback. The command does not change
 roles, memberships, entities, storefronts, registered devices, PINs, settings or seed data.
-Passkey revocation is intentionally left to the separate passkey task.
+Passkey identifiers/public keys and raw credential responses are never printed or audited.
 
 ## Local trials and automated tests
 
