@@ -1,10 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getDb } from "@khidi/db";
-import { loginOfficeUser } from "@khidi/auth";
+import { loginOfficeUser, listOwnPasskeys } from "@khidi/auth";
 import { AppError } from "@khidi/shared";
 import { renderInternalQrSvg } from "@khidi/products/labels";
 import { t } from "@khidi/i18n";
-import { KHIDI_SESSION_COOKIE } from "../../../../lib/session.ts";
+import { KHIDI_SESSION_COOKIE, isSharedWarehouseBrowser } from "../../../../lib/session.ts";
 
 const json: typeof NextResponse.json = (body, init) => NextResponse.json(body, {
   ...init, headers: { ...init?.headers, "Cache-Control": "no-store" }
@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
 
     const response = json({
       ok: true,
+      offerPasskey: Boolean(principal.lastStrongAuthAt) && !await isSharedWarehouseBrowser() && !(await listOwnPasskeys(db, principal)).length,
       principal: {
         userId: principal.userId,
         fullName: principal.fullName,

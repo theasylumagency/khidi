@@ -155,6 +155,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                   {formatStaffName(principal.fullName)} ({t(`scanning.role.${principal.role}` as TranslationKey)})
                 </span>
                 <LogoutButton />
+                {principal.authMethod !== "WAREHOUSE_PIN" && principal.role !== "WAREHOUSE" ? <Link href="/account/security" style={{ color: "#e2e8f0", padding: ".75rem" }}>{t("passkey.security_title")}</Link> : null}
               </nav>
             ) : (
               <div style={{ fontSize: "0.82rem", color: "#94a3b8" }}>

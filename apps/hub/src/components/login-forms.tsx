@@ -11,11 +11,12 @@ interface PinUserOption {
 }
 
 interface LoginFormsProps {
+  sharedWarehouseDevice?: boolean;
   registeredDevice: { id: string; deviceName: string } | null;
   pinUsers: PinUserOption[];
 }
 
-export function LoginForms({ registeredDevice, pinUsers }: LoginFormsProps) {
+export function LoginForms({ registeredDevice, pinUsers, sharedWarehouseDevice = false }: LoginFormsProps) {
   const [selectedUserId, setSelectedUserId] = useState<string>(pinUsers[0]?.id ?? "");
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState<string | null>(null);
@@ -70,7 +71,7 @@ export function LoginForms({ registeredDevice, pinUsers }: LoginFormsProps) {
         gap: "1.5rem"
       }}
     >
-      <OfficeLoginForm beforeLogin={clearClientCachesBeforeSwitch} />
+      <OfficeLoginForm beforeLogin={clearClientCachesBeforeSwitch} passkeysAllowed={!sharedWarehouseDevice} />
 
       {/* 2. Warehouse Shared Phone PIN Switcher */}
       <div

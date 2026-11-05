@@ -4,14 +4,21 @@ import { useId, useState, type FormEvent } from "react";
 import { t } from "@khidi/i18n";
 import { TotpEnrollmentSetup, copyTotpSetupKey, type TotpEnrollment } from "./totp-enrollment.tsx";
 import { OfficePasswordField } from "./office-password-field.tsx";
+import { PasskeySignIn } from "./passkey-sign-in.tsx";
+import { platformPasskeyAvailable } from "../lib/passkey-client.ts";
 import "./office-login-form.css";
 
-export function OfficeLoginForm({ beforeLogin }: { beforeLogin(): Promise<void> }) {
+export function OfficeLoginForm({ beforeLogin, passkeysAllowed = true, initialEnrollment, onAuthenticated }: {
+  beforeLogin(): Promise<void>; passkeysAllowed?: boolean;
+  initialEnrollment?: { email: string; password: string; enrollment: TotpEnrollment };
+  onAuthenticated?(): void;
+}) {
   const codeHintId = useId();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState(initialEnrollment?.email ?? "");
+  const [password, setPassword] = useState(initialEnrollment?.password ?? "");
   const [code, setCode] = useState("");
-  const [enrollment, setEnrollment] = useState<TotpEnrollment | null>(null);
+  const [enrollment, setEnrollment] = useState<TotpEnrollment | null>(initialEnrollment?.enrollment ?? null);
+  const [continuation, setContinuation] = useState("/");
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +34,7 @@ export function OfficeLoginForm({ beforeLogin }: { beforeLogin(): Promise<void> 
         method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", cache: "no-store",
         body: JSON.stringify({ email, password, totpCode: restartEnrollment ? undefined : code.trim() || undefined, restartEnrollment })
       });
-      const data = await response.json() as { ok?: boolean; enrollment?: TotpEnrollment; message?: string };
+      const data = await response.json() as { ok?: boolean; enrollment?: TotpEnrollment; message?: string; offerPasskey?: boolean };
       if (!response.ok || !data.ok) { setError(data.message ?? t("auth.login_failed")); return; }
       if (data.enrollment) {
         setEnrollment(data.enrollment); setCode(""); setStep(1); setCopyNotice(null); setConfirmRestart(false); return;
@@ -35,8 +42,11 @@ export function OfficeLoginForm({ beforeLogin }: { beforeLogin(): Promise<void> 
       const wasEnrolling = enrollment !== null;
       // No browser persistence; release the setup secret and credentials before continuing.
       setEnrollment(null); setPassword(""); setCode(""); setCopyNotice(null); setConfirmRestart(false);
+      if (onAuthenticated) { onAuthenticated(); return; }
+      const next = passkeysAllowed && data.offerPasskey && await platformPasskeyAvailable() ? "/account/security?offer=1" : "/";
+      setContinuation(next);
       if (wasEnrolling) setStep(3);
-      else window.location.assign("/");
+      else window.location.assign(next);
     } catch { setError(t("auth.network_error")); }
     finally { setLoading(false); }
   }
@@ -57,7 +67,7 @@ export function OfficeLoginForm({ beforeLogin }: { beforeLogin(): Promise<void> 
     {error ? <p className="auth-error" role="alert">{error}</p> : null}
     {step === 3 ? <div>
       <p role="status">{t("auth.enrollment_complete")}</p>
-      <a className="auth-primary" href="/">{t("auth.continue")}</a>
+      <a className="auth-primary" href={continuation}>{t("auth.continue")}</a>
     </div> : <fieldset disabled={loading}>
       {!enrollment ? <>
         <label>{t("auth.email")}<input name="username" type="email" inputMode="email" autoComplete="username"
@@ -83,5 +93,6 @@ export function OfficeLoginForm({ beforeLogin }: { beforeLogin(): Promise<void> 
         {enrollment ? <button className="auth-secondary" type="button" onClick={() => { setStep(1); setError(null); }}>{t("auth.back_to_setup")}</button> : null}
       </>}
     </fieldset>}
+    {!enrollment && step !== 3 && passkeysAllowed ? <PasskeySignIn /> : null}
   </form>;
 }

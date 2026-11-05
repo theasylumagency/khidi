@@ -4,12 +4,18 @@ import { getDb } from "@khidi/db";
 import {
   verifySessionToken,
   listPinEnabledUsersForRegisteredDevice,
+  isWarehouseBrowser,
   type AuthenticatedPrincipal
 } from "@khidi/auth";
 import type { UserRole } from "@khidi/shared";
 
 export const KHIDI_SESSION_COOKIE = "khidi_session";
 export const KHIDI_DEVICE_COOKIE = "khidi_device_token";
+
+export async function isSharedWarehouseBrowser(): Promise<boolean> {
+  const cookieStore = await cookies();
+  return isWarehouseBrowser(getDb(), cookieStore.get(KHIDI_DEVICE_COOKIE)?.value);
+}
 
 export async function getCurrentPrincipal(): Promise<AuthenticatedPrincipal | null> {
   const cookieStore = await cookies();

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getCurrentPrincipal, getRegisteredDevicePinContext } from "../../lib/session.ts";
+import { getCurrentPrincipal, getRegisteredDevicePinContext, isSharedWarehouseBrowser } from "../../lib/session.ts";
 import { LoginForms } from "../../components/login-forms.tsx";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +15,7 @@ export default async function LoginPage() {
   return (
     <div style={{ display: "grid", gap: "1.5rem" }}>
       <LoginForms
+        sharedWarehouseDevice={await isSharedWarehouseBrowser()}
         registeredDevice={devicePinContext?.device ?? null}
         pinUsers={devicePinContext?.users ?? []}
       />
