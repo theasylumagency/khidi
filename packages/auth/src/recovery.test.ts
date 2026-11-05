@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
-import { getDb, users, sessions, registeredDevices, auditLogs, outboxEvents, type DbExecutor } from "@khidi/db";
+import { getDb, users, sessions, userPasskeys, registeredDevices, auditLogs, outboxEvents, type DbExecutor } from "@khidi/db";
 import { assertTestDatabaseSafety } from "../../db/src/test-database-safety.ts";
 import { AppError, createUuidV7, sha256Hex } from "@khidi/shared";
 import { generateCurrentTotpToken, generateTotpSecret, hashSecret, loginOfficeUser, loginWithWarehousePin, verifySecret, verifySessionToken } from "./index.ts";
@@ -18,7 +18,7 @@ async function withUserFixture(run: (tx: DbExecutor, id: string) => Promise<void
   const result = await db.execute(sql`SELECT current_database() AS name`);
   if (!String(result.rows[0]?.name).endsWith("_test")) throw new Error("SAFETY: Recovery fixtures require an actual _test database.");
   await db.transaction(async (tx) => {
-    for (const name of ["users", "sessions", "registered_devices", "audit_logs", "outbox_events"]) {
+    for (const name of ["users", "sessions", "user_passkeys", "registered_devices", "audit_logs", "outbox_events"]) {
       await tx.execute(sql.raw(`CREATE TEMP TABLE ${name} (LIKE public.${name} INCLUDING ALL) ON COMMIT DROP`));
     }
     const id = createUuidV7();
@@ -58,13 +58,15 @@ it("recovers atomically, revokes sessions and audits only actions/counts and the
   });
 });
 
-it("rolls back password/TOTP/session changes when the audit fails after those changes", async () => {
-  await withUserFixture(async (tx) => {
+it("rolls back password/TOTP/session/passkey changes when the audit fails after those changes", async () => {
+  await withUserFixture(async (tx, id) => {
+    await tx.insert(userPasskeys).values({ id: createUuidV7(), userId: id, credentialId: "synthetic", publicKey: "synthetic", signCounter: 0, backupEligible: false, backedUp: false, displayName: "Synthetic fixture" });
     const before = await tx.select().from(users);
     await tx.execute(sql`ALTER TABLE pg_temp.audit_logs ADD CHECK (action <> 'USER_RECOVERY_PERFORMED')`);
-    await expect(recoverUser(tx, recovery)).rejects.toThrow();
+    await expect(recoverUser(tx, { ...recovery, revokePasskeys: true })).rejects.toThrow();
     expect(await tx.select().from(users)).toEqual(before);
     expect(await tx.select().from(sessions)).toHaveLength(1);
+    expect((await tx.select().from(userPasskeys))[0]!.revokedAt).toBeNull();
     expect(await tx.select().from(auditLogs)).toHaveLength(0);
     expect(await tx.select().from(outboxEvents)).toHaveLength(0);
   });

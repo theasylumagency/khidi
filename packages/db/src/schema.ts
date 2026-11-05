@@ -5,6 +5,7 @@ import {
   boolean,
   timestamp,
   integer,
+  bigint,
   numeric,
   jsonb,
   primaryKey,
@@ -149,6 +150,21 @@ export const registeredDevices = pgTable("registered_devices", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
 });
 
+export const userPasskeys = pgTable("user_passkeys", {
+  id: uuid("id").primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  credentialId: text("credential_id").notNull().unique(),
+  publicKey: text("public_key").notNull(),
+  signCounter: bigint("sign_counter", { mode: "number" }).notNull(),
+  transports: text("transports").array().notNull().default([]),
+  backupEligible: boolean("backup_eligible").notNull(),
+  backedUp: boolean("backed_up").notNull(),
+  displayName: text("display_name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true })
+});
+
 export const sessions = pgTable("sessions", {
   id: uuid("id").primaryKey(),
   tokenHash: text("token_hash").notNull().unique(),
@@ -156,10 +172,24 @@ export const sessions = pgTable("sessions", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   deviceId: uuid("device_id").references(() => registeredDevices.id, { onDelete: "cascade" }),
-  authMethod: text("auth_method").notNull(), // 'OFFICE_PASSWORD_TOTP' | 'WAREHOUSE_PIN'
+  authMethod: text("auth_method").notNull(), // 'OFFICE_PASSWORD_TOTP' | 'OFFICE_PASSKEY' | 'WAREHOUSE_PIN'
+  lastStrongAuthAt: timestamp("last_strong_auth_at", { withTimezone: true }),
+  passkeyId: uuid("passkey_id").references(() => userPasskeys.id, { onDelete: "restrict" }),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const webauthnChallenges = pgTable("webauthn_challenges", {
+  id: uuid("id").primaryKey(),
+  challengeHash: text("challenge_hash").notNull(),
+  bindingHash: text("binding_hash").notNull(),
+  ceremony: text("ceremony").notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "restrict" }),
+  sessionId: uuid("session_id").references(() => sessions.id, { onDelete: "set null" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
 });
 

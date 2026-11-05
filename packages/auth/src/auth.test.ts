@@ -21,6 +21,7 @@ import {
   generateCurrentTotpToken,
   generateTotpSecret,
   issueStorefrontApiKey,
+  isWarehouseBrowser,
   listPinEnabledUsersForRegisteredDevice,
   listUsersWithMemberships,
   loginOfficeUser,
@@ -219,6 +220,9 @@ describe("@khidi/auth — AES-256-GCM TOTP, Atomic Lockouts, Warehouse PIN, RBAC
     });
 
     await expect(verifySessionToken(db, sessionToken)).rejects.toThrow();
+    expect(await isWarehouseBrowser(db, registered.rawDeviceToken)).toBe(true);
+    expect(await isWarehouseBrowser(db, "unknown-device-token")).toBe(false);
+    expect(await isWarehouseBrowser(db, undefined)).toBe(false);
   });
 
   it("enforces strict per-storefront credential isolation (§12.1, §17.1)", async () => {

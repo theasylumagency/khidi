@@ -1,5 +1,16 @@
+import { decryptTotpSecret, verifySecret, verifyTotpCode, generateTotpSecret, roleRequiresMandatoryTotp, TOTP_ISSUER } from "./credentials.ts";
+import { loadPrincipalByUserId, type AuthenticatedPrincipal, type AuthMethod } from "./principal.ts";
+import { assertRecentStrongAuth } from "./security-session.ts";
+export * from "./credentials.ts";
+export * from "./principal.ts";
+export * from "./security-session.ts";
+export { webauthnConfig } from "./webauthn-config.ts";
+export * from "./passkeys.ts";
+export type { RegistrationResponseJSON, AuthenticationResponseJSON } from "@simplewebauthn/server";
+export * from "./account-security.ts";
+export { securityRequestFingerprint } from "./security-fingerprint.ts";
+
 import { randomBytes } from "node:crypto";
-import bcrypt from "bcryptjs";
 import * as OTPAuth from "otpauth";
 import { eq, sql } from "drizzle-orm";
 import {
@@ -10,6 +21,7 @@ import {
   userPermissions,
   registeredDevices,
   sessions,
+  userPasskeys,
   storefronts,
   storefrontApiKeys
 } from "@khidi/db";
@@ -17,112 +29,23 @@ import { withDomainTransaction } from "@khidi/domain";
 import {
   AppError,
   createUuidV7,
-  decryptSecretAes256Gcm,
-  encryptSecretAes256Gcm,
   sha256Hex,
   type GranularPermission,
   type SupportedLocale,
   type UserRole
 } from "@khidi/shared";
 
-const BCRYPT_ROUNDS = 10;
 const OFFICE_SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const WAREHOUSE_PIN_SESSION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours short session (§13.2)
 const MAX_PIN_ATTEMPTS = 5;
 const MAX_LOGIN_ATTEMPTS = 5;
-const TOTP_ISSUER = "Khidi";
 export { bootstrapFirstAdmin } from "./bootstrap.ts";
 export { recoverUser, inspectRecoveryUser, canResetTotpForRecovery } from "./recovery.ts";
 
-export interface AuthenticatedPrincipal {
-  userId: string;
-  email: string | null;
-  fullName: string;
-  role: UserRole;
-  locale: SupportedLocale;
-  entityIds: string[];
-  permissions: GranularPermission[];
-  authMethod: "OFFICE_PASSWORD_TOTP" | "WAREHOUSE_PIN";
-  deviceId: string | null;
-}
-
-export async function hashSecret(plain: string): Promise<string> {
-  return bcrypt.hash(plain, BCRYPT_ROUNDS);
-}
-
-export async function verifySecret(plain: string, hash: string): Promise<boolean> {
-  return bcrypt.compare(plain, hash);
-}
-
-/**
- * Encrypts a Base32 TOTP secret using AES-256-GCM (`@khidi/shared`) before storing in `users.totp_secret_encrypted`.
- * Format: `v1:<iv_hex>:<auth_tag_hex>:<ciphertext_hex>`
- */
-export function encryptTotpSecret(
-  plainBase32Secret: string,
-  explicitKey?: string,
-  env: NodeJS.ProcessEnv = process.env
-): string {
-  return encryptSecretAes256Gcm(plainBase32Secret, explicitKey, env);
-}
-
-/**
- * Decrypts `users.totp_secret_encrypted` using AES-256-GCM (`@khidi/shared`).
- */
-export function decryptTotpSecret(
-  encryptedPayload: string,
-  explicitKey?: string,
-  env: NodeJS.ProcessEnv = process.env
-): string {
-  return decryptSecretAes256Gcm(encryptedPayload, explicitKey, env);
-}
-
-export function generateTotpSecret(email: string): {
-  base32Secret: string;
-  encryptedSecret: string;
-  otpauthUri: string;
-} {
-  const secret = new OTPAuth.Secret({ size: 20 });
-  const totp = new OTPAuth.TOTP({
-    issuer: TOTP_ISSUER,
-    label: email,
-    algorithm: "SHA1",
-    digits: 6,
-    period: 30,
-    secret
-  });
-  return {
-    base32Secret: secret.base32,
-    encryptedSecret: encryptTotpSecret(secret.base32),
-    otpauthUri: totp.toString()
-  };
-}
-
-export function generateCurrentTotpToken(base32Secret: string, timestampMs: number = Date.now()): string {
-  const totp = new OTPAuth.TOTP({
-    issuer: TOTP_ISSUER,
-    algorithm: "SHA1",
-    digits: 6,
-    period: 30,
-    secret: OTPAuth.Secret.fromBase32(base32Secret)
-  });
-  return totp.generate({ timestamp: timestampMs });
-}
-
-export function verifyTotpCode(base32Secret: string, code: string, timestampMs: number = Date.now()): boolean {
-  const totp = new OTPAuth.TOTP({
-    issuer: TOTP_ISSUER,
-    algorithm: "SHA1",
-    digits: 6,
-    period: 30,
-    secret: OTPAuth.Secret.fromBase32(base32Secret)
-  });
-  const delta = totp.validate({ token: code.trim(), timestamp: timestampMs, window: 1 });
-  return delta !== null;
-}
-
-export function roleRequiresMandatoryTotp(role: UserRole): boolean {
-  return role === "ADMIN" || role === "STOCK_MANAGER";
+/** Known device tokens remain shared-browser markers even after device revocation. */
+export async function isWarehouseBrowser(db: DbExecutor, rawDeviceToken: string | undefined): Promise<boolean> {
+  if (!rawDeviceToken) return false;
+  return (await db.select({ id: registeredDevices.id }).from(registeredDevices).where(eq(registeredDevices.deviceTokenHash, sha256Hex(rawDeviceToken))).limit(1)).length > 0;
 }
 
 /**
@@ -215,40 +138,6 @@ export function assertPriceEditAccess(principal: AuthenticatedPrincipal): void {
   if (!canEditPrices(principal)) {
     throw new AppError("FORBIDDEN", `User ${principal.userId} is not permitted to edit prices.`);
   }
-}
-
-export async function loadPrincipalByUserId(
-  db: AppDatabase | DbExecutor,
-  userId: string,
-  authMethod: "OFFICE_PASSWORD_TOTP" | "WAREHOUSE_PIN" = "OFFICE_PASSWORD_TOTP",
-  deviceId: string | null = null
-): Promise<AuthenticatedPrincipal> {
-  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-  if (!user || !user.active || user.totpEnrollmentRequired) {
-    throw new AppError("UNAUTHORIZED", "User is not active or does not exist.");
-  }
-
-  const memberships = await db
-    .select()
-    .from(userEntityMemberships)
-    .where(eq(userEntityMemberships.userId, user.id));
-
-  const perms = await db
-    .select()
-    .from(userPermissions)
-    .where(eq(userPermissions.userId, user.id));
-
-  return {
-    userId: user.id,
-    email: user.email,
-    fullName: user.fullName,
-    role: user.role as UserRole,
-    locale: (user.locale as SupportedLocale) ?? "ka",
-    entityIds: memberships.map((m) => m.legalEntityId),
-    permissions: perms.map((p) => p.permissionKey as GranularPermission),
-    authMethod,
-    deviceId
-  };
 }
 
 async function recordAtomicOfficeLoginFailure(
@@ -366,6 +255,7 @@ export async function loginOfficeUser(
       userId: user.id,
       deviceId: null,
       authMethod: "OFFICE_PASSWORD_TOTP",
+      lastStrongAuthAt: roleRequiresMandatoryTotp(role) || user.totpEnabled || user.totpEnrollmentRequired ? new Date() : null,
       ipAddress: input.ipAddress ?? null,
       userAgent: input.userAgent ?? null,
       expiresAt
@@ -379,7 +269,7 @@ export async function loginOfficeUser(
     });
   });
 
-  const principal = await loadPrincipalByUserId(db, user.id, "OFFICE_PASSWORD_TOTP", null);
+  const principal = await verifySessionToken(db, rawSessionToken);
   return { sessionToken: rawSessionToken, principal };
 }
 
@@ -398,6 +288,7 @@ export async function registerWarehouseDevice(
   const deviceId = createUuidV7();
 
   await withDomainTransaction(db, { userId: adminPrincipal.userId }, async (ctx) => {
+    await assertRecentStrongAuth(ctx.tx, adminPrincipal);
     await ctx.tx.insert(registeredDevices).values({
       id: deviceId,
       deviceName: input.deviceName.trim(),
@@ -425,6 +316,7 @@ export async function revokeWarehouseDevice(
   assertRoleAllowed(adminPrincipal, ["ADMIN"]);
 
   await withDomainTransaction(db, { userId: adminPrincipal.userId }, async (ctx) => {
+    await assertRecentStrongAuth(ctx.tx, adminPrincipal);
     await ctx.tx
       .update(registeredDevices)
       .set({ active: false, revokedAt: new Date() })
@@ -526,7 +418,7 @@ export async function loginWithWarehousePin(
     });
   });
 
-  const principal = await loadPrincipalByUserId(db, user.id, "WAREHOUSE_PIN", device.id);
+  const principal = await verifySessionToken(db, rawSessionToken);
   return { sessionToken: rawSessionToken, principal };
 }
 
@@ -556,12 +448,13 @@ export async function verifySessionToken(
     }
   }
 
-  return loadPrincipalByUserId(
-    db,
-    session.userId,
-    session.authMethod as "OFFICE_PASSWORD_TOTP" | "WAREHOUSE_PIN",
-    session.deviceId
-  );
+  if (!["OFFICE_PASSWORD_TOTP", "OFFICE_PASSKEY", "WAREHOUSE_PIN"].includes(session.authMethod)) throw new AppError("UNAUTHORIZED", "Invalid session method.");
+  if (session.authMethod === "OFFICE_PASSKEY") {
+    const [key] = await db.select().from(userPasskeys).where(eq(userPasskeys.id, session.passkeyId!));
+    if (!key || key.revokedAt || key.userId !== session.userId) throw new AppError("UNAUTHORIZED", "Session credential revoked.");
+  }
+  const principal = await loadPrincipalByUserId(db, session.userId, session.authMethod as AuthMethod, session.deviceId);
+  return { ...principal, sessionId: session.id, lastStrongAuthAt: session.lastStrongAuthAt };
 }
 
 export async function revokeSessionToken(
@@ -658,6 +551,7 @@ export async function issueStorefrontApiKey(
   const id = createUuidV7();
 
   await withDomainTransaction(db, { userId: adminPrincipal.userId }, async (ctx) => {
+    await assertRecentStrongAuth(ctx.tx, adminPrincipal);
     await ctx.tx.insert(storefrontApiKeys).values({
       id,
       storefrontId: storefront.id,
