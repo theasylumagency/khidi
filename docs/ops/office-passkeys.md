@@ -78,7 +78,78 @@ Keep audit actions and internal row references only; never collect raw credentia
 challenge values, passwords, TOTP setup keys/URIs, or operating-system biometric data in logs,
 tickets or screenshots. Names and creation/last-use times are visible only to their owner.
 
-## Human rollout checklist (pending)
+## Passkey recovery guidance
+
+Registration and the account-wide credential list are separate. Any eligible personal
+browser can attempt another registration. The operating system chooses how to verify the
+user; Khidi does not label synced credentials as physically present on a particular device.
+
+Explicit **Cancel** before verification is shown inline and does not call the verification
+endpoint. Retry is a new click and fetches new options. A reported timeout, unsupported
+browser, verification rejection, network/server failure and expired recent proof have
+different safe messages. A platform `NotAllowedError` or interruption can have multiple
+causes; the dialog offers guidance without asserting that the user cancelled or the provider
+is disabled. Platform availability is used only as a capability hint. No OS settings link
+is guessed. The [Android guide](https://support.google.com/android/answer/14124480) and
+[Apple AutoFill](https://support.apple.com/en-us/120758) / [iCloud Keychain](https://support.apple.com/en-us/109016)
+describe where to check the manager manually; menu names vary by release/vendor. See the
+[WebAuthn recommendation](https://www.w3.org/TR/webauthn-3/) for the overlapping errors.
+
+## Idle expiry and the existing server
+
+[ADR-009](../adr/ADR-009-session-inactivity.md) defines **20 minutes office / 10 minutes
+warehouse PIN** idle, with the original **12 hours / 4 hours** absolute limits. Neither
+polling, foregrounding the PWA nor queue replay keeps a session alive. Activity is coalesced
+every 30 seconds. About a minute before expiry, use **სესიის გაგრძელება** to confirm with the
+server or **გასვლა**. At the absolute limit, save manually and sign in again. A disconnected
+page at the estimated deadline locks pending a connection; drafts remain in the open page
+until the server confirms whether it can continue. On confirmed expiry, sign in again with
+passkey or password/TOTP, or with PIN on the shared terminal. Already queued scans/photos
+stay on the device with their original owner; unsaved inputs are not stored or auto-submitted.
+
+The running `6997bbe` release already has migration `0013`. For this follow-up, after review:
+
+1. Keep the current release artifact and take the normal pre-update backup. Prepare the new
+   release with the same protected environment, DB roles, keys, RP and origin. In the release
+   checkout run `NODE_ENV=production corepack pnpm ops:check-config` **before** switching
+   the service. No additional environment values or queue deployment are needed for this
+   change. Never run tests, seeds or bootstrap on the shared server.
+2. Apply forward-only `0014_session_inactivity.sql` using the normal
+   `NODE_ENV=production corepack pnpm db:migrate` step with `hub_migrator`. Existing sessions
+   begin one idle window at migration time, still capped by the original absolute deadline.
+   The migration touches session metadata only; passkeys and encryption keys are preserved.
+3. Start the reviewed Hub using the gated start command and the existing `hub_app` account.
+   Confirm health, then close and reopen the PWA or reload tabs to pick up the new client.
+   Smoke-test both login modes before the demo. Cloudflare Access remains independent.
+
+For rollback, stop the new Hub and restart the saved `6997bbe` artifact with the same
+environment, **keeping `0014` applied**. The old binary ignores idle expiry, so before it
+accepts requests, have the authorized database operator expire the sessions that are already
+idle under the new policy. Verify the database target in the protected operator session and
+run the following while the Hub is stopped. It shortens only already idle sessions; it does
+not change passkeys, user accounts, queues or stored data:
+
+```sql
+WITH idle AS (
+  SELECT id, last_activity_at + CASE WHEN auth_method = 'WAREHOUSE_PIN'
+    THEN interval '10 minutes' ELSE interval '20 minutes' END AS idle_deadline
+  FROM sessions
+)
+UPDATE sessions s SET expires_at = idle.idle_deadline
+FROM idle
+WHERE s.id = idle.id AND idle.idle_deadline <= statement_timestamp()
+  AND s.expires_at > idle.idle_deadline;
+```
+
+This avoids reactivating idle-expired sessions while restoring the previous release's session
+policy for others. Do not drop the column, edit an applied migration, restore over newer
+business data or re-enroll existing keys as part of a code rollback.
+
+## Human rollout checklist
+
+The owner confirmed native registration and sign-in on physical Android and iPhone for
+`6997bbe`, including restoring Android registration by enabling its provider. Repeat the
+checks below on the reviewed follow-up release:
 
 - Android installed PWA: explicit registration, fingerprint/device PIN verification, logout,
   passkey sign-in, cancellation, fallback, rename and revoke; no password or OTP correction.
@@ -90,10 +161,14 @@ tickets or screenshots. Names and creation/last-use times are visible only to th
   no passkey creation or sign-in controls/API access while in shared browser/PIN context.
 - Optional-TOTP OPERATOR/ORDER_MANAGER: password-confirmed first setup, valid-code confirmation,
   explicit passkey enrollment. Existing TOTP cannot be reset through first setup.
+- On a disposable device/account, disable or change the credential manager, check the cautious
+  help and retry after restoring it. Confirm app Cancel is inline and retry opens a fresh prompt.
+- Office/warehouse: leave a form or scanner open, confirm a warning about 60 seconds before
+  20/10 minutes, continue while online, then let a session expire and sign in again. Check
+  app background/resume, two tabs, temporary loss of network, and retained scan/photo queues.
 
-Automated cryptographic and local virtual-authenticator tests cover application behavior;
-they do not certify physical device prompts or cross-device sync. No automatic deployment or
-merge is part of this task.
+Automated cryptographic and browser-flow tests do not certify physical OS prompts or
+cross-device sync. No automatic deployment or merge is part of this task.
 
 ## Implementation verification — 2026-11-05
 
@@ -133,3 +208,27 @@ One verification-only deviation: `packages/media/src/upload.test.ts` previously 
 arbitrary SKU with unordered `LIMIT 1`; a rerun selected a SKU archived by an earlier test and
 failed Class A review resolution. Its fixture now filters out archived SKUs. This changes no
 application logic, seed contents or real catalog data.
+
+## PR #9 follow-up verification — 2026-11-05
+
+- `pnpm typecheck`, `pnpm lint` (including dependency boundaries), and production build
+  passed. Rebuilt the Hub after the final dialog focus and privacy styling adjustments.
+- Full `pnpm test` twice (fresh PostgreSQL 18.4 `khidi_idle_verified_test`, then rerun):
+  **344 passed each**, one existing optional S3 test skipped (MinIO was not configured).
+  Coverage includes delayed and concurrent heartbeats, absolute expiry, no passive
+  renewal, tab identity, independent strong proof, passkey/PIN re-entry, safe error
+  classification, fresh retry and cancellation without verification.
+- On separate `khidi_idle_ui_test`, migrated a populated `0013` database to `0014` using
+  the migration runner; all 13 previous migrations were skipped and the old session's
+  absolute deadline was unchanged. Tested the rollback SQL there: an idle session stayed
+  expired, the active session retained its deadline, and both test passkeys were intact.
+- Local Chrome, built UI: signed in with password/TOTP, saw two synthetic keys alongside
+  the enabled add form, interrupted the local server to exercise registration feedback,
+  retried explicitly and closed with Escape without losing the entered name. Verified
+  the idle warning, server-confirmed Continue and automatic navigation to login with an
+  expiration notice. A real near-deadline response exposed a scheduling race; fixed it
+  and added a regression test. No real platform passkey was created in the browser.
+- Native provider-disabled behavior, biometrics, platform sync and installed-PWA return
+  on this build still require the physical-device checklist above. Browser simulation
+  and synthetic signatures are not evidence of native OS behavior. The running deployment
+  and its credentials were untouched.
