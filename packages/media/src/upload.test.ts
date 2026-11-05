@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import sharp from "sharp";
 import { loadPrincipalByUserId, type AuthenticatedPrincipal } from "@khidi/auth";
 import { auditLogs, getDb, idempotencyKeys, intakePhotoStatus, mediaJobs, productImages, productIntakes, scanTasks, skus, users } from "@khidi/db";
@@ -19,7 +19,8 @@ describe("P3 transactional photo intake", () => {
   beforeAll(async () => {
     const staff = await db.select().from(users);
     [admin, warehouse, operator] = await Promise.all(["ADMIN", "WAREHOUSE", "OPERATOR"].map((role) => loadPrincipalByUserId(db, staff.find((user) => user.role === role)!.id))) as [AuthenticatedPrincipal, AuthenticatedPrincipal, AuthenticatedPrincipal];
-    [skuId] = await db.select({ id: skus.id }).from(skus).limit(1).then((rows) => rows.map((row) => row.id));
+    // Review resolution requires a non-archived target, including on a full-suite rerun.
+    [skuId] = await db.select({ id: skus.id }).from(skus).where(ne(skus.lifecycleState, "ARCHIVED")).limit(1).then((rows) => rows.map((row) => row.id));
     bytes = await fixturePhoto();
   });
   afterEach(async () => {
