@@ -21,7 +21,8 @@
     "media:dev:init": "node --env-file-if-exists=.env --import tsx ops/minio-dev-init.ts",
     "media:storage": "node --env-file-if-exists=.env --import tsx ops/media-storage.ts",
     "media:restore": "node --env-file-if-exists=.env --import tsx ops/media-restore.ts",
-    "ops:bootstrap-admin": "node --env-file-if-exists=.env --import tsx ops/bootstrap-admin.ts"
+    "ops:bootstrap-admin": "node --env-file-if-exists=.env --import tsx ops/bootstrap-admin.ts",
+    "ops:recover-user": "node --env-file-if-exists=.env --import tsx ops/recover-user.ts"
   },
   "devDependencies": {
     "@types/node": "24.0.0",

@@ -4,9 +4,10 @@ import { z } from "zod";
 import { users, type DbExecutor } from "@khidi/db";
 import { withDomainTransaction } from "@khidi/domain";
 import { AppError, createUuidV7 } from "@khidi/shared";
+import { officePassword } from "./password-policy.ts";
 
 const bootstrapInput = z.object({ email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
-  fullName: z.string().trim().min(1).max(200), password: z.string().min(12).refine((value) => Buffer.byteLength(value, "utf8") <= 72) }).strict();
+  fullName: z.string().trim().min(1).max(200), password: officePassword }).strict();
 
 /** Operator-only entry point; no API route. Never changes an existing account. */
 export async function bootstrapFirstAdmin(db: DbExecutor, input: { email: string; fullName: string; password: string }) {

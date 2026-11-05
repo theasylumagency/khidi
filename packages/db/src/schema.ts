@@ -37,6 +37,7 @@ export const users = pgTable("users", {
   totpSecretEncrypted: text("totp_secret_encrypted"),
   totpEnabled: boolean("totp_enabled").notNull().default(false),
   totpEnrollmentRequired: boolean("totp_enrollment_required").notNull().default(false),
+  totpEverEnabled: boolean("totp_ever_enabled").notNull().default(false),
   failedLoginAttempts: integer("failed_login_attempts").notNull().default(0),
   loginLockedUntil: timestamp("login_locked_until", { withTimezone: true }),
   pinHash: text("pin_hash"),

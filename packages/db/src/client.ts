@@ -72,6 +72,12 @@ export function createMigratorPool(): pg.Pool {
   });
 }
 
+/** Operator tools own and close this connection; never use the runtime app pool. */
+export function connectMigratorDatabase() {
+  const pool = createMigratorPool();
+  return { db: drizzle(pool, { schema }), close: () => pool.end() };
+}
+
 export async function closeAppPool(): Promise<void> {
   if (appPoolSingleton) {
     await appPoolSingleton.end();
