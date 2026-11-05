@@ -6,6 +6,7 @@ import type { QualityConfig } from "@khidi/media/quality";
 import { t, type TranslationKey } from "@khidi/i18n";
 import { CameraShell, useParentCameraShell } from "./camera-shell.tsx";
 import { PhotoWorkflow, type CapturedPhoto, type SavedPhoto } from "../lib/photo-workflow.ts";
+import { recordSessionActivity } from "../lib/session-client.ts";
 
 export interface QueuedPhotoView extends SavedPhoto { blocked: boolean }
 function Thumbnail({ blob, label }: { blob?: Blob; label: string }) {
@@ -56,6 +57,7 @@ export function GuidedPhotoCapture(props: {
   };
   function selected(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0] ?? null; event.currentTarget.value = "";
+    if (file && event.nativeEvent.isTrusted && !disabled) recordSessionActivity();
     // receive() marks a real photo synchronously; cancelling a late duplicate still closes capture.
     if (!disabled) void workflow.receive(file);
     latest.current.onNativePending?.(false);

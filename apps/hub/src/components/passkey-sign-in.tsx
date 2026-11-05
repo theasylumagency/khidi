@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { t } from "@khidi/i18n";
 import { runPasskey } from "../lib/passkey-client.ts";
+import { passkeyErrorMessage } from "../lib/passkey-errors.ts";
 
 export function PasskeySignIn() {
   const [available, setAvailable] = useState(false), [busy, setBusy] = useState(false), [message, setMessage] = useState("");
@@ -14,7 +15,7 @@ export function PasskeySignIn() {
         await runPasskey("sign-in");
         navigator.serviceWorker?.controller?.postMessage({ type: "CLEAR_AUTH_CACHES" });
         window.location.assign("/");
-      } catch { setMessage(t("passkey.sign_in_failed")); }
+      } catch (error) { setMessage(`${passkeyErrorMessage(error)} ${t("passkey.fallback")}`); }
       finally { setBusy(false); }
     }}>{busy ? t("auth.checking") : t("passkey.sign_in")}</button>
     {message ? <p role="alert" className="auth-error">{message}</p> : null}

@@ -1,0 +1,10 @@
+.auth-dialog { width: min(32rem, calc(100% - 2rem)); max-height: calc(100% - 2rem); box-sizing: border-box; border: 1px solid #94a3b8; border-radius: 12px; color: #0f172a; padding: clamp(1rem, 4vw, 1.5rem); overflow: auto; }
+.auth-dialog::backdrop { background: #0f172a99; }
+.auth-dialog[data-obscured]::backdrop { background: #0f172a; }
+.auth-dialog h2 { font-size: 1.2rem; margin: 0 0 .75rem; }
+.auth-dialog p { line-height: 1.6; }
+.auth-dialog-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.auth-dialog button { min-height: 48px; font: inherit; padding: .65rem .85rem; border-radius: 8px; }
+.auth-dialog button:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
+.auth-dialog :disabled { opacity: .7; }
+.auth-expiry-banner { margin: 0; padding: .75rem 1.25rem; background: #fff7ed; color: #7c2d12; }

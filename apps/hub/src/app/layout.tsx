@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { formatStaffName, getNavigationForRole, t, type TranslationKey } from "@khidi/i18n";
 import { PwaRegister } from "../components/pwa-register.tsx";
 import { LogoutButton } from "../components/logout-button.tsx";
+import { SessionIdleMonitor } from "../components/session-idle-monitor.tsx";
 import { getCurrentPrincipal } from "../lib/session.ts";
 
 export const metadata: Metadata = {
@@ -45,6 +46,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         }}
       >
         <PwaRegister />
+        {principal?.sessionTiming ? <SessionIdleMonitor key={principal.sessionId} timing={principal.sessionTiming} /> : null}
         <header
           style={{
             backgroundColor: "#0f172a",
@@ -154,7 +156,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                 >
                   {formatStaffName(principal.fullName)} ({t(`scanning.role.${principal.role}` as TranslationKey)})
                 </span>
-                <LogoutButton />
+                {principal.sessionId ? <LogoutButton sessionId={principal.sessionId} /> : null}
                 {principal.authMethod !== "WAREHOUSE_PIN" && principal.role !== "WAREHOUSE" ? <Link href="/account/security" style={{ color: "#e2e8f0", padding: ".75rem" }}>{t("passkey.security_title")}</Link> : null}
               </nav>
             ) : (

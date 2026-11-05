@@ -3,6 +3,7 @@ import { useState, type FormEvent } from "react";
 import { t } from "@khidi/i18n";
 import { OfficePasswordField } from "./office-password-field.tsx";
 import { runPasskey, securityRequest } from "../lib/passkey-client.ts";
+import { passkeyErrorMessage } from "../lib/passkey-errors.ts";
 import "./office-login-form.css";
 
 export function StrongReauthentication({ sharedDevice = false, onSuccess }: { sharedDevice?: boolean; onSuccess(): void }) {
@@ -13,7 +14,7 @@ export function StrongReauthentication({ sharedDevice = false, onSuccess }: { sh
       if (passkey) await runPasskey("reauth");
       else await securityRequest("password-reauth", { password, totpCode: code });
       setPassword(""); setCode(""); onSuccess();
-    } catch { setMessage(t("passkey.reauth_failed")); }
+    } catch (error) { setMessage(passkey ? passkeyErrorMessage(error) : t("passkey.reauth_failed")); }
     finally { setBusy(false); }
   }
   return <form className="office-login security-reauth" onSubmit={(event: FormEvent) => { event.preventDefault(); void confirm(false); }}>
