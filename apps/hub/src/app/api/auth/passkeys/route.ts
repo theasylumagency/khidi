@@ -9,7 +9,7 @@ import { beginPasskeyCeremony, finishPasskeyCeremony, ownSecurityState, manageOw
 import { renderInternalQrSvg } from "@khidi/products/labels";
 import { getCurrentPrincipal, isSharedWarehouseBrowser, KHIDI_SESSION_COOKIE } from "../../../../lib/session.ts";
 import { assertSecurityOrigin } from "../../../../lib/security-origin.ts";
-import { QUICK_SIGN_IN_COOKIE, quickSignInCookieOptions, readQuickSignInPreference, signQuickSignInPreference } from "../../../../lib/quick-sign-in-cookie.ts";
+import { QUICK_SIGN_IN_COOKIE, QUICK_SIGN_IN_DEFERRED_COOKIE, quickSignInCookieOptions, readQuickSignInPreference, signQuickSignInPreference } from "../../../../lib/quick-sign-in-cookie.ts";
 
 const BINDING_COOKIE = "khidi_webauthn";
 const cookieOptions = { httpOnly: true, sameSite: "strict" as const, secure: process.env.NODE_ENV === "production", path: "/api/auth/passkeys", maxAge: 300 };
@@ -43,8 +43,15 @@ export async function POST(request: NextRequest) {
     finishing = action.endsWith("-verify");
     const principal = await getCurrentPrincipal(), sharedDevice = await isSharedWarehouseBrowser() || principal?.authMethod === "WAREHOUSE_PIN", db = getDb();
     if (!publicSignIn && (!principal || principal.authMethod === "WAREHOUSE_PIN" || principal.role === "WAREHOUSE")) throw new AppError("UNAUTHORIZED", "Office login required.");
-    const passkeyAction = ["register-options", "register-verify", "sign-in-options", "sign-in-verify", "reauth-options", "reauth-verify", "rename", "revoke"].includes(action);
+    const passkeyAction = ["register-options", "register-verify", "sign-in-options", "sign-in-verify", "reauth-options", "reauth-verify", "rename", "revoke", "defer-offer"].includes(action);
     if (passkeyAction && sharedDevice) throw new AppError("FORBIDDEN", "Passkeys unavailable on a warehouse browser.");
+
+    if (action === "defer-offer") {
+      if (!principal!.lastStrongAuthAt) throw new AppError("FORBIDDEN", "Strong sign-in required.");
+      const response = json({ ok: true });
+      response.cookies.set(QUICK_SIGN_IN_DEFERRED_COOKIE, signQuickSignInPreference("deferred", principal!.userId), quickSignInCookieOptions);
+      return response;
+    }
 
     if (["register-options", "sign-in-options", "reauth-options"].includes(action)) {
       const ceremony = action === "register-options" ? "REGISTER" : action === "reauth-options" ? "REAUTH" : "SIGN_IN";

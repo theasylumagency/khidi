@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { AppError } from "@khidi/shared";
-import { QUICK_SIGN_IN_COOKIE, readQuickSignInPreference, signQuickSignInPreference } from "../../../../lib/quick-sign-in-cookie.ts";
+import { QUICK_SIGN_IN_COOKIE, QUICK_SIGN_IN_DEFERRED_COOKIE, readQuickSignInPreference, signQuickSignInPreference } from "../../../../lib/quick-sign-in-cookie.ts";
 const mocks = vi.hoisted(() => ({ principal: vi.fn(), shared: vi.fn(), begin: vi.fn(), finish: vi.fn(), list: vi.fn(), manage: vi.fn(), reauth: vi.fn(), totp: vi.fn(), password: vi.fn() }));
 vi.mock("@khidi/db", () => ({ getDb: () => ({}) }));
 vi.mock("@khidi/auth", () => ({ beginPasskeyCeremony: mocks.begin, finishPasskeyCeremony: mocks.finish,
@@ -12,6 +12,7 @@ vi.mock("@khidi/domain", () => ({ executeIdempotent: async (_db: unknown, _optio
 import { GET, POST } from "./route.ts";
 const principal = { userId: "fixture", role: "ADMIN", authMethod: "OFFICE_PASSWORD_TOTP", sessionId: "session" };
 const keyId = "019a11a1-1111-7111-8111-111111111111";
+const userId = "019a11a1-1111-7111-8111-111111111112";
 function request(action: string, input = {}, headers: Record<string, string> = {}) {
   return new NextRequest("http://localhost:3100/api/auth/passkeys", { method: "POST", headers: { "Content-Type": "application/json", Origin: "http://localhost:3100", ...headers }, body: JSON.stringify({ action, ...input }) });
 }
@@ -70,6 +71,29 @@ it.each([false, true])("remembers the registered key without taking a name from 
   expect(response.status).toBe(200);
   expect(mocks.finish.mock.calls[0]?.[1]).not.toHaveProperty("displayName");
   expect(readQuickSignInPreference(response.cookies.get(QUICK_SIGN_IN_COOKIE)?.value)).toEqual({ mode: rememberName ? "named" : "key", id: keyId });
+  expect(response.cookies.has(QUICK_SIGN_IN_DEFERRED_COOKIE)).toBe(false);
+});
+it("only remembers an explicit deferral from the authenticated personal browser", async () => {
+  expect((await POST(request("defer-offer"))).status).toBe(401);
+  mocks.principal.mockResolvedValue({ ...principal, userId, lastStrongAuthAt: null });
+  expect((await POST(request("defer-offer"))).status).toBe(403);
+  mocks.principal.mockResolvedValue({ ...principal, userId, lastStrongAuthAt: new Date() });
+  expect((await POST(request("defer-offer", {}, { Origin: "https://other.example" }))).status).toBe(403);
+  mocks.shared.mockResolvedValueOnce(true);
+  expect((await POST(request("defer-offer"))).status).toBe(403);
+  const remembered = signQuickSignInPreference("named", keyId);
+  const response = await POST(request("defer-offer", { userId: "other-user" }, { Cookie: `${QUICK_SIGN_IN_COOKIE}=${remembered}` }));
+  expect(response.status).toBe(200);
+  expect(readQuickSignInPreference(response.cookies.get(QUICK_SIGN_IN_DEFERRED_COOKIE)?.value)).toEqual({ mode: "deferred", id: userId });
+  expect(response.cookies.has(QUICK_SIGN_IN_COOKIE)).toBe(false);
+});
+it("leaves the offer available after failed registration verification", async () => {
+  mocks.principal.mockResolvedValue(principal);
+  mocks.finish.mockRejectedValueOnce(new AppError("UNAUTHORIZED", "Verification failed"));
+  const response = await POST(request("register-verify", { challengeId: "fixture", response: {} }));
+  expect(response.status).toBe(401);
+  expect(response.cookies.has(QUICK_SIGN_IN_COOKIE)).toBe(false);
+  expect(response.cookies.has(QUICK_SIGN_IN_DEFERRED_COOKIE)).toBe(false);
 });
 it("clears the local quick-sign-in preference when its credential is revoked", async () => {
   mocks.principal.mockResolvedValue(principal);

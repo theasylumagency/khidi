@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { t } from "@khidi/i18n";
+import { t, type TranslationKey } from "@khidi/i18n";
 import { OfficePasswordField } from "./office-password-field.tsx";
 import { OfficeLoginForm } from "./office-login-form.tsx";
 import { StrongReauthentication } from "./strong-reauthentication.tsx";
@@ -14,6 +14,12 @@ import "./account-security.css";
 
 interface Key { id: string; displayName: string; registrationPlatform: string | null; createdAt: string; lastUsedAt: string | null }
 interface State { keys: Key[]; sharedDevice: boolean; totpEnabled: boolean; canStartTotp: boolean }
+type KeyAction = { id: string; action: "rename"; displayName: string } | { id: string; action: "revoke" };
+const platformLabels: Partial<Record<string, TranslationKey>> = {
+  IPHONE: "passkey.platform.iphone", IPAD: "passkey.platform.ipad", ANDROID: "passkey.platform.android",
+  WINDOWS: "passkey.platform.windows", MAC: "passkey.platform.mac", CHROMEOS: "passkey.platform.chromeos",
+  LINUX: "passkey.platform.linux", OTHER: "passkey.platform.other"
+};
 const dateFormatter = new Intl.DateTimeFormat(["ka-GE", "en-GB"], {
   timeZone: "Asia/Tbilisi", dateStyle: "short", timeStyle: "short", hourCycle: "h23"
 });
@@ -24,7 +30,7 @@ export function AccountSecurity({ email, sessionId, offer }: { email: string; se
   const [loadError, setLoadError] = useState(false);
   const [notice, setNotice] = useState<{ place: string; message: string; reauth?: boolean } | null>(null);
   const [password, setPassword] = useState(""), [newPassword, setNewPassword] = useState(""), [repeat, setRepeat] = useState("");
-  const [confirmKey, setConfirmKey] = useState<string | null>(null), [confirmTotp, setConfirmTotp] = useState(false);
+  const [keyAction, setKeyAction] = useState<KeyAction | null>(null), [confirmTotp, setConfirmTotp] = useState(false);
   const [enrollment, setEnrollment] = useState<{ email: string; password: string; enrollment: TotpEnrollment } | null>(null);
   async function refresh() {
     const response = await fetch("/api/auth/passkeys", { cache: "no-store", credentials: "same-origin" });
@@ -49,7 +55,7 @@ export function AccountSecurity({ email, sessionId, offer }: { email: string; se
   if (enrollment) return <OfficeLoginForm initialEnrollment={enrollment} beforeLogin={async () => {}}
     passkeysAllowed={!state?.sharedDevice} onAuthenticated={() => window.location.replace("/account/security")} />;
   if (offer && !state && !loadError) return <div className="auth-entry"><p role="status">{t("auth.checking")}</p></div>;
-  if (offer && state && !state.sharedDevice && !state.canStartTotp && state.keys.length === 0) {
+  if (offer && state && !state.sharedDevice && state.totpEnabled && state.keys.length === 0) {
     return <div className="auth-entry"><PasskeyRegistration offered needsTotp={false} locked={false}
       onBusyChange={setRegistering} onRegistered={() => window.location.replace("/")} /></div>;
   }
@@ -62,22 +68,50 @@ export function AccountSecurity({ email, sessionId, offer }: { email: string; se
       <section className="office-login">
         <h2>{t("passkey.keys_title")}</h2><p>{t("passkey.sync_help")}</p>
         {state.sharedDevice ? <p>{t("passkey.shared_unavailable")}</p> : <>
-          {!state.keys.length ? <p>{t("passkey.no_keys")}</p> : <div className="security-key-list">{state.keys.map((key) => <div className="security-key" key={key.id}>
-            <h3>{key.registrationPlatform === "OTHER" ? t("passkey.device_generic") : key.displayName}</h3>
-            {key.registrationPlatform === null ? <p>{t("passkey.device_unknown")}</p> : null}
-            <p>{t("passkey.created")}: {date(key.createdAt)} · {t("passkey.last_used")}: {date(key.lastUsedAt)}</p>
-            <div className="security-actions">
-              <button className="auth-secondary" type="button" disabled={disabled} onClick={() => setConfirmKey(key.id)}>{t("passkey.revoke")}</button>
-            </div>
-            {confirmKey === key.id ? <div role="group" aria-label={t("passkey.revoke")}><p>{t("passkey.revoke_warning")}</p>
-              <button type="button" disabled={disabled} onClick={() => void perform(key.id, async () => {
-                const result = await securityRequest("revoke", { id: key.id });
-                if (result.currentSessionRevoked) { await leaveSession(sessionId, false); return; }
-                await refresh(); setConfirmKey(null); setNotice({ place: "keys", message: t("passkey.revoked") });
-              })}>{t("passkey.confirm_revoke")}</button>
-              <button type="button" onClick={() => setConfirmKey(null)}>{t("passkey.keep")}</button></div> : null}
-            {feedback(key.id)}
-          </div>)}</div>}
+          {!state.keys.length ? <p>{t("passkey.no_keys")}</p> : <div className="security-key-list">{state.keys.map((key) => {
+            const active = keyAction?.id === key.id ? keyAction : null;
+            const platform = t(platformLabels[key.registrationPlatform ?? ""] ?? "passkey.platform.unknown");
+            return <div className="security-key" key={key.id}>
+              <h3>{key.displayName}</h3>
+              <p>{t("passkey.registration_platform")} · {platform}</p>
+              <p>{t("passkey.created")}: {date(key.createdAt)} · {t("passkey.last_used")}: {date(key.lastUsedAt)}</p>
+              {!active ? <div className="security-actions">
+                <button className="auth-secondary" type="button" disabled={disabled} onClick={() => {
+                  setNotice(null); setKeyAction({ id: key.id, action: "rename", displayName: key.displayName });
+                }}>{t("passkey.rename")}</button>
+                <button className="auth-secondary" type="button" disabled={disabled} onClick={() => {
+                  setNotice(null); setKeyAction({ id: key.id, action: "revoke" });
+                }}>{t("passkey.revoke")}</button>
+              </div> : null}
+              {active?.action === "rename" ? <form onSubmit={(event) => {
+                event.preventDefault();
+                const displayName = active.displayName.trim();
+                if (disabled || !displayName) return;
+                void perform(key.id, async () => {
+                  await securityRequest("rename", { id: key.id, displayName });
+                  await refresh(); setKeyAction(null); setNotice({ place: key.id, message: t("passkey.renamed") });
+                });
+              }}>
+                <label>{t("passkey.name")}<input required maxLength={100} autoComplete="off" autoFocus value={active.displayName} disabled={disabled}
+                  onChange={(event) => setKeyAction({ ...active, displayName: event.target.value })} /></label>
+                <div className="security-actions">
+                  <button className="auth-primary" type="submit" disabled={disabled || !active.displayName.trim()}>{t("passkey.save_name")}</button>
+                  <button className="auth-secondary" type="button" disabled={disabled} onClick={() => { setKeyAction(null); setNotice(null); }}>{t("auth.cancel")}</button>
+                </div>
+              </form> : null}
+              {active?.action === "revoke" ? <div role="group" aria-label={t("passkey.revoke")}><p>{t("passkey.revoke_warning")}</p>
+                <div className="security-actions">
+                  <button className="auth-primary" type="button" disabled={disabled} onClick={() => void perform(key.id, async () => {
+                    const result = await securityRequest("revoke", { id: key.id });
+                    if (result.currentSessionRevoked) { await leaveSession(sessionId, false); return; }
+                    await refresh(); setKeyAction(null); setNotice({ place: "keys", message: t("passkey.revoked") });
+                  })}>{t("passkey.confirm_revoke")}</button>
+                  <button className="auth-secondary" type="button" disabled={disabled} onClick={() => { setKeyAction(null); setNotice(null); }}>{t("passkey.keep")}</button>
+                </div>
+              </div> : null}
+              {feedback(key.id)}
+            </div>;
+          })}</div>}
           {feedback("keys")}
         </>}
       </section>

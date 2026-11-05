@@ -5,7 +5,7 @@ import { AppError } from "@khidi/shared";
 import { renderInternalQrSvg } from "@khidi/products/labels";
 import { t } from "@khidi/i18n";
 import { KHIDI_SESSION_COOKIE, isSharedWarehouseBrowser } from "../../../../lib/session.ts";
-import { QUICK_SIGN_IN_COOKIE, quickSignInCookieOptions, readQuickSignInPreference, signQuickSignInPreference } from "../../../../lib/quick-sign-in-cookie.ts";
+import { QUICK_SIGN_IN_COOKIE, QUICK_SIGN_IN_DEFERRED_COOKIE, quickSignInCookieOptions, readQuickSignInPreference } from "../../../../lib/quick-sign-in-cookie.ts";
 
 const json: typeof NextResponse.json = (body, init) => NextResponse.json(body, {
   ...init, headers: { ...init?.headers, "Cache-Control": "no-store" }
@@ -42,10 +42,11 @@ export async function POST(request: NextRequest) {
 
     const shared = await isSharedWarehouseBrowser();
     const preference = readQuickSignInPreference(request.cookies.get(QUICK_SIGN_IN_COOKIE)?.value);
-    const keys = !shared && (principal.lastStrongAuthAt || preference && preference.mode !== "offered")
+    const deferral = readQuickSignInPreference(request.cookies.get(QUICK_SIGN_IN_DEFERRED_COOKIE)?.value);
+    const keys = !shared && (principal.lastStrongAuthAt || preference)
       ? await listOwnPasskeys(db, principal) : [];
-    const offered = preference?.mode === "offered" && preference.id === principal.userId;
-    const offerPasskey = Boolean(principal.lastStrongAuthAt) && !shared && !keys.length && !offered;
+    const deferred = deferral?.mode === "deferred" && deferral.id === principal.userId;
+    const offerPasskey = Boolean(principal.lastStrongAuthAt) && !shared && !keys.length && !deferred;
     const response = json({
       ok: true,
       offerPasskey,
@@ -64,9 +65,7 @@ export async function POST(request: NextRequest) {
       path: "/",
       maxAge: 12 * 60 * 60
     });
-    if (offerPasskey) {
-      response.cookies.set(QUICK_SIGN_IN_COOKIE, signQuickSignInPreference("offered", principal.userId), quickSignInCookieOptions);
-    } else if (preference && (shared || (!offered && !keys.some((key) => key.id === preference.id)))) {
+    if (preference && !keys.some((key) => key.id === preference.id)) {
       response.cookies.set(QUICK_SIGN_IN_COOKIE, "", { ...quickSignInCookieOptions, maxAge: 0 });
     }
 

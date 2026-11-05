@@ -19,7 +19,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     getRegisteredDevicePinContext(), isSharedWarehouseBrowser(), cookies(), searchParams
   ]);
   const preference = sharedWarehouseDevice ? null : readQuickSignInPreference(cookieStore.get(QUICK_SIGN_IN_COOKIE)?.value);
-  const quickAccount = preference && preference.mode !== "offered" ? await getQuickSignInAccount(getDb(), preference.id) : null;
+  const quickAccount = preference && preference.mode !== "deferred" ? await getQuickSignInAccount(getDb(), preference.id) : null;
 
   return (
     <div style={{ display: "grid", gap: "1.5rem" }}>

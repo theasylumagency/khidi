@@ -2,7 +2,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { t } from "@khidi/i18n";
 import { classifyPasskeyError, passkeyErrorMessage, passkeyPlatform, SecurityActionError, type PasskeyIssue } from "../lib/passkey-errors.ts";
-import { runPasskey } from "../lib/passkey-client.ts";
+import { runPasskey, securityRequest } from "../lib/passkey-client.ts";
 import { AuthDialog } from "./auth-dialog.tsx";
 import { StrongReauthentication } from "./strong-reauthentication.tsx";
 
@@ -10,6 +10,7 @@ export function PasskeyRegistration({ needsTotp, locked, offered = false, onBusy
   needsTotp: boolean; locked: boolean; offered?: boolean; onBusyChange: (busy: boolean) => void; onRegistered: () => void;
 }) {
   const [rememberName, setRememberName] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   const [phase, setPhase] = useState<"prepare" | "prompt" | "verify" | null>(null);
   const [status, setStatus] = useState(""), [issue, setIssue] = useState<PasskeyIssue | null>(null);
   const [showHelp, setShowHelp] = useState(false), [reauth, setReauth] = useState(false);
@@ -19,7 +20,7 @@ export function PasskeyRegistration({ needsTotp, locked, offered = false, onBusy
   useEffect(() => () => attempt.current?.abort(), []);
 
   async function register() {
-    if (attempt.current || locked || needsTotp || reauth) return;
+    if (attempt.current || locked || needsTotp || reauth || leaving) return;
     const controller = new AbortController();
     attempt.current = controller; onBusyChange(true); setPhase("prepare"); setStatus(""); setIssue(null); setShowHelp(false);
     setPlatform(passkeyPlatform(navigator.userAgent, navigator.maxTouchPoints));
@@ -34,19 +35,27 @@ export function PasskeyRegistration({ needsTotp, locked, offered = false, onBusy
     } finally { attempt.current = null; onBusyChange(false); setPhase(null); }
   }
 
+  async function deferOffer() {
+    if (attempt.current || leaving) return;
+    setLeaving(true);
+    try { await securityRequest("defer-offer", {}, AbortSignal.timeout(3000)); }
+    catch { /* An unavailable preference endpoint must not block access to the Hub. */ }
+    window.location.replace("/");
+  }
+
   const title = t(offered ? "passkey.offer_title" : "passkey.enable");
   return <section className="office-login" aria-label={title}>
     {offered ? <h1>{title}</h1> : <h2>{title}</h2>}<p>{t("passkey.device_choice")}</p>
     {needsTotp ? <p><a href="#totp-settings">{t("passkey.enable_totp_first")}</a></p> : null}
-    <form className="auth-welcome-actions" onSubmit={(event) => { event.preventDefault(); void register(); }} aria-busy={phase !== null}>
+    <form className="auth-welcome-actions" onSubmit={(event) => { event.preventDefault(); void register(); }} aria-busy={phase !== null || leaving}>
       {!needsTotp ? <label className="quick-name-choice">
-        <input type="checkbox" checked={rememberName} onChange={(event) => setRememberName(event.target.checked)} disabled={!!phase || locked} />
+        <input type="checkbox" checked={rememberName} onChange={(event) => setRememberName(event.target.checked)} disabled={!!phase || locked || leaving} />
         {t("passkey.remember_name")}
       </label> : null}
-      <button ref={addButton} className="auth-primary" type="submit" disabled={!!phase || locked || needsTotp || reauth}>{t("passkey.add")}</button>
+      <button ref={addButton} className="auth-primary" type="submit" disabled={!!phase || locked || needsTotp || reauth || leaving}>{t("passkey.add")}</button>
       {phase && phase !== "verify" ? <button className="auth-secondary" type="button" onClick={() => attempt.current?.abort()}>{t("auth.cancel")}</button> : null}
     </form>
-    {offered && !phase ? <a className="auth-secondary auth-later" href="/">{t("passkey.later")}</a> : null}
+    {offered && !phase ? <button className="auth-secondary auth-later" type="button" disabled={leaving} onClick={() => void deferOffer()}>{t(leaving ? "auth.checking" : "passkey.later")}</button> : null}
     <p role="status" className="security-action-status">{phase ? t(phase === "prompt" ? "passkey.prompt" : "auth.checking") : status}</p>
     {reauth ? <StrongReauthentication onSuccess={() => { setReauth(false); setStatus(t("passkey.reauth_done")); }} /> : null}
     {issue ? <AuthDialog title={t("passkey.add_failed")} description={passkeyErrorMessage(new SecurityActionError(issue))} returnFocus={addButton} onClose={() => setIssue(null)}>

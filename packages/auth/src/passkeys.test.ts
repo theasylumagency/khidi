@@ -123,6 +123,9 @@ it("lists/manages only own credentials and revocation immediately invalidates pa
   expect((await listOwnPasskeys(a.db, a.principal)).map((k) => k.id)).toEqual([one.keyId]);
   await expect(manageOwnPasskey(a.db, a.principal, { id: two.keyId, action: "revoke" })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await manageOwnPasskey(a.db, a.principal, { id: one.keyId, action: "rename", displayName: "Renamed" });
+  expect(await listOwnPasskeys(a.db, a.principal)).toMatchObject([
+    { id: one.keyId, displayName: "Renamed", registrationPlatform: "IPHONE" }
+  ]);
   const signed = await signIn(a, one.key);
   const secondUse = await signIn(a, one.key, 2);
   expect(await getQuickSignInAccount(a.db, one.keyId)).toEqual({ fullName: "Passkey fixture" });

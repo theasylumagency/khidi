@@ -11,14 +11,16 @@ Khidi never receives fingerprint, face or device-PIN data. See [ADR-008](../adr/
 - The signed-out welcome page offers **შესვლა** for password/TOTP. A personal browser that
   has registered or used an active passkey puts **სწრაფი შესვლა** first. A registered warehouse
   browser puts **პირადი PIN-ით შესვლა** first.
-- After strong password/TOTP sign-in, an eligible personal browser offers **ჩართეთ სწრაფი
-  შესვლა** once for the remembered account when it has no active passkeys. **მოგვიანებით**
-  continues to the Hub. Setup remains available in **ანგარიშის უსაფრთხოება**. Verification
-  uses Face ID, fingerprint or device unlock code as offered by the operating system.
+- After strong password/TOTP sign-in, a supported personal browser offers **ჩართეთ სწრაფი
+  შესვლა** when the account has no active passkeys. **მოგვიანებით** continues to the Hub
+  and remembers the choice for this account in the browser for 180 days. An unavailable
+  authenticator, canceled verification or failed setup leaves the offer eligible at the next
+  sign-in. Setup remains available in **ანგარიშის უსაფრთხოება**. Verification uses Face ID,
+  fingerprint or device unlock code as offered by the operating system.
 - A new credential receives its name automatically from the coarse registration platform.
-  The security page shows the platform, creation date and last use. Older credentials retain
-  their labels, with registration platform shown as unknown. The platform is descriptive
-  metadata, never proof of hardware identity.
+  The security page lets the user rename it after recent strong proof and separately shows
+  the registration platform, creation date and last use. Older credentials retain their
+  labels, with registration platform shown as unknown. The platform is descriptive metadata.
 - **სწრაფი შესვლა** uses discoverable credentials; no email lookup is exposed publicly.
   Cancel or failure leaves password/TOTP fallback available. Account existence, revocation
   and internal verifier errors share one anonymous failure message.
