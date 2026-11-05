@@ -3,6 +3,7 @@ import { sessions, users, userPasskeys, type DbExecutor } from "@khidi/db";
 import { AppError } from "@khidi/shared";
 import { OFFICE_ROLES, type AuthenticatedPrincipal } from "./principal.ts";
 import { webauthnConfig } from "./webauthn-config.ts";
+import { sessionTiming } from "./session-timing.ts";
 
 /** Call inside the mutation transaction: lock user before session, as recovery does. */
 export async function requireOfficeSession(tx: DbExecutor, principal: AuthenticatedPrincipal) {
@@ -11,7 +12,8 @@ export async function requireOfficeSession(tx: DbExecutor, principal: Authentica
     || !user.email || !user.passwordHash || !principal.sessionId || principal.authMethod === "WAREHOUSE_PIN"
     || principal.role !== user.role) throw new AppError("FORBIDDEN", "An active office session is required.");
   const [session] = await tx.select().from(sessions).where(and(eq(sessions.id, principal.sessionId), eq(sessions.userId, user.id))).for("update");
-  if (!session || session.expiresAt <= new Date() || session.authMethod === "WAREHOUSE_PIN") throw new AppError("UNAUTHORIZED", "Office session expired.");
+  if (!session || session.authMethod === "WAREHOUSE_PIN") throw new AppError("UNAUTHORIZED", "Office session expired.");
+  sessionTiming(session);
   if (session.authMethod === "OFFICE_PASSKEY") {
     const [key] = session.passkeyId ? await tx.select().from(userPasskeys).where(eq(userPasskeys.id, session.passkeyId)) : [];
     if (!key || key.revokedAt || key.userId !== user.id) throw new AppError("UNAUTHORIZED", "Session credential revoked.");

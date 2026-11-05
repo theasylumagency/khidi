@@ -7,7 +7,7 @@ import {
   isWarehouseBrowser,
   type AuthenticatedPrincipal
 } from "@khidi/auth";
-import type { UserRole } from "@khidi/shared";
+import { AppError, type UserRole } from "@khidi/shared";
 
 export const KHIDI_SESSION_COOKIE = "khidi_session";
 export const KHIDI_DEVICE_COOKIE = "khidi_device_token";
@@ -17,7 +17,7 @@ export async function isSharedWarehouseBrowser(): Promise<boolean> {
   return isWarehouseBrowser(getDb(), cookieStore.get(KHIDI_DEVICE_COOKIE)?.value);
 }
 
-export async function getCurrentPrincipal(): Promise<AuthenticatedPrincipal | null> {
+export async function getCurrentPrincipal(options?: { throwOnUnavailable: boolean }): Promise<AuthenticatedPrincipal | null> {
   const cookieStore = await cookies();
   const rawToken = cookieStore.get(KHIDI_SESSION_COOKIE)?.value;
   if (!rawToken) {
@@ -27,7 +27,8 @@ export async function getCurrentPrincipal(): Promise<AuthenticatedPrincipal | nu
   try {
     const db = getDb();
     return await verifySessionToken(db, rawToken);
-  } catch {
+  } catch (error) {
+    if (options?.throwOnUnavailable && !(error instanceof AppError)) throw error;
     return null;
   }
 }

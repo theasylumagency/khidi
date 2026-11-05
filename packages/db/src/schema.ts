@@ -174,6 +174,7 @@ export const sessions = pgTable("sessions", {
   deviceId: uuid("device_id").references(() => registeredDevices.id, { onDelete: "cascade" }),
   authMethod: text("auth_method").notNull(), // 'OFFICE_PASSWORD_TOTP' | 'OFFICE_PASSKEY' | 'WAREHOUSE_PIN'
   lastStrongAuthAt: timestamp("last_strong_auth_at", { withTimezone: true }),
+  lastActivityAt: timestamp("last_activity_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
   passkeyId: uuid("passkey_id").references(() => userPasskeys.id, { onDelete: "restrict" }),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),

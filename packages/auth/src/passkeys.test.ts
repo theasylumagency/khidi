@@ -52,6 +52,17 @@ it("verifies real registration/assertion signatures, stores only credential esse
   expect(JSON.stringify(audits)).not.toContain(key.id);
 });
 
+it("lists multiple independent account keys and permits passkey sign-in again after inactivity", async () => {
+  const f = await fixture(), first = await registered(f), second = await registered(f);
+  expect((await listOwnPasskeys(f.db, f.principal)).map((key) => key.id)).toEqual([first.keyId, second.keyId]);
+  const signed = await signIn(f, first.key);
+  const principal = await verifySessionToken(f.db, signed.sessionToken!);
+  await f.db.update(sessions).set({ lastActivityAt: sql`clock_timestamp() - interval '20 minutes'` }).where(eq(sessions.id, principal.sessionId!));
+  await expect(verifySessionToken(f.db, signed.sessionToken!)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  const again = await signIn(f, second.key);
+  expect((await verifySessionToken(f.db, again.sessionToken!)).authMethod).toBe("OFFICE_PASSKEY");
+});
+
 it.each(["origin", "rp", "uv", "challenge", "binding", "expired", "cross-user", "type"])("rejects %s during registration", async (kind) => {
   const f = await fixture(), key = authenticator(), start = await beginPasskeyCeremony(f.db, "REGISTER", f.principal);
   if (kind === "expired") await f.db.update(webauthnChallenges).set({ createdAt: new Date(Date.now() - 600000), expiresAt: new Date(Date.now() - 1000) }).where(eq(webauthnChallenges.id, start.challengeId));

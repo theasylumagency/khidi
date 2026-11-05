@@ -1,6 +1,8 @@
 import { decryptTotpSecret, verifySecret, verifyTotpCode, generateTotpSecret, roleRequiresMandatoryTotp, TOTP_ISSUER } from "./credentials.ts";
 import { loadPrincipalByUserId, type AuthenticatedPrincipal, type AuthMethod } from "./principal.ts";
 import { assertRecentStrongAuth } from "./security-session.ts";
+import { sessionTiming, sessionIdleLimitMs, SESSION_ACTIVITY_INTERVAL_MS } from "./session-timing.ts";
+export type { SessionTiming } from "./session-timing.ts";
 export * from "./credentials.ts";
 export * from "./principal.ts";
 export * from "./security-session.ts";
@@ -12,7 +14,7 @@ export { securityRequestFingerprint } from "./security-fingerprint.ts";
 
 import { randomBytes } from "node:crypto";
 import * as OTPAuth from "otpauth";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   type AppDatabase,
   type DbExecutor,
@@ -433,9 +435,12 @@ export async function verifySessionToken(
     .where(eq(sessions.tokenHash, tokenHash))
     .limit(1);
 
-  if (!session || session.expiresAt <= new Date()) {
-    throw new AppError("UNAUTHORIZED", "Session expired or invalid.");
-  }
+  if (!session) throw new AppError("UNAUTHORIZED", "Session expired or invalid.");
+  return verifyStoredSession(db, session);
+}
+
+async function verifyStoredSession(db: DbExecutor, session: typeof sessions.$inferSelect): Promise<AuthenticatedPrincipal> {
+  sessionTiming(session);
 
   if (session.deviceId) {
     const [device] = await db
@@ -454,13 +459,35 @@ export async function verifySessionToken(
     if (!key || key.revokedAt || key.userId !== session.userId) throw new AppError("UNAUTHORIZED", "Session credential revoked.");
   }
   const principal = await loadPrincipalByUserId(db, session.userId, session.authMethod as AuthMethod, session.deviceId);
-  return { ...principal, sessionId: session.id, lastStrongAuthAt: session.lastStrongAuthAt };
+  return { ...principal, sessionId: session.id, lastStrongAuthAt: session.lastStrongAuthAt, sessionTiming: sessionTiming(session) };
+}
+
+/** A compare-and-set on disposable session metadata. A stale revision can read, but never renew. */
+export async function renewSessionActivity(db: DbExecutor, rawSessionToken: string, sessionId: string, lastActivityAtMs: number) {
+  return db.transaction(async (tx) => {
+    const [session] = await tx.select().from(sessions)
+      .where(and(eq(sessions.id, sessionId), eq(sessions.tokenHash, sha256Hex(rawSessionToken)))).for("update");
+    if (!session) throw new AppError("UNAUTHORIZED", "Session expired or invalid.");
+    const principal = await verifyStoredSession(tx, session);
+    if (session.lastActivityAt.getTime() !== lastActivityAtMs) return principal.sessionTiming!;
+    // This statement starts AFTER the row lock, so waiting cannot preserve an earlier timestamp.
+    const now = sql`statement_timestamp()`;
+    const idleMs = sessionIdleLimitMs(session.authMethod);
+    const [updated] = await tx.update(sessions).set({ lastActivityAt: now }).where(and(
+      eq(sessions.id, session.id),
+      sql`${sessions.expiresAt} > ${now}`,
+      sql`${sessions.lastActivityAt} > ${now} - (${idleMs} * interval '1 millisecond')`,
+      sql`${sessions.lastActivityAt} <= ${now} - (${SESSION_ACTIVITY_INTERVAL_MS} * interval '1 millisecond')`
+    )).returning();
+    return sessionTiming(updated ?? session);
+  });
 }
 
 export async function revokeSessionToken(
   db: AppDatabase | DbExecutor,
-  rawSessionToken: string
-): Promise<void> {
+  rawSessionToken: string,
+  expectedSessionId?: string
+): Promise<boolean> {
   const tokenHash = sha256Hex(rawSessionToken);
   const [session] = await db
     .select()
@@ -469,8 +496,9 @@ export async function revokeSessionToken(
     .limit(1);
 
   if (!session) {
-    return;
+    return false;
   }
+  if (expectedSessionId && expectedSessionId !== session.id) return false;
 
   await withDomainTransaction(db, { userId: session.userId }, async (ctx) => {
     await ctx.tx.delete(sessions).where(eq(sessions.id, session.id));
@@ -481,6 +509,7 @@ export async function revokeSessionToken(
       after: { sessionId: session.id, authMethod: session.authMethod }
     });
   });
+  return true;
 }
 
 /**

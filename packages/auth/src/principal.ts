@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { users, userEntityMemberships, userPermissions, type AppDatabase, type DbExecutor } from "@khidi/db";
 import { AppError, type UserRole, type GranularPermission, type SupportedLocale } from "@khidi/shared";
+import type { SessionTiming } from "./session-timing.ts";
 export type AuthMethod = "OFFICE_PASSWORD_TOTP" | "OFFICE_PASSKEY" | "WAREHOUSE_PIN";
 export const OFFICE_ROLES: UserRole[] = ["ADMIN", "STOCK_MANAGER", "OPERATOR", "ORDER_MANAGER"];
 export interface AuthenticatedPrincipal {
@@ -15,6 +16,7 @@ export interface AuthenticatedPrincipal {
   deviceId: string | null;
   sessionId?: string;
   lastStrongAuthAt?: Date | null;
+  sessionTiming?: SessionTiming;
 }
 export async function loadPrincipalByUserId(
   db: AppDatabase | DbExecutor,
