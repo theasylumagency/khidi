@@ -2,12 +2,12 @@ import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   evidence, productImages, productTypes, scanTasks, skuFieldProvenance, skus, users,
-  type DbExecutor, type EvidenceClaimSource, type EvidenceValue
+  type DbExecutor, type EvidenceClaimSource, type EvidenceValue, type ProductTypeAttributeFieldDef
 } from "@khidi/db";
 import { withDomainTransaction, type DomainActor, type DomainTransactionContext } from "@khidi/domain";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import {
-  allowsEvidencePdf, computeIdentity, evidenceSensitivity, evidenceStrength, EVIDENCE_TYPES, hasVerifiedDifference,
+  allowsEvidencePdf, computeIdentity, evidenceSensitivity, evidenceStrength, evidenceValuesDiffer, EVIDENCE_TYPES, hasVerifiedDifference,
   IDENTITY_KINDS, isDocumentAnchor, resolveEvidenceField, type IdentityKind, type ResolvedField
 } from "./rules.ts";
 
@@ -21,23 +21,27 @@ const canonicalUnits: Record<(typeof UNIVERSAL_EVIDENCE_FIELDS)[number], string>
   working_width_mm: "mm", working_depth_mm: "mm", weight_kg: "kg", volume_l: "L", pressure_bar: "bar",
   flow_l_min: "L/min", voltage_v: "V", current_a: "A"
 };
-export interface EvidenceFieldOption { key: string; label: string; dataType: string; unit?: string; values?: string[] }
+export interface EvidenceFieldOption { key: string; label: string; dataType: string; unit?: string; values?: string[]; observable?: boolean }
 export function evidenceFieldOptions(productType?: Pick<CatalogType, "attributeSchemaJson"> | null): EvidenceFieldOption[] {
   return [
     ...identityTextFields.map((key) => ({ key, label: key, dataType: "string" })),
     ...UNIVERSAL_EVIDENCE_FIELDS.map((key) => ({ key, label: key, dataType: "number", unit: canonicalUnits[key] })),
     ...(productType?.attributeSchemaJson ?? []).filter((field) => !identityTextFields.includes(field.key)
       && !UNIVERSAL_EVIDENCE_FIELDS.some((key) => key === field.key)).map((field) => ({
-      key: field.key, label: field.labelKa, dataType: field.dataType, unit: field.unit, values: field.enumValues
+      key: field.key, label: field.labelKa, dataType: field.dataType, unit: field.unit, values: field.enumValues, observable: field.observable
     }))
   ];
 }
 const identityTextFields = ["brand", "model_code", "manufacturer", "product_type"];
-const observableFields = new Set(["fuel_type", "wheel_type", "wheel_size", "transmission_gears", "start_type", "pto_shaft", "part_category", "shaft_type"]);
+const defaultObservableFields = new Set(["fuel_type", "wheel_type", "wheel_size", "transmission_gears", "start_type", "pto_shaft", "part_category", "shaft_type"]);
+export function withDefaultObservableAttributes(fields: readonly ProductTypeAttributeFieldDef[]) {
+  return fields.map((field) => field.observable === undefined && defaultObservableFields.has(field.key) ? { ...field, observable: true } : field);
+}
 const evidenceCaptureTypes = new Set(["PACKAGING_PHOTO", "PRODUCT_MARKING_PHOTO", "SUPPLIER_DOCUMENT", "MEASUREMENT"]);
 const uuid = z.string().uuid();
 const valueSchema = z.union([z.string().trim().min(1).max(400), z.number().finite(), z.boolean()]);
-const claimsSchema = z.record(z.string().regex(/^[a-z][a-z0-9_]{0,63}$/), valueSchema);
+const fieldKeySchema = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/);
+const claimsSchema = z.record(fieldKeySchema, valueSchema);
 const notesSchema = z.string().trim().min(1).max(4000);
 const evidenceInput = z.object({
   skuId: uuid, taskId: uuid.optional(), type: z.enum(EVIDENCE_TYPES), imageId: uuid.optional(),
@@ -45,7 +49,8 @@ const evidenceInput = z.object({
   documentNumber: z.string().trim().min(1).max(200).optional(), lineText: notesSchema.optional(),
   quantity: z.number().int().min(1).max(2147483647).optional(), notes: notesSchema.optional(),
   measurementUnit: z.string().trim().min(1).max(40).optional(), measurementMethod: notesSchema.optional(),
-  comparisonSkuId: uuid.optional(), claims: claimsSchema.default({}),
+  comparisonSkuId: uuid.optional(), comparisonImageId: uuid.optional(), comparisonClaims: claimsSchema.optional(),
+  claims: claimsSchema.default({}),
   supersedesEvidenceId: uuid.optional(), supersessionReason: notesSchema.optional()
 }).strict().refine((input) => !!input.supersedesEvidenceId === !!input.supersessionReason);
 
@@ -88,7 +93,7 @@ function validateClaims(claims: Record<string, EvidenceValue>, productType: Cata
     const definition = productType?.attributeSchemaJson.find((candidate) => candidate.key === field);
     const isUniversal = UNIVERSAL_EVIDENCE_FIELDS.some((candidate) => candidate === field);
     const isIdentity = identityTextFields.includes(field);
-    if (type === "ADMIN_PHYSICAL_INSPECTION" && !observableFields.has(field)) {
+    if (type === "ADMIN_PHYSICAL_INSPECTION" && (!definition?.observable || isUniversal || isIdentity)) {
       throw new AppError("VALIDATION_ERROR", "Physical inspection may state only observable facts.");
     }
     const valid = definition?.dataType === "enum" ? typeof value === "string" && definition.enumValues?.includes(value)
@@ -99,6 +104,33 @@ function validateClaims(claims: Record<string, EvidenceValue>, productType: Cata
   }
 }
 
+async function validateComparison(tx: DbExecutor, subject: CatalogSku, type: CatalogType | undefined, input: {
+  type: string; comparisonSkuId?: string | null; imageId?: string | null; comparisonImageId?: string | null;
+  claims: Record<string, EvidenceValue>; comparisonClaims?: Record<string, EvidenceValue> | null; notes?: string | null;
+}) {
+  if (!input.comparisonSkuId) {
+    if (input.comparisonClaims || input.comparisonImageId) throw new AppError("VALIDATION_ERROR", "Choose a SKU for comparison.");
+    return;
+  }
+  const compared = await loadSku(tx, input.comparisonSkuId);
+  if (input.type !== "ADMIN_PHYSICAL_INSPECTION" || !input.notes || subject.id === compared.id || !type
+    || compared.productTypeId !== type.id || [subject, compared].some((sku) => sku.lifecycleState === "ARCHIVED")) {
+    throw new AppError("VALIDATION_ERROR", "Compare two live SKUs of the same Product Type.");
+  }
+  const other = input.comparisonClaims ?? {};
+  validateClaims(other, type, input.type);
+  if (!Object.entries(other).some(([field, value]) => Object.hasOwn(input.claims, field) && evidenceValuesDiffer(input.claims[field]!, value))) {
+    throw new AppError("VALIDATION_ERROR", "Record a different observable value for the same field on both SKUs.");
+  }
+  if (!input.imageId || !input.comparisonImageId) throw new AppError("VALIDATION_ERROR", "Choose a verified photo of each SKU.");
+  const photos = await tx.select({ id: productImages.id, skuId: productImages.skuId }).from(productImages)
+    .where(and(inArray(productImages.id, [input.imageId, input.comparisonImageId]), eq(productImages.status, "VERIFIED")));
+  if (!photos.some((photo) => photo.id === input.imageId && photo.skuId === subject.id)
+    || !photos.some((photo) => photo.id === input.comparisonImageId && photo.skuId === compared.id)) {
+    throw new AppError("VALIDATION_ERROR", "Each verified photo must belong to the SKU it shows.");
+  }
+}
+
 async function findIndistinguishable(tx: DbExecutor, sku: CatalogSku, productType: CatalogType | undefined,
   fields: ReadonlyMap<string, { status: string; value: EvidenceValue | null }>) {
   if (!productType) return [];
@@ -106,21 +138,30 @@ async function findIndistinguishable(tx: DbExecutor, sku: CatalogSku, productTyp
     .where(and(eq(skus.productTypeId, productType.id), eq(skus.lifecycleState, "READY"), ne(skus.id, sku.id)));
   if (!peers.length) return [];
   const peerFields = await tx.select().from(skuFieldProvenance).where(inArray(skuFieldProvenance.skuId, peers.map((peer) => peer.id)));
-  const comparisons = await tx.select({ skuId: evidence.skuId, comparedSkuId: evidence.comparisonSkuId }).from(evidence)
-    .where(and(eq(evidence.type, "ADMIN_PHYSICAL_INSPECTION"), eq(evidence.status, "ACCEPTED"),
-      or(eq(evidence.skuId, sku.id), eq(evidence.comparisonSkuId, sku.id))));
-  return peers.filter((peer) => !comparisons.some((item) =>
-    (item.skuId === sku.id && item.comparedSkuId === peer.id) || (item.skuId === peer.id && item.comparedSkuId === sku.id))
-    && !hasVerifiedDifference(fields, new Map(peerFields.filter((field) => field.skuId === peer.id && !field.notDeterminableReason)
+  return peers.filter((peer) => !hasVerifiedDifference(fields, new Map(peerFields.filter((field) => field.skuId === peer.id && !field.notDeterminableReason)
       .map((field) => [field.fieldName, field]))));
 }
 
-export async function recomputeSkuIdentity(ctx: DomainTransactionContext, skuId: string) {
-  await lockIdentityCatalog(ctx.tx);
+async function loadSkuEvidenceSources(tx: DbExecutor, skuId: string) {
+  const items = await tx.select().from(evidence).where(or(eq(evidence.skuId, skuId), eq(evidence.comparisonSkuId, skuId)));
+  const photoIds = items.flatMap((item) => item.comparisonClaims && item.imageId && item.comparisonImageId
+    ? [item.imageId, item.comparisonImageId] : []);
+  const photos = photoIds.length ? await tx.select({ id: productImages.id, skuId: productImages.skuId }).from(productImages)
+    .where(and(inArray(productImages.id, photoIds), eq(productImages.status, "VERIFIED"))) : [];
+  const owners = new Map(photos.map((photo) => [photo.id, photo.skuId]));
+  return items.flatMap((item) => {
+    if (!item.comparisonClaims) return item.skuId === skuId ? [item] : [];
+    if (!item.imageId || !item.comparisonImageId || owners.get(item.imageId) !== item.skuId
+      || owners.get(item.comparisonImageId) !== item.comparisonSkuId) return [];
+    return item.skuId === skuId ? [item] : [{ ...item, claims: item.comparisonClaims, imageId: item.comparisonImageId }];
+  });
+}
+
+async function projectSkuIdentity(ctx: DomainTransactionContext, skuId: string) {
   const sku = await loadSku(ctx.tx, skuId);
   const [productType, items, priorFields, photos] = await Promise.all([
     loadType(ctx.tx, sku),
-    ctx.tx.select().from(evidence).where(eq(evidence.skuId, skuId)),
+    loadSkuEvidenceSources(ctx.tx, skuId),
     ctx.tx.select().from(skuFieldProvenance).where(eq(skuFieldProvenance.skuId, skuId)),
     ctx.tx.select({ slot: productImages.slot }).from(productImages)
       .where(and(eq(productImages.skuId, skuId), eq(productImages.status, "VERIFIED"), inArray(productImages.slot, ["MAIN", "SECONDARY"])))
@@ -151,6 +192,12 @@ export async function recomputeSkuIdentity(ctx: DomainTransactionContext, skuId:
       .onConflictDoUpdate({ target: [skuFieldProvenance.skuId, skuFieldProvenance.fieldName], set: nowVerified
         ? { ...projection, notDeterminableReason: null, decidedBy: null, decidedAt: null } : projection });
   }
+  return { sku, productType, items, photos, decisions, distinguishingAttributes, fields };
+}
+
+async function saveSkuIdentity(ctx: DomainTransactionContext, projection: Awaited<ReturnType<typeof projectSkuIdentity>>) {
+  const { sku, productType, items, photos, decisions, distinguishingAttributes, fields } = projection;
+  const skuId = sku.id;
   const duplicates = await findIndistinguishable(ctx.tx, sku, productType, fields);
   const result = computeIdentity({
     kind: sku.identityKind as IdentityKind, productTypeSet: !!productType?.active,
@@ -174,8 +221,34 @@ export async function recomputeSkuIdentity(ctx: DomainTransactionContext, skuId:
   return { ...result, fields, decisions, productType, duplicates, reverificationRequired };
 }
 
+async function recomputeSkuIdentities(ctx: DomainTransactionContext, ids: (string | null | undefined)[]) {
+  await lockIdentityCatalog(ctx.tx);
+  const projections = [];
+  for (const id of new Set(ids.filter((id): id is string => !!id))) projections.push(await projectSkuIdentity(ctx, id));
+  // Write both sets of fields before evaluating whether either SKU has a verified difference.
+  const results = [];
+  for (const projection of projections) results.push(await saveSkuIdentity(ctx, projection));
+  return results;
+}
+
+export async function recomputeSkuIdentity(ctx: DomainTransactionContext, skuId: string) {
+  return (await recomputeSkuIdentities(ctx, [skuId]))[0]!;
+}
+
+export async function recomputeIdentityAfterPhotoDecision(ctx: DomainTransactionContext, skuId: string, imageId: string) {
+  await lockIdentityCatalog(ctx.tx);
+  const comparisons = await ctx.tx.select({ skuId: evidence.skuId, comparisonSkuId: evidence.comparisonSkuId })
+    .from(evidence).where(and(ne(evidence.status, "REJECTED"), or(eq(evidence.imageId, imageId), eq(evidence.comparisonImageId, imageId))));
+  await recomputeSkuIdentities(ctx, [skuId, ...comparisons.flatMap((item) => [item.skuId, item.comparisonSkuId])]);
+}
+
 function evidenceReading(item: EvidenceRow) {
-  return { id: item.id, status: item.status, claims: item.claims, claimSources: item.claimSources };
+  return { id: item.id, status: item.status, claims: item.claims, claimSources: item.claimSources,
+    comparisonSkuId: item.comparisonSkuId, comparisonClaims: item.comparisonClaims, comparisonClaimSources: item.comparisonClaimSources };
+}
+
+function humanClaimSources(claims: Record<string, EvidenceValue>, userId: string) {
+  return Object.fromEntries(Object.keys(claims).map((field) => [field, { origin: "HUMAN" as const, userId }]));
 }
 
 async function evidenceChanged(ctx: DomainTransactionContext, item: EvidenceRow, action: string, reason?: string, previous?: EvidenceRow) {
@@ -184,7 +257,8 @@ async function evidenceChanged(ctx: DomainTransactionContext, item: EvidenceRow,
     after: { skuId: item.skuId, type: item.type, sensitivity: item.sensitivity, status: item.status,
       ...(previous ? evidenceReading(item) : {}) }, reason });
   await ctx.emitOutboxEvent({ eventType: "EVIDENCE_UPDATED", aggregateType: "evidence", aggregateId: item.id,
-    payload: { skuId: item.skuId, evidenceId: item.id, status: item.status },
+    payload: { skuId: item.skuId, evidenceId: item.id, status: item.status,
+      ...(item.comparisonSkuId ? { comparisonSkuId: item.comparisonSkuId } : {}) },
     consumers: action === "EVIDENCE_SUBMITTED" && item.imageId && item.sensitivity === "AI_ALLOWED" ? ["ai-discovery"] : [] });
 }
 
@@ -262,13 +336,6 @@ export async function submitSkuEvidence(
     if (input.type === "ADMIN_PHYSICAL_INSPECTION" && (!input.notes && !input.imageId)) {
       throw new AppError("VALIDATION_ERROR", "Physical inspection requires a photo or a note.");
     }
-    if (input.comparisonSkuId) {
-      const compared = await loadSku(ctx.tx, input.comparisonSkuId);
-      if (input.type !== "ADMIN_PHYSICAL_INSPECTION" || !input.notes || sku.id === compared.id
-        || !sku.productTypeId || compared.productTypeId !== sku.productTypeId || compared.lifecycleState === "ARCHIVED") {
-        throw new AppError("VALIDATION_ERROR", "Record an observable difference against a live SKU of the same Product Type.");
-      }
-    }
     const measurementField = evidenceFieldOptions(productType).find((field) => field.key === Object.keys(input.claims)[0]);
     if (input.type === "MEASUREMENT" && (!input.measurementMethod || !input.measurementUnit
       || measurementField?.unit !== input.measurementUnit || Object.values(input.claims).length !== 1
@@ -276,9 +343,11 @@ export async function submitSkuEvidence(
       throw new AppError("VALIDATION_ERROR", "Measurement requires one numeric value, a unit and a method.");
     }
     validateClaims(input.claims, productType, input.type);
+    await validateComparison(ctx.tx, sku, productType, input);
     const [item] = await ctx.tx.insert(evidence).values({
       ...input, id: createUuidV7(), authorId: author.id, authorRole: author.role,
-      claimSources: Object.fromEntries(Object.keys(input.claims).map((field) => [field, { origin: "HUMAN", userId: author.id }])),
+      claimSources: humanClaimSources(input.claims, author.id),
+      comparisonClaimSources: input.comparisonClaims ? humanClaimSources(input.comparisonClaims, author.id) : null,
       capturedAt: input.capturedAt ? new Date(input.capturedAt) : new Date(),
       sensitivity: evidenceSensitivity(input.type, !!input.imageId, !!attachment),
       privateStorageKey: attachment?.key, privateSha256: attachment?.sha256, privateMimeType: attachment?.mimeType
@@ -300,14 +369,14 @@ export async function submitSkuEvidence(
       }
     }
     await evidenceChanged(ctx, item!, "EVIDENCE_SUBMITTED");
-    await recomputeSkuIdentity(ctx, sku.id);
+    await recomputeSkuIdentities(ctx, [sku.id, item!.comparisonSkuId, superseded?.comparisonSkuId]);
     return item!;
   });
 }
 
 export async function reviewSkuEvidence(db: DbExecutor, actor: DomainActor, raw: unknown) {
   const parsed = z.object({ evidenceId: uuid, status: z.enum(["ACCEPTED", "REJECTED"]), reason: notesSchema,
-    claims: claimsSchema.optional(), confirmedAiFields: z.array(z.string()).optional(),
+    claims: claimsSchema.optional(), comparisonClaims: claimsSchema.optional(), confirmedAiFields: z.array(z.string()).optional(),
     documentNumber: z.string().trim().min(1).max(200).optional(),
     lineText: notesSchema.optional(), quantity: z.number().int().min(1).max(2147483647).optional() }).strict().safeParse(raw);
   if (!parsed.success || (parsed.data.status === "ACCEPTED" && !parsed.data.claims)) {
@@ -324,7 +393,7 @@ export async function reviewSkuEvidence(db: DbExecutor, actor: DomainActor, raw:
     }
     if (input.status === "REJECTED") {
       const rejected = await rejectEvidence(ctx, item, adminId, input.reason);
-      await recomputeSkuIdentity(ctx, item.skuId);
+      await recomputeSkuIdentities(ctx, [item.skuId, item.comparisonSkuId]);
       return rejected;
     }
     const sku = await loadSku(ctx.tx, item.skuId);
@@ -353,6 +422,14 @@ export async function reviewSkuEvidence(db: DbExecutor, actor: DomainActor, raw:
       }
     }
     validateClaims(claims, productType, item.type);
+    const comparisonClaims = input.comparisonClaims ?? item.comparisonClaims;
+    await validateComparison(ctx.tx, sku, productType, { ...item, claims, comparisonClaims });
+    const comparisonClaimSources = comparisonClaims && Object.fromEntries(Object.entries(comparisonClaims).map(([field, value]) => {
+      const previousSource = item.comparisonClaimSources?.[field];
+      const source: EvidenceClaimSource = previousSource && value === item.comparisonClaims?.[field]
+        ? previousSource : { origin: "HUMAN", userId: adminId };
+      return [field, source];
+    }));
     const [fieldName] = Object.keys(claims);
     if (item.type === "MEASUREMENT" && (Object.keys(claims).length !== 1 || !fieldName || !Object.hasOwn(item.claims, fieldName)
       || typeof claims[fieldName] !== "number" || !item.measurementUnit
@@ -367,10 +444,11 @@ export async function reviewSkuEvidence(db: DbExecutor, actor: DomainActor, raw:
     if (item.type === "SUPPLIER_DOCUMENT" && (!documentNumber || !lineText)) {
       throw new AppError("VALIDATION_ERROR", "Accepting a supplier document requires its number and the relevant line extract.");
     }
-    const [updated] = await ctx.tx.update(evidence).set({ claims, claimSources, status: input.status, decidedBy: adminId, decidedAt: new Date(),
+    const [updated] = await ctx.tx.update(evidence).set({ claims, claimSources, comparisonClaims, comparisonClaimSources,
+      status: input.status, decidedBy: adminId, decidedAt: new Date(),
       decisionReason: input.reason, documentNumber, lineText, quantity: input.quantity ?? item.quantity }).where(eq(evidence.id, item.id)).returning();
     await evidenceChanged(ctx, updated!, "EVIDENCE_ACCEPTED", input.reason, item);
-    await recomputeSkuIdentity(ctx, item.skuId);
+    await recomputeSkuIdentities(ctx, [item.skuId, item.comparisonSkuId]);
     return updated!;
   });
 }
@@ -438,7 +516,42 @@ export async function listSkuEvidence(db: DbExecutor, actor: DomainActor, skuId:
   ]);
   const resolved = new Map(fields.map((field) => [field.fieldName, field]));
   const comparisons = await findIndistinguishable(db, sku, productType, resolved);
-  return { sku, items, fields, productType, comparisons };
+  const comparisonPhotos = productType ? await db.select({ skuId: skus.id, internalSku: skus.internalSku,
+    imageId: productImages.id, slot: productImages.slot, sortOrder: productImages.sortOrder }).from(skus)
+    .innerJoin(productImages, eq(productImages.skuId, skus.id))
+    .where(and(eq(skus.productTypeId, productType.id), ne(skus.id, skuId), ne(skus.lifecycleState, "ARCHIVED"),
+      eq(productImages.status, "VERIFIED"))) : [];
+  const incomingComparisons = await db.select({ id: evidence.id, skuId: evidence.skuId }).from(evidence)
+    .where(eq(evidence.comparisonSkuId, skuId));
+  return { sku, items, fields, productType, comparisons, comparisonPhotos, incomingComparisons };
+}
+
+export async function registerObservableAttribute(db: DbExecutor, actor: DomainActor, raw: unknown) {
+  const parsed = z.object({ productTypeId: uuid, key: fieldKeySchema, labelKa: z.string().trim().min(1).max(120),
+    labelEn: z.string().trim().min(1).max(120), dataType: z.enum(["string", "boolean", "number"]).default("string"), reason: notesSchema })
+    .strict().safeParse(raw);
+  if (!parsed.success) throw new AppError("VALIDATION_ERROR", "A field key, labels, and reason are required.");
+  const { productTypeId, key, labelKa, labelEn, dataType, reason } = parsed.data;
+  if (identityTextFields.includes(key) || UNIVERSAL_EVIDENCE_FIELDS.some((field) => field === key)) {
+    throw new AppError("VALIDATION_ERROR", "Physical inspection cannot replace identity or measurement evidence.");
+  }
+  return withDomainTransaction(db, actor, async (ctx) => {
+    await lockIdentityCatalog(ctx.tx);
+    await requireEvidenceAdmin(ctx.tx, actor);
+    const [type] = await ctx.tx.select().from(productTypes).where(and(eq(productTypes.id, productTypeId), eq(productTypes.active, true)));
+    if (!type) throw new AppError("NOT_FOUND", "Active Product Type not found.");
+    const previous = type.attributeSchemaJson.find((field) => field.key === key);
+    if (previous?.observable) throw new AppError("CONFLICT", "This field is already observable.");
+    const field: ProductTypeAttributeFieldDef = previous ? { ...previous, observable: true }
+      : { key, labelKa, labelEn, dataType, observable: true, tier: "OPTIONAL_SPEC", filterCandidate: false };
+    const attributes = previous ? type.attributeSchemaJson.map((entry) => entry.key === key ? field : entry)
+      : [...type.attributeSchemaJson, field];
+    await ctx.tx.update(productTypes).set({ attributeSchemaJson: attributes, updatedAt: new Date() }).where(eq(productTypes.id, type.id));
+    await ctx.recordAudit({ action: "PRODUCT_TYPE_OBSERVABLE_ATTRIBUTE_REGISTERED", entityType: "product_type", entityId: type.id,
+      before: { field: previous ?? null }, after: { field }, reason });
+    await ctx.emitOutboxEvent({ eventType: "PRODUCT_UPDATED", aggregateType: "product_type", aggregateId: type.id,
+      payload: { observableAttribute: key }, consumers: [] });
+  });
 }
 
 export async function classifySkuProductType(db: DbExecutor, actor: DomainActor, skuId: string, productTypeId: string, reason: string) {

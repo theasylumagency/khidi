@@ -139,6 +139,10 @@ READY requires HIGH, or MEDIUM with an explicit admin confirmation at the READY 
   adding evidence that verifies a differing distinguishing attribute; or recording an
   `ADMIN_PHYSICAL_INSPECTION` that documents an observable difference. Example: SKU A has
   7 HP VERIFIED, SKU B has unknown power and no other verified difference → B is blocked.
+- A comparison inspection records different readings for at least one shared observable field
+  and links one verified photo of each SKU. An admin registers new observable fields on the
+  Product Type with an audit reason. The inspection contributes normal evidence to both
+  SKUs, so a difference only counts when their field projections verify it.
 - A distinguishing attribute marked "not determinable" is shown nowhere publicly and is never
   inferred from similar products.
 

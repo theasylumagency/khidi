@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { expect, it } from "vitest";
-import { auditLogs, evidence, getDb, legalEntities, outboxEvents, productImages, skus, users } from "@khidi/db";
-import { decideSkuEvidenceField, getStorefrontIdentityFacts, reviewSkuEvidence, submitSkuEvidence } from "@khidi/evidence";
+import { auditLogs, evidence, getDb, legalEntities, outboxEvents, productImages, skuFieldProvenance, skus, users } from "@khidi/db";
+import { decideSkuEvidenceField, getStorefrontIdentityFacts, registerObservableAttribute, reviewSkuEvidence, submitSkuEvidence } from "@khidi/evidence";
 import { createUuidV7 } from "@khidi/shared";
 import { createSkuDraft, getProductTypeByKey, transitionSkuLifecycle, transitionSkuToReady, upsertAccountingMapping, upsertProductType } from "./index.ts";
 
@@ -83,18 +83,49 @@ it("promotes a document-free SKU with explicit MEDIUM confirmation and flags a l
   expect(ready.canonicalSlug).not.toContain("kh-");
   const second = await createCandidate();
   await expect(transitionSkuToReady(db, actor, second.id, { humanConfirmedMediumConfidence: true })).rejects.toMatchObject({ code: "CONFLICT" });
-  const observed = await submitSkuEvidence(db, actor, { skuId: second.id, type: "ADMIN_PHYSICAL_INSPECTION", comparisonSkuId: first.id,
-    notes: "The second machine has an observable different mounting plate.", claims: {} });
-  await reviewSkuEvidence(db, actor, { evidenceId: observed.id, status: "ACCEPTED", reason: "Observed both machines", claims: {} });
+  const [firstPhoto] = await db.select().from(productImages).where(and(eq(productImages.skuId, first.id), eq(productImages.slot, "MAIN")));
+  const [secondPhoto] = await db.select().from(productImages).where(and(eq(productImages.skuId, second.id), eq(productImages.slot, "MAIN")));
+  const comparison = { skuId: second.id, type: "ADMIN_PHYSICAL_INSPECTION", comparisonSkuId: first.id,
+    imageId: secondPhoto!.id, comparisonImageId: firstPhoto!.id, notes: "Observed the mounting plates on both machines." };
+  for (const claims of [{}, { wheel_type: "RUBBER" }]) {
+    await expect(submitSkuEvidence(db, actor, { ...comparison, claims, comparisonClaims: claims }))
+      .rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  }
+  await expect(db.insert(evidence).values({ ...comparison, id: createUuidV7(), authorId: actor.userId, authorRole: "ADMIN",
+    sensitivity: "INTERNAL_ONLY", capturedAt: new Date(), claims: { wheel_type: "RUBBER" },
+    comparisonClaims: { wheel_type: "RUBBER" }, comparisonClaimSources: {} })).rejects.toThrow(/different observable values/);
+  await expect(transitionSkuToReady(db, actor, second.id, { humanConfirmedMediumConfidence: true })).rejects.toMatchObject({ code: "CONFLICT" });
+  const claims = { mounting_pattern: "Curved" }, comparisonClaims = { mounting_pattern: "Straight" };
+  await expect(submitSkuEvidence(db, actor, { ...comparison, claims, comparisonClaims })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  await registerObservableAttribute(db, actor, { productTypeId: type.id, key: "mounting_pattern", labelKa: "სამაგრის ფორმა",
+    labelEn: "Mounting pattern", reason: "The shape is visible on both machines." });
+  expect(await db.select().from(auditLogs).where(and(eq(auditLogs.entityId, type.id),
+    eq(auditLogs.action, "PRODUCT_TYPE_OBSERVABLE_ATTRIBUTE_REGISTERED")))).toHaveLength(1);
+  await expect(submitSkuEvidence(db, actor, { ...comparison, comparisonImageId: secondPhoto!.id, claims, comparisonClaims }))
+    .rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  const observed = await submitSkuEvidence(db, actor, { ...comparison, claims, comparisonClaims });
+  await expect(transitionSkuToReady(db, actor, second.id, { humanConfirmedMediumConfidence: true })).rejects.toMatchObject({ code: "CONFLICT" });
+  const review = { evidenceId: observed.id, status: "ACCEPTED", reason: "Observed both machines", claims };
+  await expect(reviewSkuEvidence(db, actor, { ...review, comparisonClaims: { mounting_pattern: " curved " } }))
+    .rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  await reviewSkuEvidence(db, actor, { ...review, comparisonClaims });
+  const projected = await db.select().from(skuFieldProvenance).where(eq(skuFieldProvenance.fieldName, "mounting_pattern"));
+  expect(projected).toEqual(expect.arrayContaining([
+    expect.objectContaining({ skuId: first.id, value: "Straight", status: "VERIFIED", evidenceIds: [observed.id] }),
+    expect.objectContaining({ skuId: second.id, value: "Curved", status: "VERIFIED", evidenceIds: [observed.id] })
+  ]));
   expect(await transitionSkuToReady(db, actor, second.id, { humanConfirmedMediumConfidence: true, customCanonicalSlug: "mount-b" }))
     .toMatchObject({ lifecycleState: "READY", identityConfidence: "MEDIUM" });
 
   const contradictory = await submitSkuEvidence(db, actor, { skuId: first.id, type: "STAFF_STATEMENT", claims: { wheel_type: "IRON" } });
   const [flagged] = await db.select().from(skus).where(eq(skus.id, first.id));
   expect(flagged).toMatchObject({ lifecycleState: "READY", canonicalSlug: ready.canonicalSlug, identityConfidence: "CONFLICT", reverificationRequired: true });
-  expect(await getStorefrontIdentityFacts(db, first.id)).toEqual({ identityConflict: true, fields: {} });
+  expect(await getStorefrontIdentityFacts(db, first.id)).toEqual({ identityConflict: true, fields: { mounting_pattern: "Straight" } });
   expect(await db.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, first.id), eq(outboxEvents.eventType, "PRODUCT_REVIEW_REQUIRED"))))
     .toHaveLength(1);
   await reviewSkuEvidence(db, actor, { evidenceId: contradictory.id, status: "REJECTED", reason: "Observed rubber wheels" });
-  expect(await getStorefrontIdentityFacts(db, first.id)).toEqual({ identityConflict: false, fields: { wheel_type: "RUBBER" } });
+  expect(await getStorefrontIdentityFacts(db, first.id)).toEqual({ identityConflict: false, fields: { wheel_type: "RUBBER", mounting_pattern: "Straight" } });
+  await reviewSkuEvidence(db, actor, { evidenceId: observed.id, status: "REJECTED", reason: "Comparison requires a new inspection." });
+  expect((await getStorefrontIdentityFacts(db, first.id)).fields).toEqual({ wheel_type: "RUBBER" });
+  expect((await getStorefrontIdentityFacts(db, second.id)).fields).toEqual({ wheel_type: "RUBBER" });
 });

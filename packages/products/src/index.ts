@@ -23,7 +23,7 @@ import {
   users
 } from "@khidi/db";
 import { type DomainActor, withDomainTransaction } from "@khidi/domain";
-import { lockIdentityCatalog, recomputeSkuIdentity, UNIVERSAL_EVIDENCE_FIELDS } from "@khidi/evidence";
+import { lockIdentityCatalog, recomputeSkuIdentity, UNIVERSAL_EVIDENCE_FIELDS, withDefaultObservableAttributes } from "@khidi/evidence";
 import { queueMediaJob } from "@khidi/media";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import {
@@ -175,7 +175,7 @@ export async function seedTaxonomyAndProductTypes(db: AppDatabase | DbExecutor):
         defaultCategoryId,
         nameKa: typeDef.nameKa,
         nameEn: typeDef.nameEn,
-        attributeSchemaJson: [...typeDef.attributeSchema],
+        attributeSchemaJson: withDefaultObservableAttributes(typeDef.attributeSchema),
         photoInstructionsJson: [...typeDef.photoInstructions],
         namingTemplateKa: typeDef.namingTemplateKa,
         namingTemplateEn: typeDef.namingTemplateEn,
@@ -283,7 +283,7 @@ export async function upsertProductType(
           defaultCategoryId: input.defaultCategoryId,
           nameKa: input.nameKa.trim(),
           nameEn: input.nameEn.trim(),
-          attributeSchemaJson: input.attributeSchemaJson,
+          attributeSchemaJson: withDefaultObservableAttributes(input.attributeSchemaJson),
           photoInstructionsJson: input.photoInstructionsJson,
           namingTemplateKa:
             input.namingTemplateKa ?? "[Brand] [Model] — [Product Type], [Key differentiator]",
@@ -325,7 +325,7 @@ export async function upsertProductType(
         defaultCategoryId: input.defaultCategoryId,
         nameKa: input.nameKa.trim(),
         nameEn: input.nameEn.trim(),
-        attributeSchemaJson: input.attributeSchemaJson,
+        attributeSchemaJson: withDefaultObservableAttributes(input.attributeSchemaJson),
         photoInstructionsJson: input.photoInstructionsJson,
         namingTemplateKa:
           input.namingTemplateKa ?? "[Brand] [Model] — [Product Type], [Key differentiator]",

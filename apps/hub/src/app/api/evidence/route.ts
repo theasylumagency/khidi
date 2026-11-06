@@ -4,7 +4,7 @@ import { getDb } from "@khidi/db";
 import { assertRoleAllowed } from "@khidi/auth";
 import { executeIdempotent } from "@khidi/domain";
 import {
-  classifySkuProductType, decideSkuEvidenceField, reviewSkuEvidence, setSkuIdentityKind, submitSkuEvidence,
+  classifySkuProductType, decideSkuEvidenceField, registerObservableAttribute, reviewSkuEvidence, setSkuIdentityKind, submitSkuEvidence,
   type IdentityKind
 } from "@khidi/evidence";
 import { getMediaStorage, MAX_PHOTO_BYTES, storeEvidenceAttachment } from "@khidi/media";
@@ -66,6 +66,7 @@ export async function POST(request: Request) {
       else if (action === "field") await decideSkuEvidenceField(tx, actor, input);
       else if (action === "identity-kind") await setSkuIdentityKind(tx, actor, String(input.skuId), input.kind as IdentityKind, String(input.reason ?? ""));
       else if (action === "classify") await classifySkuProductType(tx, actor, String(input.skuId), String(input.productTypeId), String(input.reason ?? ""));
+      else if (action === "register-observable") await registerObservableAttribute(tx, actor, input);
       else if (action === "distinguishing") {
         const productType = (await listProductTypes(tx)).find((type) => type.id === input.productTypeId);
         if (!productType || !Array.isArray(input.fields) || !input.fields.every((field) => typeof field === "string")

@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
 import { type DbExecutor, imageMasterVersions, productImages } from "@khidi/db";
 import { executeIdempotent, withDomainTransaction } from "@khidi/domain";
-import { lockIdentityCatalog, recomputeSkuIdentity } from "@khidi/evidence";
+import { lockIdentityCatalog, recomputeIdentityAfterPhotoDecision } from "@khidi/evidence";
 import { AppError, sha256Hex } from "@khidi/shared";
 import { uuidV7 } from "./contracts.ts";
 import { assertMediaPrincipal } from "./principal.ts";
@@ -58,7 +58,7 @@ export async function manageImage(db: DbExecutor, principal: AuthenticatedPrinci
       await queueMediaJob(ctx, "process-image", { imageId: image.id, imageVersion: changes.requestedVersion }, `process-image:${image.id}:${changes.requestedVersion}`);
     }
     await ctx.tx.update(productImages).set(changes).where(eq(productImages.id, image.id));
-    if (image.skuId && (input.action === "VERIFY" || input.action === "REJECT")) await recomputeSkuIdentity(ctx, image.skuId);
+    if (image.skuId && (input.action === "VERIFY" || input.action === "REJECT")) await recomputeIdentityAfterPhotoDecision(ctx, image.skuId, image.id);
     if (image.intakeId && ["VERIFY", "REJECT"].includes(input.action)) await refreshIntakePhotoStatus(ctx, image.intakeId);
     if (image.skuId) await queueMediaJob(ctx, "publish-sku-media", { skuId: image.skuId });
     const body = { id: image.id, status: changes.status ?? image.status, requestedVersion: changes.requestedVersion ?? image.requestedVersion };

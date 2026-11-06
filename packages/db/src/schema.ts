@@ -289,6 +289,7 @@ export interface ProductTypeAttributeFieldDef {
   dataType: "string" | "number" | "boolean" | "enum";
   tier: "REQUIRED_IDENTITY" | "IMPORTANT_SPEC" | "OPTIONAL_SPEC";
   filterCandidate: boolean;
+  observable?: boolean;
   unit?: string;
   enumValues?: string[];
 }
@@ -683,6 +684,9 @@ export const evidence = pgTable("evidence", {
   measurementMethod: text("measurement_method"),
   notes: text("notes"),
   comparisonSkuId: uuid("comparison_sku_id").references(() => skus.id),
+  comparisonImageId: uuid("comparison_image_id").references(() => productImages.id, { onDelete: "restrict" }),
+  comparisonClaims: jsonb("comparison_claims_json").$type<Record<string, EvidenceValue>>(),
+  comparisonClaimSources: jsonb("comparison_claim_sources_json").$type<Record<string, EvidenceClaimSource>>(),
   claims: jsonb("claims_json").$type<Record<string, EvidenceValue>>().notNull().default({}),
   claimSources: jsonb("claim_sources_json").$type<Record<string, EvidenceClaimSource>>().notNull().default({}),
   decidedBy: uuid("decided_by").references(() => users.id),

@@ -65,6 +65,10 @@ function comparable(value: EvidenceValue) {
   return typeof value === "string" ? value.normalize("NFKC").trim().replace(/\s+/g, " ").toUpperCase() : value;
 }
 
+export function evidenceValuesDiffer(left: EvidenceValue, right: EvidenceValue) {
+  return comparable(left) !== comparable(right);
+}
+
 export function resolveEvidenceField(field: string, items: readonly EvidenceFactSource[], decision?: FieldDecision): ResolvedField {
   const candidates = items.filter((item) => item.status !== "REJECTED" && Object.hasOwn(item.claims, field))
     .sort((a, b) => a.id.localeCompare(b.id));
@@ -95,7 +99,7 @@ export function hasVerifiedDifference(
   for (const [field, a] of left) {
     const b = right.get(field);
     if (a.status === "VERIFIED" && b?.status === "VERIFIED" && a.value !== null && b.value !== null
-      && comparable(a.value) !== comparable(b.value)) return true;
+      && evidenceValuesDiffer(a.value, b.value)) return true;
   }
   return false;
 }
