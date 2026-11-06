@@ -114,11 +114,12 @@ export function computeIdentity(input: {
   });
   const evidenceIds = fields.flatMap((field) => field?.evidenceIds ?? []);
   if (fields.some((field) => field?.status === "CONFLICT")) return confidence("CONFLICT", evidenceIds);
+  if (!input.unique) return confidence("LOW", evidenceIds);
   if (input.kind === "MANUFACTURER_IDENTIFIED") {
     if (fields.some((field) => field?.status !== "VERIFIED")) return confidence("LOW", evidenceIds);
     return confidence(fields.some((field) => field?.strong) ? "HIGH" : "MEDIUM", evidenceIds);
   }
-  if (!input.productTypeSet || !input.referencePhotos || !input.unique
+  if (!input.productTypeSet || !input.referencePhotos
     || !input.distinguishingAttributes.every((key) => input.fields.get(key)?.status === "VERIFIED"
       || input.decisions.get(key)?.notDeterminableReason)) return confidence("LOW", evidenceIds);
   const verifiedEvidenceIds = fields.flatMap((field) => field?.status === "VERIFIED" ? field.evidenceIds : []);

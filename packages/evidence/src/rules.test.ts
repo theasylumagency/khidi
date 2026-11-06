@@ -39,4 +39,12 @@ describe("ADR-010 field resolution", () => {
     expect(hasVerifiedDifference(a, new Map([["power_kw", { status: "UNVERIFIED", value: 7 }]]))).toBe(false);
     expect(hasVerifiedDifference(a, new Map([["power_kw", { status: "VERIFIED", value: 7 }]]))).toBe(true);
   });
+  it.each([[true, "HIGH"], [false, "MEDIUM"]] as const)("requires manufacturer uniqueness with Strong evidence: %s", (strong, expected) => {
+    const verified = (value: string) => ({ status: "VERIFIED" as const, value, strong, evidenceIds: ["plate"] });
+    const input = { kind: "MANUFACTURER_IDENTIFIED" as const, productTypeSet: true, referencePhotos: false,
+      unique: true, fields: new Map([["brand", verified("HIROMIKI")], ["model_code", verified("178FE")]]),
+      decisions: new Map(), distinguishingAttributes: ["wheel_type"], items: [] };
+    expect(computeIdentity(input).level).toBe(expected);
+    expect(computeIdentity({ ...input, unique: false }).level).toBe("LOW");
+  });
 });

@@ -103,8 +103,8 @@ M2 manual route is retired and its audit history kept.
 
 **`MANUFACTURER_IDENTIFIED`**
 
-- HIGH: brand and model VERIFIED with at least one Strong item; no identity CONFLICT.
-- MEDIUM: brand and model VERIFIED only through Medium evidence.
+- HIGH: brand and model VERIFIED with at least one Strong item, uniqueness check passes and no identity CONFLICT.
+- MEDIUM: brand and model VERIFIED only through Medium evidence and uniqueness check passes.
 - LOW: otherwise. CONFLICT: identity fields in conflict.
 
 **`HOUSE_DEFINED`**
@@ -124,7 +124,7 @@ READY requires HIGH, or MEDIUM with an explicit admin confirmation at the READY 
 
 - Linking an intake or unit without identifiers to an existing SKU is never automatic. AI photo
   similarity may only propose "possibly the same as SKU X"; an admin decides.
-- **Uniqueness check:** two non-archived SKUs of the same Product Type are
+- **Uniqueness check:** this rule applies to both identity kinds. Two non-archived SKUs of the same Product Type are
   *indistinguishable* when, for every distinguishing attribute, their values are equal or at
   least one of them is unknown or "not determinable", and no other VERIFIED difference exists
   (a different VERIFIED brand counts as a difference). Of two indistinguishable SKUs, the second

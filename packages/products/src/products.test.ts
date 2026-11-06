@@ -427,7 +427,7 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
       );
       await transitionSkuLifecycle(db, { userId: adminUserId }, variant.id, "IDENTIFYING");
       const actor = { userId: adminUserId };
-      const claims = { brand: "HIROMIKI", model_code: sharedModel, wheel_type: variant.id === ironSku.id ? "IRON" : "RUBBER" };
+      const claims = { brand: "HIROMIKI", model_code: sharedModel, ...(variant.id === ironSku.id ? { wheel_type: "IRON" } : {}) };
       const sheet = await submitSkuEvidence(db, actor, { skuId: variant.id, type: "FACTORY_SPEC_SHEET", claims });
       await reviewSkuEvidence(db, actor, { evidenceId: sheet.id, status: "ACCEPTED", reason: "Confirmed fixture specification", claims });
       await setSkuIdentityKind(db, actor, variant.id, "MANUFACTURER_IDENTIFIED", "Confirmed variant identity");
@@ -442,9 +442,17 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
       await transitionSkuLifecycle(db, { userId: adminUserId }, variant.id, "CONTENT_REVIEW");
     }
 
-    // Even when Iron transitions first and Rubber second, neither gets "-2"; both get deterministic differentiator slugs!
-    const readyIron = await transitionSkuToReady(db, { userId: adminUserId }, ironSku.id);
-    const readyRubber = await transitionSkuToReady(db, { userId: adminUserId }, rubberSku.id);
+    const actor = { userId: adminUserId };
+    const readyIron = await transitionSkuToReady(db, actor, ironSku.id);
+    const rubberClaims = { wheel_type: "RUBBER" };
+    const wheelEvidence = await submitSkuEvidence(db, actor, { skuId: rubberSku.id, type: "ADMIN_PHYSICAL_INSPECTION",
+      notes: "Observed the wheel material on the machine.", claims: rubberClaims });
+    const [blocked] = await db.select().from(skus).where(eq(skus.id, rubberSku.id));
+    expect(blocked?.identityConfidence).toBe("LOW");
+    await expect(transitionSkuToReady(db, actor, rubberSku.id)).rejects.toMatchObject({ code: "CONFLICT" });
+    await reviewSkuEvidence(db, actor, { evidenceId: wheelEvidence.id, status: "ACCEPTED", reason: "Verified wheel material", claims: rubberClaims });
+    const readyRubber = await transitionSkuToReady(db, actor, rubberSku.id);
+    expect(readyRubber.identityConfidence).toBe("HIGH");
 
     expect(readyIron.canonicalSlug).toBe(`hiromiki-${sharedModel.toLowerCase()}-9-hp-iron-wheels`);
     expect(readyRubber.canonicalSlug).toBe(
