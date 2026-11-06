@@ -38,8 +38,11 @@ If two sources conflict and this list does not resolve it, stop and ask. Do not 
 | M2 Product model | Done (F1–F7, G1–G2 closed) |
 | M3 Scanning, intake, labels, offline queue, backup tooling | Done — merged to `main` (PR #1). Human checks below pending |
 | M4 Photo capture and media pipeline | Merged to `main`. Human deployment checks below pending |
-| M5 Evidence and AI identity | Implemented on `codex/m5-evidence-ai` for PR review. Local synthetic provider |
-| M6–M11 | Not started |
+| M5 Evidence and AI identity | Merged to `main` (PR #10). Local synthetic provider |
+| M6 Review, canonical content and publishing | Implemented on `m6-review-publishing` for draft PR review |
+| M7–M11 | Not started |
+
+Current task: review M6 against [the milestone record](docs/milestones/m6-review-publishing.md).
 
 Human checks still pending (the owner updates these lines):
 

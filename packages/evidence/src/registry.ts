@@ -143,8 +143,7 @@ async function findIndistinguishable(tx: DbExecutor, sku: CatalogSku, productTyp
       .map((field) => [field.fieldName, field]))));
 }
 
-async function loadSkuEvidenceSources(tx: DbExecutor, skuId: string) {
-  const ids = await getSkuLineageIds(tx, skuId);
+async function loadSkuEvidenceSources(tx: DbExecutor, ids: string[]) {
   const lineage = new Set(ids);
   const items = await tx.select().from(evidence).where(or(inArray(evidence.skuId, ids), inArray(evidence.comparisonSkuId, ids)));
   const photoIds = items.flatMap((item) => item.comparisonClaims && item.imageId && item.comparisonImageId
@@ -163,13 +162,13 @@ async function loadSkuEvidenceSources(tx: DbExecutor, skuId: string) {
 }
 
 async function projectSkuIdentity(ctx: DomainTransactionContext, skuId: string) {
-  const sku = await loadSku(ctx.tx, skuId);
+  const [sku, lineage] = await Promise.all([loadSku(ctx.tx, skuId), getSkuLineageIds(ctx.tx, skuId)]);
   const [productType, items, priorFields, photos] = await Promise.all([
     loadType(ctx.tx, sku),
-    loadSkuEvidenceSources(ctx.tx, skuId),
+    loadSkuEvidenceSources(ctx.tx, lineage),
     ctx.tx.select().from(skuFieldProvenance).where(eq(skuFieldProvenance.skuId, skuId)),
     ctx.tx.select({ slot: productImages.slot }).from(productImages)
-      .where(and(eq(productImages.skuId, skuId), eq(productImages.status, "VERIFIED"), inArray(productImages.slot, ["MAIN", "SECONDARY"])))
+      .where(and(inArray(productImages.skuId, lineage), eq(productImages.status, "VERIFIED"), inArray(productImages.slot, ["MAIN", "SECONDARY"])))
   ]);
   const decisions = new Map(priorFields.map((field) => [field.fieldName, field]));
   const distinguishingAttributes = productType?.distinguishingAttributes ?? [];

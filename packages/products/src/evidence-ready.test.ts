@@ -3,7 +3,7 @@ import { expect, it } from "vitest";
 import { auditLogs, evidence, getDb, legalEntities, outboxEvents, productImages, skuFieldProvenance, skus, users } from "@khidi/db";
 import { decideSkuEvidenceField, getStorefrontIdentityFacts, registerObservableAttribute, reviewSkuEvidence, submitSkuEvidence } from "@khidi/evidence";
 import { createUuidV7 } from "@khidi/shared";
-import { approveCanonicalVersion, createSkuDraft, getProductTypeByKey, saveCanonicalVersion, transitionSkuLifecycle, transitionSkuToReady, upsertAccountingMapping, upsertProductType } from "./index.ts";
+import { approveCanonicalVersion, createSkuDraft, getProductTypeByKey, mergeSkus, saveCanonicalVersion, transitionSkuLifecycle, transitionSkuToReady, upsertAccountingMapping, upsertProductType } from "./index.ts";
 
 it("retains the original reading, freezes decisions in PostgreSQL and supersedes evidence atomically", async () => {
   const db = getDb();
@@ -133,4 +133,9 @@ it("promotes a document-free SKU with explicit MEDIUM confirmation and flags a l
   await reviewSkuEvidence(db, actor, { evidenceId: observed.id, status: "REJECTED", reason: "Comparison requires a new inspection." });
   expect((await getStorefrontIdentityFacts(db, first.id)).fields).toEqual({ wheel_type: "RUBBER" });
   expect((await getStorefrontIdentityFacts(db, second.id)).fields).toEqual({ wheel_type: "RUBBER" });
+  await db.update(productImages).set({ status: "UNVERIFIED" })
+    .where(and(eq(productImages.skuId, first.id), eq(productImages.slot, "SECONDARY")));
+  await mergeSkus(db, actor, { sourceSkuId: second.id, targetSkuId: first.id, reason: "Confirmed duplicate after rejecting the comparison." });
+  const [survivor] = await db.select().from(skus).where(eq(skus.id, first.id));
+  expect(survivor).toMatchObject({ lifecycleState: "READY", identityConfidence: "MEDIUM", reverificationRequired: false });
 });
