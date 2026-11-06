@@ -87,6 +87,10 @@ const wordStart = String.raw`(?<![\p{L}\p{M}\p{N}])`;
 const wordEnd = String.raw`(?![\p{L}\p{M}\p{N}])`;
 const numberPattern = String.raw`[+-]?(?:\p{Nd}{1,3}(?: \p{Nd}{3})+(?:[.,]\p{Nd}+)?|\p{Nd}+(?:[.,]\p{Nd}+)?|[.,]\p{Nd}+)`;
 const modelTokens = /[\p{L}\p{M}\p{N}]+(?:-[\p{L}\p{M}\p{N}]+)*/gu;
+// Short abbreviations and mixed words are ambiguous unless the text labels them as model codes.
+const clearModelCode = /^(?:\d{3}[a-z]{2,3}|[a-z]{1,4}\d{3,5}[a-z]{1,3})(?:-[a-z\d]{2,12})*$/i;
+const compactQuantity = /^\d+(?:[kmgt]?hz|[kmgt]b|fps|rpm)$/i;
+const modelLabel = new RegExp(`${wordStart}(?:model(?: +code)?|მოდელი|მოდელის +კოდი) *[:#=] *$`, "iu");
 const literal = (value: string) => normalizeContentText(value.trim()).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const sameText = (left: string, right: string) => normalizeContentText(left).toLowerCase() === normalizeContentText(right).toLowerCase();
 const findLiteral = (text: string, value: string) => value.trim()
@@ -202,7 +206,8 @@ export function validateCanonicalDraft(draft: CanonicalDraft, context: Canonical
       if (!/\p{L}/u.test(code) || !/\p{Nd}/u.test(code)
         || (model && sameText(code, String(model.value)))
         || covered.some(({ start, end }) => start <= token.index && end >= token.index + code.length)) continue;
-      reject("UNVERIFIED_MODEL", phrase);
+      const labeledAsModel = modelLabel.test(text.slice(0, token.index));
+      if (labeledAsModel || (clearModelCode.test(code) && !compactQuantity.test(code))) reject("UNVERIFIED_MODEL", phrase);
     }
     // Known literals are tracked for evidence-change notices even when the prose is unrestricted.
     for (const [key, fact] of Object.entries(context.facts)) {

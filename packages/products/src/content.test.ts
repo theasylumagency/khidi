@@ -64,18 +64,19 @@ it("allows ordinary copy and blocks exactly the configured factual and confident
   const save = (text: string) => saveCanonicalVersion(db, actor, { skuId: sku.id, locale: "ka",
     draft: { displayName: "Golden Tractor D178E-DF900Q", shortDescription: text, fullDescription: text, searchAliases: ["საკაიფო ხელსაწყო"] } });
   const approve = (id: string) => approveCanonicalVersion(db, actor, { skuId: sku.id, versionId: id });
-  const approved = await save("ეს მაგარი რამეა, motobloki 好用. 2026-ში D178E-DF900Q-ის ნახვა შეიძლება. 9-ცხენიანი და 4-სიჩქარიანი.");
+  const approved = await save("ეს მაგარი რამეა, motobloki 好用. 2026-ში D178E-DF900Q-ის ნახვა შეიძლება. 9-ცხენიანი და 4-სიჩქარიანი. 4x4, 3D, 2-წლიანი, 2-in-1, USB3, M12, ISO9001, 120Hz, 256GB.");
   expect(approved.issues).toEqual([]);
   expect(approved.version.verifiedFacts).toMatchObject({ ...claims, transmission_gears: 4 });
   await approve(approved.version.id);
   for (const [phrase, code] of [
     ["7 hp", "UNVERIFIED_TECHNICAL_VALUE"], ["8-ცხენიანი", "UNVERIFIED_TECHNICAL_VALUE"],
-    ["178FE", "UNVERIFIED_MODEL"], ["D178E-DF901Q", "UNVERIFIED_MODEL"], ["Northwind Iron", "UNVERIFIED_BRAND"],
+    ["178FE", "UNVERIFIED_MODEL"], ["D178E-DF901Q", "UNVERIFIED_MODEL"], ["AB12", "UNVERIFIED_MODEL"],
+    ["Northwind Iron", "UNVERIFIED_BRAND"],
     [sku.internalSku, "INTERNAL_TEXT"], [itemId, "INTERNAL_TEXT"], ["განსაკუთრებული შიდა აღრიცხვა", "INTERNAL_TEXT"],
     ["Private Timber Trading", "INTERNAL_TEXT"], ["SUPDOC/7781", "INTERNAL_TEXT"], ["app.khidi.app", "INTERNAL_TEXT"],
     ["120 ₾", "INTERNAL_TEXT"], ["USD 30", "INTERNAL_TEXT"], ["$19", "INTERNAL_TEXT"], ["¥ 50", "INTERNAL_TEXT"], ["45 CNY", "INTERNAL_TEXT"]
   ]) {
-    const version = await save(phrase!);
+    const version = await save(phrase === "AB12" ? "მოდელის კოდი: AB12" : phrase!);
     await expect(approve(version.version.id)).rejects.toMatchObject({ code: "VALIDATION_ERROR",
       details: { issues: expect.arrayContaining([expect.objectContaining({ field: "shortDescription", code, phrase })]) } });
   }
