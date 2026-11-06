@@ -24,9 +24,11 @@
   without approved English content. Search uses type aliases and Georgian transliterations.
   An incorrect SKU can be archived with a reason through the existing lifecycle action.
 - Admins can edit and approve versions manually or start from deterministic generation.
-  The optional synthetic provider saves separate drafts for human review. The validator uses
-  a conservative vocabulary of verified readings, taxonomy labels and neutral linking words.
-  Text outside that vocabulary needs revision in the editor.
+  The optional synthetic provider saves separate drafts for human review. The reviewer
+  evaluates language and style. The validator checks catalog brand mentions, model-like
+  codes, numbers with recognized technical terms, and confidential phrases. Technical
+  synonyms are editable in Settings. Confidentiality uses catalog accounting records,
+  supplier evidence and Hub hosts, along with internal SKU and currency patterns.
 - Publication readiness and sale eligibility are evaluated per storefront and locale. Only
   approved text for the requested locale and public VERIFIED fields appear in the projection.
   A conflict in a fact the approved text uses suspends that locale and alerts the admin.
@@ -48,8 +50,9 @@ Georgian READY gate, English approval states, fact changes, locale-specific conf
 projection confidentiality, merged labels and slug resolution, cycle and archive fallback,
 and publication of inherited images.
 
-- The full suite ran once on a fresh local PostgreSQL 18 `_test` database with MinIO.
-  All 371 tests across 60 files passed. Typecheck, lint, dependency boundaries and build passed.
+- The validator review fix passed all 372 tests across 60 files on a fresh local PostgreSQL 18
+  `_test` database with MinIO. Typecheck, lint, dependency boundaries and build passed.
+  A session timing assertion failed on the initial run, then passed in isolation and in the full retry.
 - A final merge review included inherited reference photos in identity recomputation.
   Focused evidence, products, media and scanning tests and the affected package typechecks passed.
 - An upgrade from migrations 0001–0021 with a legacy READY fixture preserved its slug and

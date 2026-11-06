@@ -1,4 +1,5 @@
 import type { EvidenceValue } from "@khidi/db";
+import { listTechnicalTermGroups, normalizeContentText, type TechnicalSynonyms } from "./content-terms.ts";
 import { generateDeterministicDisplayNames, transliterateGeorgianToAscii } from "./naming.ts";
 import { normalizePowerToKw } from "./units.ts";
 
@@ -31,31 +32,6 @@ export function isPublicCanonicalField(key: string) {
   return !/supplier|vendor|invoice|packing|price|cost|currency|address|phone|email|tax_id|internal|document|url|accounting|barcode|gtin/i.test(key);
 }
 
-const localWords = {
-  ka: "პროდუქტი ტიპი აღწერა მახასიათებლები მონაცემები დადასტურებული და ან არის აქვს მოიცავს გამოიყენება კონფიგურაცია სახელწოდება მოდელი ბრენდი მწარმოებელი მნიშვნელობა",
-  en: "product type description specifications verified facts and or is has includes with the a an configuration name model brand manufacturer value"
-};
-const localizedUnits: Record<string, string[]> = {
-  kW: ["კვტ"], kg: ["კგ"], mm: ["მმ"], "cm³": ["სმ³"], L: ["ლ"], bar: ["ბარი"], "L/min": ["ლ/წთ"],
-  V: ["ვ"], A: ["ა"], HP: ["ცხ.ძ."]
-};
-const words = (text: string) => text.normalize("NFKC").match(/(?:[+−-](?=\d))?[\p{L}\p{N}]+(?:[.,/\-][\p{L}\p{N}]+)*/gu) ?? [];
-const normalize = (token: string) => token.toLowerCase().replace(/^−/, "-").replace(/(?<=\d),(?=\d)/g, ".");
-const numericWord = /\d/u;
-const unitTokens = new Set(Object.entries(localizedUnits).flatMap(([unit, labels]) => [unit, ...labels])
-  .flatMap(words).map(normalize).filter((unit) => unit.length > 1));
-
-function factReadings(fact: CanonicalFact) {
-  if (typeof fact.value === "boolean") return fact.value ? ["true", "კი"] : ["false", "არა"];
-  if (typeof fact.value === "number" && fact.unit) {
-    const units = [fact.unit, ...(localizedUnits[fact.unit] ?? [])];
-    const readings = units.flatMap((unit) => [`${fact.value} ${unit}`, `${fact.value}${unit}`]);
-    const hp = metricHorsepower(fact);
-    return hp === null ? readings : [...readings, `${hp} HP`, `${hp} ცხ.ძ.`];
-  }
-  return [String(fact.value)];
-}
-
 function metricHorsepower(fact: CanonicalFact) {
   if (fact.unit !== "kW" || typeof fact.value !== "number" || fact.value <= 0) return null;
   const candidate = Math.round(fact.value / 0.73549875);
@@ -65,8 +41,8 @@ function metricHorsepower(fact: CanonicalFact) {
 function formatFact(fact: CanonicalFact, locale: string) {
   const hp = metricHorsepower(fact);
   if (hp !== null) return `${hp} ${locale === "ka" ? "ცხ.ძ." : "HP"}`;
-  const options = factReadings(fact);
-  return locale === "ka" && typeof fact.value === "boolean" ? options[1]! : options[0]!;
+  if (locale === "ka" && typeof fact.value === "boolean") return fact.value ? "კი" : "არა";
+  return typeof fact.value === "number" && fact.unit ? `${fact.value} ${fact.unit}` : String(fact.value);
 }
 
 export function generateCanonicalDraft(context: CanonicalContentContext, locale: string): CanonicalDraft {
@@ -97,64 +73,141 @@ export function generateCanonicalDraft(context: CanonicalContentContext, locale:
 export interface ContentIssue {
   field: keyof CanonicalDraft;
   phrase: string;
-  code: "REQUIRED" | "UNVERIFIED_PHRASE" | "INTERNAL_TEXT" | "IDENTITY_NAME" | "AMBIGUOUS_FACT";
+  code: "UNVERIFIED_BRAND" | "UNVERIFIED_MODEL" | "UNVERIFIED_TECHNICAL_VALUE" | "INTERNAL_TEXT";
 }
 
-/**
- * Recognize complete evidence values before ordinary copy. This is intentionally a
- * closed vocabulary so an unfamiliar name or model cannot masquerade as prose.
- */
-export function validateCanonicalDraft(draft: CanonicalDraft, context: CanonicalContentContext, locale: string) {
+export interface ContentValidationRules {
+  catalogBrands: readonly string[];
+  confidentialTerms: readonly string[];
+  synonyms: TechnicalSynonyms;
+  parameters: readonly { key: string; labels: readonly string[]; unit?: string }[];
+}
+
+const wordStart = String.raw`(?<![\p{L}\p{M}\p{N}])`;
+const wordEnd = String.raw`(?![\p{L}\p{M}\p{N}])`;
+const numberPattern = String.raw`[+-]?(?:\p{Nd}{1,3}(?: \p{Nd}{3})+(?:[.,]\p{Nd}+)?|\p{Nd}+(?:[.,]\p{Nd}+)?|[.,]\p{Nd}+)`;
+const modelTokens = /[\p{L}\p{M}\p{N}]+(?:-[\p{L}\p{M}\p{N}]+)*/gu;
+const literal = (value: string) => normalizeContentText(value.trim()).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const sameText = (left: string, right: string) => normalizeContentText(left).toLowerCase() === normalizeContentText(right).toLowerCase();
+const findLiteral = (text: string, value: string) => value.trim()
+  ? new RegExp(`${wordStart}${literal(value)}${wordEnd}`, "iu").exec(text) : null;
+const currency = `(?:${Intl.supportedValuesOf("currency").join("|")}|gel|usd|cny|eur|gbp|jpy|rub|cad|aud|inr|ლარი|ლარის|თეთრი)`;
+const amount = String.raw`[+-]?\p{Nd}+(?:[., '’]\p{Nd}+)*`;
+const currencySymbol = String.raw`\p{Sc}`;
+const currencyAmount = new RegExp(
+  `${wordStart}${currency} *${amount}${wordEnd}|${wordStart}${amount} *${currency}${wordEnd}|${currencySymbol} *${amount}|${amount} *${currencySymbol}`, "u"
+);
+const internalSkuOrHub = /(?<![\p{L}\p{N}])(?:KH-[\p{Nd}]+|(?:[a-z\d-]+\.)*khidi\.(?:app|internal\.local))(?![\p{L}\p{N}])/iu;
+
+export function findConfidentialPhrase(raw: string, confidentialTerms: readonly string[]) {
+  const text = normalizeContentText(raw);
+  const fixed = internalSkuOrHub.exec(text) ?? currencyAmount.exec(text);
+  if (fixed) return fixed[0];
+  for (const term of confidentialTerms) {
+    const match = findLiteral(text, term);
+    if (match) return match[0];
+  }
+  return null;
+}
+
+function numericValue(raw: string) {
+  return Number(raw.replaceAll(" ", "").replace(",", ".").replace(/\p{Nd}/gu, (digit) => {
+    const point = digit.codePointAt(0)!;
+    let first = point;
+    while (/\p{Nd}/u.test(String.fromCodePoint(first - 1))) first--;
+    return String((point - first) % 10);
+  }));
+}
+
+function technicalMatcher(rules: ContentValidationRules) {
+  const units = new Map<string, { unit: string; fields: Set<string> }>();
+  const parameters = new Map<string, Set<string>>();
+  const keyOf = (term: string) => normalizeContentText(term).toLowerCase();
+  for (const { unit, fields, aliases } of listTechnicalTermGroups(rules.synonyms)) {
+    for (const term of [unit, ...aliases].filter(Boolean)) units.set(keyOf(term), { unit, fields: new Set(fields) });
+  }
+  for (const { key, labels, unit } of rules.parameters) {
+    for (const label of labels.filter(Boolean)) {
+      const fields = parameters.get(keyOf(label)) ?? new Set();
+      fields.add(key);
+      parameters.set(keyOf(label), fields);
+    }
+    if (unit) {
+      const existing = units.get(keyOf(unit)) ?? { unit, fields: new Set() };
+      existing.fields.add(key);
+      units.set(keyOf(unit), existing);
+    }
+  }
+  const alternatives = (terms: Iterable<string>) => [...terms].sort((a, b) => b.length - a.length).map(literal).join("|");
+  const suffix = new RegExp(`^ *(?:- *)?(${alternatives(new Set([...units.keys(), ...parameters.keys()]))})${wordEnd}`, "iu");
+  const prefixTerms = alternatives(new Set([...parameters.keys(), ...[...units.keys()].filter((term) => term.length > 1)]));
+  const prefix = new RegExp(`${wordStart}(${prefixTerms})(?: *[:=])?$`, "iu");
+  return (text: string) => [...text.matchAll(new RegExp(`${wordStart}${numberPattern}`, "gu"))].flatMap((number) => {
+    const index = number.index;
+    const end = index + number[0].length;
+    const afterMatch = suffix.exec(text.slice(end));
+    const after = afterMatch?.[1] === "a" && afterMatch[0].startsWith(" ") ? null : afterMatch;
+    const beforeText = text.slice(0, index).trimEnd();
+    const before = prefix.exec(beforeText);
+    const following = after?.[1] ? keyOf(after[1]) : undefined;
+    const preceding = before?.[1] ? keyOf(before[1]) : undefined;
+    const unit = following ? units.get(following) : preceding ? units.get(preceding) : undefined;
+    const labelFields = (preceding ? parameters.get(preceding) : undefined) ?? (following ? parameters.get(following) : undefined);
+    if ((!after && /[\p{L}\p{M}\p{N}]/u.test(text[end] ?? "")) || (!unit && !labelFields)) return [];
+    const fields = unit ? [...unit.fields].filter((key) => !labelFields || labelFields.has(key)) : [...labelFields!];
+    const reading = numericValue(number[0]);
+    const value = (unit?.unit === "HP" || unit?.unit === "W") && reading > 0
+      ? (/^\d+(?:\.\d+)?$/.test(String(reading)) ? normalizePowerToKw(`${reading} ${unit.unit}`).valueKw : NaN)
+      : reading;
+    const start = preceding ? before!.index : index;
+    return [{ fields, value, start, end: end + (after?.[0].length ?? 0), numberStart: index, hasUnit: !!unit }];
+  });
+}
+
+export function validateCanonicalDraft(draft: CanonicalDraft, context: CanonicalContentContext, rules: ContentValidationRules) {
   const issues: ContentIssue[] = [];
   const facts: Record<string, EvidenceValue> = {};
-  const matches = Object.entries(context.facts).flatMap(([key, fact]) =>
-    factReadings(fact).map((phrase) => ({ key, value: fact.value, tokens: words(phrase).map(normalize) })))
-    .filter((match) => match.tokens.length > 0).sort((a, b) => b.tokens.length - a.tokens.length);
-  const labels = [context.typeNameKa, context.typeNameEn, ...Object.values(context.facts).flatMap((fact) => [fact.labelKa, fact.labelEn])];
-  const vocabulary = new Set(words([localWords[locale === "ka" ? "ka" : "en"], ...labels].join(" ")).map(normalize));
-  const aliases = new Set([...context.typeAliases, ...context.typeAliases.map(transliterateGeorgianToAscii)].flatMap(words).map(normalize));
-  const check = (field: keyof CanonicalDraft, text: string) => {
-    if (!text.trim() && field !== "searchAliases") {
-      issues.push({ field, phrase: "", code: "REQUIRED" });
-      return;
+  const readTechnical = technicalMatcher(rules);
+  const { brand, model_code: model } = context.facts;
+  const check = (field: keyof CanonicalDraft, raw: string) => {
+    const text = normalizeContentText(raw);
+    const reject = (code: ContentIssue["code"], phrase: string) => issues.push({ field, code, phrase });
+    const cite = (key: string, fact: CanonicalFact) => { if (field !== "searchAliases") facts[key] = fact.value; };
+    const privatePhrase = findConfidentialPhrase(text, rules.confidentialTerms);
+    if (privatePhrase) reject("INTERNAL_TEXT", privatePhrase);
+    const recognized = readTechnical(text);
+    for (const { fields, value, start, end, numberStart, hasUnit } of recognized) {
+      const matched = fields.filter((key) => {
+        const reading = context.facts[key]?.value;
+        if (typeof reading === "number") return reading === value;
+        if (typeof reading !== "string") return false;
+        if (/^\d+$/.test(reading)) return Number(reading) === value;
+        return !hasUnit && findLiteral(text.slice(numberStart), reading)?.index === 0;
+      });
+      if (!matched.length) reject("UNVERIFIED_TECHNICAL_VALUE", text.slice(start, end));
+      else for (const key of matched) cite(key, context.facts[key]!);
     }
-    if (!isPublicCanonicalText(text)) {
-      issues.push({ field, phrase: text, code: "INTERNAL_TEXT" });
-      return;
+    for (const known of rules.catalogBrands) {
+      if (brand && sameText(String(brand.value), known)) continue;
+      const match = findLiteral(text, known);
+      if (match) reject("UNVERIFIED_BRAND", match[0]);
     }
-    const raw = words(text), tokens = raw.map(normalize), used = new Set<string>();
-    for (let i = 0; i < tokens.length;) {
-      const readings = matches.filter(({ tokens: reading }) => reading.every((token, offset) => token === tokens[i + offset]));
-      const length = readings[0]?.tokens.length ?? 0;
-      if (length) {
-        const longest = [...new Map(readings.filter((entry) => entry.tokens.length === length).map((entry) => [entry.key, entry])).values()];
-        const labeled = longest.filter(({ key }) => [context.facts[key]!.labelKa, context.facts[key]!.labelEn]
-          .some((label) => {
-            const prefix = words(label).map(normalize);
-            return prefix.length > 0 && prefix.length <= i && prefix.every((token, index) => token === tokens[i - prefix.length + index]);
-          }));
-        const brand = longest.find((reading) => reading.key === "brand");
-        const brandAndManufacturer = longest.length === 2 && brand && longest.some((reading) => reading.key === "manufacturer");
-        const resolved = labeled.length === 1 ? labeled : brandAndManufacturer ? [brand] : longest;
-        if (resolved.length > 1) issues.push({ field, phrase: raw.slice(i, i + length).join(" "), code: "AMBIGUOUS_FACT" });
-        else for (const reading of resolved) {
-          if (field !== "searchAliases") facts[reading.key] = reading.value;
-          used.add(reading.key);
-        }
-        i += length;
-        continue;
-      }
-      const token = tokens[i]!;
-      if (numericWord.test(token) || unitTokens.has(token) || !(vocabulary.has(token) || (field === "searchAliases" && aliases.has(token)))) {
-        issues.push({ field, phrase: raw[i]!, code: "UNVERIFIED_PHRASE" });
-      }
-      i++;
+    const identityPhrases = [brand, model].flatMap((fact) => fact
+      ? [...text.matchAll(new RegExp(`${wordStart}${literal(String(fact.value))}${wordEnd}`, "giu"))]
+        .map((match) => ({ start: match.index, end: match.index + match[0].length })) : []);
+    const covered = [...identityPhrases, ...recognized];
+    for (const token of text.matchAll(modelTokens)) {
+      const phrase = token[0];
+      const code = phrase.replace(/-(?:ში|ის|ზე|ით|დან|მდე|თან|ს|მა)$/u, "");
+      if (!/\p{L}/u.test(code) || !/\p{Nd}/u.test(code)
+        || (model && sameText(code, String(model.value)))
+        || covered.some(({ start, end }) => start <= token.index && end >= token.index + code.length)) continue;
+      reject("UNVERIFIED_MODEL", phrase);
     }
-    if (field === "displayName") {
-      const type = words(locale === "ka" ? context.typeNameKa : context.typeNameEn).map(normalize);
-      const containsType = type.length && tokens.some((_, i) => type.every((word, offset) => tokens[i + offset] === word));
-      const validIdentity = context.identityKind === "MANUFACTURER_IDENTIFIED" ? used.has("brand") && used.has("model_code") : !used.has("model_code");
-      if (!containsType || !validIdentity) issues.push({ field, phrase: text, code: "IDENTITY_NAME" });
+    // Known literals are tracked for evidence-change notices even when the prose is unrestricted.
+    for (const [key, fact] of Object.entries(context.facts)) {
+      const readings = typeof fact.value === "boolean" ? [String(fact.value), fact.value ? "კი" : "არა"] : [String(fact.value)];
+      if (typeof fact.value !== "number" && readings.some((reading) => findLiteral(text, reading))) cite(key, fact);
     }
   };
   check("displayName", draft.displayName);

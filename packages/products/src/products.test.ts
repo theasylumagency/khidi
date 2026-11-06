@@ -333,7 +333,7 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
         skuId: draft.id,
         legalEntityId: agroEntityId,
         accountingItemId: `1610/${uniqueModel}`,
-        accountingName: `HIROMIKI ${uniqueModel}`
+        accountingName: `Internal accounting item ${uniqueModel}`
       }
     );
 

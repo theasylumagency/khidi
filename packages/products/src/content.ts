@@ -1,14 +1,17 @@
-import { and, asc, desc, eq, ne } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, ne } from "drizzle-orm";
 import { z } from "zod";
-import { productTypes, skuContentApprovals, skuContentVersions, skus, users, type CanonicalContentOrigin, type DbExecutor } from "@khidi/db";
+import { accountingMappings, evidence, legalEntities, productFamilies, productTypes, skuContentApprovals, skuContentVersions,
+  skuFieldProvenance, skus, users, type CanonicalContentOrigin, type DbExecutor } from "@khidi/db";
 import { withDomainTransaction, type DomainActor, type DomainTransactionContext } from "@khidi/domain";
 import { compareApprovedContentFacts, evidenceFieldOptions, getApprovedContent, getContentFactFields,
   lockIdentityCatalog, refreshSkuContentReview } from "@khidi/evidence";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import {
-  generateCanonicalDraft, isPublicCanonicalField, isPublicCanonicalText, validateCanonicalDraft,
-  type CanonicalContentContext, type CanonicalDraft, type CanonicalFact
+  findConfidentialPhrase, generateCanonicalDraft, isPublicCanonicalField, isPublicCanonicalText, validateCanonicalDraft,
+  type CanonicalContentContext, type CanonicalDraft, type CanonicalFact, type ContentValidationRules
 } from "./content-validation.ts";
+import { getTechnicalSynonyms } from "./content-terms.ts";
+export { getTechnicalSynonyms, listTechnicalTermGroups, saveTechnicalSynonyms } from "./content-terms.ts";
 
 export const contentLocale = z.string().trim().toLowerCase().max(35).regex(/^[a-z]{2,3}(-[a-z0-9]{2,8})*$/);
 const contentDraft = z.object({
@@ -29,6 +32,42 @@ const factLabels: Record<string, [string, string]> = {
   flow_l_min: ["ნაკადი", "Flow"], voltage_v: ["ძაბვა", "Voltage"], current_a: ["დენი", "Current"]
 };
 
+export async function getCanonicalConfidentialTerms(db: DbExecutor) {
+  const [accounting, documents, entities] = await Promise.all([
+    db.selectDistinct({ item: accountingMappings.accountingItemId, name: accountingMappings.accountingName }).from(accountingMappings),
+    db.selectDistinct({ supplier: evidence.supplierName, document: evidence.documentNumber }).from(evidence),
+    db.selectDistinct({ name: legalEntities.legalName }).from(legalEntities)
+  ]);
+  const hubOrigin = URL.parse(process.env.WEBAUTHN_ORIGIN ?? "");
+  return [...new Set([
+    ...accounting.flatMap(({ item, name }) => [item, name]),
+    ...documents.flatMap(({ supplier, document }) => [supplier, document]),
+    ...entities.map(({ name }) => name),
+    process.env.WEBAUTHN_RP_ID, hubOrigin?.hostname
+  ].filter((term): term is string => !!term?.trim()))];
+}
+
+async function getValidationRules(db: DbExecutor, skuId: string, confidentialTerms?: string[]): Promise<ContentValidationRules> {
+  const [catalog, families, verified, synonyms, privateTerms, [item]] = await Promise.all([
+    db.selectDistinct({ brand: skus.brand }).from(skus).where(isNotNull(skus.brand)),
+    db.selectDistinct({ brand: productFamilies.brand }).from(productFamilies).where(isNotNull(productFamilies.brand)),
+    db.selectDistinct({ brand: skuFieldProvenance.value }).from(skuFieldProvenance)
+      .where(and(eq(skuFieldProvenance.fieldName, "brand"), eq(skuFieldProvenance.status, "VERIFIED"))),
+    getTechnicalSynonyms(db), confidentialTerms ?? getCanonicalConfidentialTerms(db),
+    db.select({ type: productTypes }).from(skus).leftJoin(productTypes, eq(productTypes.id, skus.productTypeId)).where(eq(skus.id, skuId))
+  ]);
+  const definitions = new Map(item?.type?.attributeSchemaJson.map((field) => [field.key, field]));
+  return {
+    catalogBrands: [...new Set([...catalog, ...families, ...verified].map(({ brand }) => brand).filter((brand): brand is string => typeof brand === "string"))],
+    confidentialTerms: privateTerms, synonyms,
+    parameters: evidenceFieldOptions(item?.type).flatMap(({ key, dataType, unit }) => {
+      if (dataType !== "number" && key !== "transmission_gears") return [];
+      const definition = definitions.get(key);
+      return [{ key, unit, labels: [...(factLabels[key] ?? []), definition?.labelKa ?? "", definition?.labelEn ?? ""] }];
+    })
+  };
+}
+
 async function assertContentAdmin(ctx: DomainTransactionContext, actor: DomainActor) {
   const [admin] = actor.userId ? await ctx.tx.select({ id: users.id }).from(users)
     .where(and(eq(users.id, actor.userId), eq(users.role, "ADMIN"), eq(users.active, true))) : [];
@@ -36,25 +75,27 @@ async function assertContentAdmin(ctx: DomainTransactionContext, actor: DomainAc
   return admin.id;
 }
 
-export async function getCanonicalContentContext(db: DbExecutor, skuId: string): Promise<CanonicalContentContext> {
+export async function getCanonicalContentContext(db: DbExecutor, skuId: string, confidentialTerms?: readonly string[]): Promise<CanonicalContentContext> {
   const [item] = await db.select({ sku: skus, type: productTypes }).from(skus)
     .leftJoin(productTypes, eq(productTypes.id, skus.productTypeId)).where(eq(skus.id, skuId));
   if (!item) throw new AppError("NOT_FOUND", "SKU not found.");
   const { sku, type } = item;
-  const fields = await getContentFactFields(db, skuId);
+  const [fields, privateTerms] = await Promise.all([getContentFactFields(db, skuId), confidentialTerms ?? getCanonicalConfidentialTerms(db)]);
+  const publicText = (value: string) => isPublicCanonicalText(value) && !findConfidentialPhrase(value, privateTerms);
   const facts: Record<string, CanonicalFact> = {};
   for (const field of evidenceFieldOptions(type)) {
     const fact = fields.get(field.key);
     if (!isPublicCanonicalField(field.key) || fact?.status !== "VERIFIED" || fact.value === null
-      || (typeof fact.value === "string" && !isPublicCanonicalText(fact.value))) continue;
+      || (typeof fact.value === "string" && !publicText(fact.value))) continue;
     const definition = type?.attributeSchemaJson.find((entry) => entry.key === field.key);
     const fallback = field.key.replaceAll("_", " ");
     const [labelKa, labelEn] = factLabels[field.key] ?? [fallback, fallback];
     facts[field.key] = { value: fact.value, labelKa: definition?.labelKa ?? labelKa, labelEn: definition?.labelEn ?? labelEn, unit: field.unit };
   }
   return {
-    identityKind: sku.identityKind, typeNameKa: type?.nameKa ?? "", typeNameEn: type?.nameEn ?? "",
-    typeAliases: [...(type?.searchAliasesKa ?? []), ...(type?.searchAliasesEn ?? [])].filter(isPublicCanonicalText),
+    identityKind: sku.identityKind,
+    typeNameKa: type && publicText(type.nameKa) ? type.nameKa : "", typeNameEn: type && publicText(type.nameEn) ? type.nameEn : "",
+    typeAliases: [...(type?.searchAliasesKa ?? []), ...(type?.searchAliasesEn ?? [])].filter(publicText),
     distinguishing: type?.distinguishingAttributes ?? [], facts
   };
 }
@@ -68,8 +109,9 @@ export async function recordCanonicalVersion(ctx: DomainTransactionContext, inpu
   if (!contentLocale.safeParse(input.locale).success || !parsed.success) throw new AppError("VALIDATION_ERROR", "Invalid canonical content.");
   const [sku] = await ctx.tx.select({ state: skus.lifecycleState }).from(skus).where(eq(skus.id, input.skuId));
   if (!sku || sku.state === "ARCHIVED") throw new AppError("PRECONDITION_FAILED", "Only active SKUs can have new content.");
-  const context = input.proposalContext ?? await getCanonicalContentContext(ctx.tx, input.skuId);
-  const { issues, facts } = validateCanonicalDraft(parsed.data, context, input.locale);
+  const rules = await getValidationRules(ctx.tx, input.skuId);
+  const context = input.proposalContext ?? await getCanonicalContentContext(ctx.tx, input.skuId, rules.confidentialTerms);
+  const { issues, facts } = validateCanonicalDraft(parsed.data, context, rules);
   const [version] = await ctx.tx.insert(skuContentVersions).values({
     ...parsed.data, id: createUuidV7(), skuId: input.skuId, locale: input.locale,
     origin: input.origin, authorId: input.authorId, aiJobId: input.aiJobId, verifiedFacts: facts
@@ -101,9 +143,13 @@ export async function requireCurrentValidCanonicalContent(db: DbExecutor, skuId:
 }
 
 async function validateApproval(db: DbExecutor, version: typeof skuContentVersions.$inferSelect) {
-  const context = await getCanonicalContentContext(db, version.skuId);
-  const { issues, facts } = validateCanonicalDraft(version, context, version.locale);
+  const rules = await getValidationRules(db, version.skuId);
+  const context = await getCanonicalContentContext(db, version.skuId, rules.confidentialTerms);
+  const { issues, facts } = validateCanonicalDraft(version, context, rules);
   if (issues.length) throw new AppError("VALIDATION_ERROR", "Canonical content contains unsupported readings.", { issues });
+  if (![version.displayName, version.shortDescription, version.fullDescription].every((text) => text.trim())) {
+    throw new AppError("PRECONDITION_FAILED", "Complete the display name and both descriptions before approval.");
+  }
   const matches = Object.keys(facts).length === Object.keys(version.verifiedFacts).length
     && Object.entries(facts).every(([name, value]) => version.verifiedFacts[name] === value);
   if (!matches || version.imported) throw new AppError("PRECONDITION_FAILED", "Save a new version using the current verified facts.");
@@ -148,15 +194,16 @@ export async function approveCanonicalVersion(db: DbExecutor, actor: DomainActor
 }
 
 export async function getCanonicalContentReview(db: DbExecutor, skuId: string) {
-  const [versions, approved, fields, context] = await Promise.all([
+  const [versions, approved, fields, rules] = await Promise.all([
     db.select().from(skuContentVersions).where(eq(skuContentVersions.skuId, skuId))
       .orderBy(desc(skuContentVersions.createdAt), desc(skuContentVersions.id)),
-    getApprovedContent(db, skuId), getContentFactFields(db, skuId), getCanonicalContentContext(db, skuId)
+    getApprovedContent(db, skuId), getContentFactFields(db, skuId), getValidationRules(db, skuId)
   ]);
+  const context = await getCanonicalContentContext(db, skuId, rules.confidentialTerms);
   return {
     versions: versions.map((version) => ({ ...version,
       dateLabel: version.createdAt.toLocaleString("ka-GE", { timeZone: "Asia/Tbilisi" }),
-      issues: validateCanonicalDraft(version, context, version.locale).issues })),
+      issues: validateCanonicalDraft(version, context, rules).issues })),
     approved: approved.map(({ version, approvedAt }) => ({ id: version.id, locale: version.locale, approvedAt,
       ...compareApprovedContentFacts(version.verifiedFacts, fields) })),
     facts: context.facts
@@ -168,5 +215,5 @@ export async function listSkusRequiringContentReview(db: DbExecutor) {
     .where(and(eq(skus.contentReviewRequired, true), ne(skus.lifecycleState, "ARCHIVED"))).orderBy(asc(skus.internalSku));
 }
 
-export { generateCanonicalDraft, isPublicCanonicalField, isPublicCanonicalText, validateCanonicalDraft };
+export { findConfidentialPhrase, generateCanonicalDraft, isPublicCanonicalField, isPublicCanonicalText, validateCanonicalDraft };
 export type { CanonicalContentContext, CanonicalDraft, ContentIssue } from "./content-validation.ts";

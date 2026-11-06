@@ -64,4 +64,8 @@ it("publishes only approved locales and suspends the locale that cites a conflic
     notes: "Rechecked fixture wheels", claims: { wheel_type: "IRON" }, supersedesEvidenceId: wheel.id, supersessionReason: "Corrected observation" });
   await reviewSkuEvidence(db, actor, { evidenceId: changed.id, status: "ACCEPTED", reason: "Rechecked fixture wheels", claims: changed.claims });
   expect(await project("ka")).toMatchObject({ fullDescription: first!.fullDescription, fields: { wheel_type: "IRON" } });
+  await submitSkuEvidence(db, actor, { skuId: sku.id, type: "SUPPLIER_DOCUMENT", supplierName: first!.displayName,
+    documentNumber: "PROJECTION-CONFIDENTIAL-FIXTURE", lineText: "Synthetic supplier reference" });
+  expect(await project("ka")).toBeNull();
+  expect(await project("en")).toMatchObject({ locale: "en", fullDescription: title });
 });

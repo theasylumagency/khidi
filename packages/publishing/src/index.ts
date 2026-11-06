@@ -1,4 +1,4 @@
-import { getSkuWithDetails, isPublicCanonicalField, isPublicCanonicalText, type SkuLifecycleState } from "@khidi/products";
+import { findConfidentialPhrase, getCanonicalConfidentialTerms, getSkuWithDetails, isPublicCanonicalField, isPublicCanonicalText, type SkuLifecycleState } from "@khidi/products";
 import { listStorefronts } from "@khidi/entities";
 import { hasVerifiedPublicMainImage, listStorefrontMedia } from "@khidi/media";
 import { compareApprovedContentFacts, getApprovedContent, getContentFactFields, getStorefrontIdentityFacts } from "@khidi/evidence";
@@ -21,6 +21,7 @@ export interface SellabilityEvaluationInput {
   identityConflict?: boolean;
   hasApprovedLocaleContent: boolean;
   hasReferencedContentConflict?: boolean;
+  hasConfidentialLocaleContent?: boolean;
 }
 
 export interface SellabilityEvaluationResult {
@@ -68,6 +69,7 @@ export function evaluateStorefrontSellability(
   }
   if (!input.hasApprovedLocaleContent) blockPublication("MISSING_APPROVED_LOCALE_CONTENT");
   if (input.hasReferencedContentConflict) blockPublication("LOCALE_CONTENT_FACT_CONFLICT");
+  if (input.hasConfidentialLocaleContent) blockPublication("LOCALE_CONTENT_CONFIDENTIAL");
 
   return {
     sellable: blockingReasons.length === 0,
@@ -94,12 +96,12 @@ export interface StorefrontCommerceFacts {
 async function loadPublicationInputs(db: PublishingDb, skuId: string, catalog?: {
   details: Awaited<ReturnType<typeof getSkuWithDetails>>; stores: Awaited<ReturnType<typeof listStorefronts>>;
 }) {
-  const [details, stores, approvals, fields, hasVerifiedPublicMainImageForSku] = await Promise.all([
+  const [details, stores, approvals, fields, hasVerifiedPublicMainImageForSku, confidentialTerms] = await Promise.all([
     catalog?.details ?? getSkuWithDetails(db, skuId), catalog?.stores ?? listStorefronts(db),
     getApprovedContent(db, skuId), getContentFactFields(db, skuId),
-    hasVerifiedPublicMainImage(db, skuId)
+    hasVerifiedPublicMainImage(db, skuId), getCanonicalConfidentialTerms(db)
   ]);
-  return { details, stores, approvals, fields, hasVerifiedPublicMainImageForSku };
+  return { details, stores, approvals, fields, hasVerifiedPublicMainImageForSku, confidentialTerms };
 }
 
 function evaluateLocale(input: Awaited<ReturnType<typeof loadPublicationInputs>>,
@@ -121,7 +123,9 @@ function evaluateLocale(input: Awaited<ReturnType<typeof loadPublicationInputs>>
     hasVerifiedPublicMainImage: hasVerifiedPublicMainImageForSku,
     isStorefrontListingEnabled: store.active && details.storefrontListings.some((listing) => listing.storefrontId === store.id && listing.enabled),
     hasApprovedLocaleContent: !!version,
-    hasReferencedContentConflict: conflicts.length > 0
+    hasReferencedContentConflict: conflicts.length > 0,
+    hasConfidentialLocaleContent: !!version && [version.displayName, version.shortDescription, version.fullDescription]
+      .some((text) => findConfidentialPhrase(text, input.confidentialTerms) !== null)
   });
   return { result, version };
 }
@@ -144,7 +148,8 @@ export async function getStorefrontProductProjection(db: PublishingDb, target: {
   if (!result.publishReady || !version) return null;
   const fields = Object.fromEntries([...input.fields].flatMap(([key, field]) =>
     field.status === "VERIFIED" && field.value !== null && !field.notDeterminableReason && isPublicCanonicalField(key)
-      && (typeof field.value !== "string" || isPublicCanonicalText(field.value)) ? [[key, field.value]] : []));
+      && (typeof field.value !== "string" || (isPublicCanonicalText(field.value) && !findConfidentialPhrase(field.value, input.confidentialTerms)))
+      ? [[key, field.value]] : []));
   const media = await listStorefrontMedia(db, target.skuId, target.storefrontId);
   return {
     slug: input.details.sku.canonicalSlug!, locale: version.locale, displayName: version.displayName,
