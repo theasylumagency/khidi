@@ -6,7 +6,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { loadPrincipalByUserId, type AuthenticatedPrincipal } from "@khidi/auth";
 import { getDb, imagePublications, mediaJobs, productImages, skus, storefronts, users } from "@khidi/db";
 import { createUuidV7 } from "@khidi/shared";
-import { createSkuDraft, mergeSkus, transitionSkuLifecycle, updateSkuCanonicalSlug } from "../../products/src/index.ts";
+import { approveCanonicalVersion, createSkuDraft, mergeSkus, saveCanonicalVersion, transitionSkuLifecycle, updateSkuCanonicalSlug } from "../../products/src/index.ts";
 import { receivePhoto } from "./upload.ts";
 import { executeMediaJob } from "./jobs.ts";
 import { manageImage } from "./management.ts";
@@ -73,7 +73,13 @@ describe("P9 eligible public copies and recoverable transfer intents", () => {
     await ready(source); await ready(target);
     await action(source.imageId, "VERIFY");
     await synchronizePublicMedia(db, storage, source.skuId);
-    await mergeSkus(db, { userId: admin.userId }, { sourceSkuId: source.skuId, targetSkuId: target.skuId, reason: "Duplicate media fixture" });
+    const actor = { userId: admin.userId };
+    const title = "საწყობის საცდელი ხელსაწყო";
+    const { version } = await saveCanonicalVersion(db, actor, { skuId: target.skuId, locale: "ka",
+      draft: { displayName: title, shortDescription: title, fullDescription: title, searchAliases: [] } });
+    await approveCanonicalVersion(db, actor, { skuId: target.skuId, versionId: version.id });
+    await mergeSkus(db, actor, { sourceSkuId: source.skuId, targetSkuId: target.skuId,
+      identityConfirmed: true, reason: "Compared the physical markings and configuration of both fixtures" });
     await synchronizePublicMedia(db, storage, source.skuId);
     await synchronizePublicMedia(db, storage, target.skuId);
     expect(await active(source.skuId)).toEqual([]);

@@ -135,7 +135,8 @@ it("promotes a document-free SKU with explicit MEDIUM confirmation and flags a l
   expect((await getStorefrontIdentityFacts(db, second.id)).fields).toEqual({ wheel_type: "RUBBER" });
   await db.update(productImages).set({ status: "UNVERIFIED" })
     .where(and(eq(productImages.skuId, first.id), eq(productImages.slot, "SECONDARY")));
-  await mergeSkus(db, actor, { sourceSkuId: second.id, targetSkuId: first.id, reason: "Confirmed duplicate after rejecting the comparison." });
+  await mergeSkus(db, actor, { sourceSkuId: second.id, targetSkuId: first.id,
+    identityConfirmed: true, reason: "Compared the fixtures again and confirmed matching mounting plates and wheels." });
   const [survivor] = await db.select().from(skus).where(eq(skus.id, first.id));
   expect(survivor).toMatchObject({ lifecycleState: "READY", identityConfidence: "MEDIUM", reverificationRequired: false });
 });

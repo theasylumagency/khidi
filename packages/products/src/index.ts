@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   type AppDatabase,
@@ -28,7 +28,7 @@ import {
   users
 } from "@khidi/db";
 import { type DomainActor, withDomainTransaction } from "@khidi/domain";
-import { getContentFactFields, hasVerifiedDifference, lockIdentityCatalog, recomputeSkuIdentity, UNIVERSAL_EVIDENCE_FIELDS, withDefaultObservableAttributes } from "@khidi/evidence";
+import { compareApprovedContentFacts, getContentFactFields, hasVerifiedDifference, lockIdentityCatalog, recomputeSkuIdentity, UNIVERSAL_EVIDENCE_FIELDS, withDefaultObservableAttributes } from "@khidi/evidence";
 import { queueMediaJob } from "@khidi/media";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import {
@@ -1669,6 +1669,7 @@ export async function listStorefrontListingsForSku(
 
 const mergeSkuInput = z.object({
   sourceSkuId: z.string().uuid(), targetSkuId: z.string().uuid(),
+  identityConfirmed: z.boolean().default(false),
   reason: z.string().trim().min(1).max(4000),
   listingChoices: z.record(z.string().uuid(), z.enum(["SOURCE", "TARGET"])).default({})
 }).strict();
@@ -1678,17 +1679,22 @@ export async function mergeSkus(db: DbExecutor, actor: DomainActor, raw: unknown
   if (!parsed.success || parsed.data.sourceSkuId === parsed.data.targetSkuId) {
     throw new AppError("VALIDATION_ERROR", "Choose two different SKUs and give a reason.");
   }
-  const { sourceSkuId, targetSkuId, reason, listingChoices } = parsed.data;
+  const { sourceSkuId, targetSkuId, identityConfirmed, reason, listingChoices } = parsed.data;
   return withDomainTransaction(db, actor, async (ctx) => {
     await lockIdentityCatalog(ctx.tx);
     const [admin] = actor.userId ? await ctx.tx.select({ id: users.id }).from(users)
       .where(and(eq(users.id, actor.userId), eq(users.role, "ADMIN"), eq(users.active, true))) : [];
     if (!admin) throw new AppError("FORBIDDEN", "SKU merge requires an active admin.");
+    if (!identityConfirmed) throw new AppError("PRECONDITION_FAILED", "Confirm that both SKUs represent the same physical variant.");
     const pair = await ctx.tx.select().from(skus).where(inArray(skus.id, [sourceSkuId, targetSkuId]));
     const source = pair.find((sku) => sku.id === sourceSkuId), target = pair.find((sku) => sku.id === targetSkuId);
     if (!source || !target) throw new AppError("NOT_FOUND", "Both SKUs must exist.");
     if (pair.some((sku) => sku.lifecycleState === "ARCHIVED" || sku.mergedIntoSkuId) || source.productTypeId !== target.productTypeId) {
       throw new AppError("PRECONDITION_FAILED", "Only active SKUs of the same Product Type can be merged.");
+    }
+    const needsApprovedTarget = source.lifecycleState === "READY" || source.canonicalSlug !== null;
+    if (needsApprovedTarget && target.lifecycleState !== "READY") {
+      throw new AppError("PRECONDITION_FAILED", "A SKU with a canonical slug can only merge into a READY SKU.");
     }
     const [sourceFacts, targetFacts, listings, sourceLineage] = await Promise.all([
       getContentFactFields(ctx.tx, sourceSkuId), getContentFactFields(ctx.tx, targetSkuId),
@@ -1698,6 +1704,7 @@ export async function mergeSkus(db: DbExecutor, actor: DomainActor, raw: unknown
     if (pair.some((sku) => sku.identityConfidence === "CONFLICT") || hasVerifiedDifference(sourceFacts, targetFacts)) {
       throw new AppError("CONFLICT", "Resolve identity conflicts and verified differences before merging.");
     }
+    const targetContent = needsApprovedTarget ? await requireCurrentValidCanonicalContent(ctx.tx, targetSkuId, "ka") : null;
     const decisions = [];
     for (const listing of listings.filter((row) => row.skuId === sourceSkuId)) {
       const existing = listings.find((row) => row.skuId === targetSkuId && row.storefrontId === listing.storefrontId);
@@ -1721,11 +1728,14 @@ export async function mergeSkus(db: DbExecutor, actor: DomainActor, raw: unknown
     const identifiers = await ctx.tx.selectDistinct({ type: skuIdentifiers.identifierType, value: skuIdentifiers.value }).from(skuIdentifiers)
       .where(inArray(skuIdentifiers.skuId, sourceLineage)).orderBy(asc(skuIdentifiers.identifierType), asc(skuIdentifiers.value));
     for (const identifier of identifiers) await recomputeIdentifierCollisionState(ctx.tx, identifier.type, identifier.value);
-    await recomputeSkuIdentity(ctx, targetSkuId);
+    const identity = await recomputeSkuIdentity(ctx, targetSkuId);
+    if (identity.level === "CONFLICT" || (targetContent && compareApprovedContentFacts(targetContent.verifiedFacts, identity.fields).changedFields.length)) {
+      throw new AppError("CONFLICT", "The combined evidence would invalidate the surviving SKU's identity or approved content.");
+    }
     await queueMediaJob(ctx, "publish-sku-media", { skuId: targetSkuId });
     await ctx.recordAudit({ action: "SKU_MERGED", entityType: "sku", entityId: sourceSkuId,
       before: { sourceState: source.lifecycleState, targetState: target.lifecycleState, sourceSlug: source.canonicalSlug },
-      after: { mergedIntoSkuId: targetSkuId, sourceLineage, decisions }, reason });
+      after: { mergedIntoSkuId: targetSkuId, identityConfirmed, sourceLineage, decisions }, reason });
     await ctx.emitOutboxEvent({ eventType: "PRODUCT_UPDATED", aggregateType: "sku", aggregateId: targetSkuId,
       payload: { skuId: targetSkuId, mergedSkuId: sourceSkuId }, consumers: [] });
     return { sourceSkuId, targetSkuId };
@@ -1735,8 +1745,12 @@ export async function mergeSkus(db: DbExecutor, actor: DomainActor, raw: unknown
 export async function listSkuMergeTargets(db: DbExecutor, sourceSkuId: string) {
   const [source] = await db.select().from(skus).where(eq(skus.id, sourceSkuId));
   if (!source || source.lifecycleState === "ARCHIVED") return [];
+  const needsApprovedTarget = source.lifecycleState === "READY" || source.canonicalSlug !== null;
+  const approvedKa = db.select({ id: skuContentApprovals.versionId }).from(skuContentApprovals)
+    .where(and(eq(skuContentApprovals.skuId, skus.id), eq(skuContentApprovals.locale, "ka")));
   const candidates = await db.select({ id: skus.id, internalSku: skus.internalSku, name: skus.displayNameKa, state: skus.lifecycleState })
     .from(skus).where(and(ne(skus.id, sourceSkuId), ne(skus.lifecycleState, "ARCHIVED"),
+      needsApprovedTarget ? and(eq(skus.lifecycleState, "READY"), exists(approvedKa)) : undefined,
       source.productTypeId ? eq(skus.productTypeId, source.productTypeId) : sql`${skus.productTypeId} IS NULL`))
     .orderBy(asc(skus.internalSku));
   if (!candidates.length || source.lifecycleState !== "READY") return candidates.map((candidate) => ({ ...candidate, sharedListings: [] }));

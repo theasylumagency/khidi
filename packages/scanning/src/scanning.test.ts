@@ -2,8 +2,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { loadPrincipalByUserId, type AuthenticatedPrincipal } from "@khidi/auth";
 import { auditLogs, getDb, idempotencyKeys, outboxEvents, productIntakes, scanTasks, skuIdentifiers, skus, users } from "@khidi/db";
-import { attachSkuIdentifier, computeGs1CheckDigit, createSkuDraft, getSkuWithDetails, mergeSkus, resolveSkuSlug,
-  setStorefrontListing, transitionSkuLifecycle } from "@khidi/products";
+import { approveCanonicalVersion, attachSkuIdentifier, computeGs1CheckDigit, createSkuDraft, getSkuWithDetails,
+  listSkuMergeTargets, mergeSkus, resolveSkuSlug, saveCanonicalVersion, setStorefrontListing, transitionSkuLifecycle } from "@khidi/products";
 import { getStorefrontIdentityFacts, reviewSkuEvidence, submitSkuEvidence } from "@khidi/evidence";
 import { createUuidV7 } from "@khidi/shared";
 import { receiveIntake } from "./index.ts";
@@ -110,6 +110,7 @@ describe("M3 S2 intake transactions", () => {
     const source = await createSkuDraft(db, actor, {});
     const middle = await createSkuDraft(db, actor, {});
     const survivor = await createSkuDraft(db, actor, {});
+    const draft = await createSkuDraft(db, actor, {});
     const original = await receiveIntake(db, admin, input({ scannedValue: source.internalSku }));
     const slug = `retired-${key().slice(-10)}`;
     const survivorSlug = `survivor-${key().slice(-10)}`;
@@ -122,10 +123,35 @@ describe("M3 S2 intake transactions", () => {
     const store = (await db.query.storefronts.findFirst())!;
     await setStorefrontListing(db, actor, { skuId: source.id, storefrontId: store.id, enabled: true });
     await setStorefrontListing(db, actor, { skuId: middle.id, storefrontId: store.id, enabled: false });
-    const firstMerge = { sourceSkuId: source.id, targetSkuId: middle.id, reason: "Same fixture SKU" };
-    await expect(mergeSkus(db, actor, firstMerge)).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    const firstMerge = { sourceSkuId: source.id, targetSkuId: middle.id, identityConfirmed: true,
+      reason: "Compared the fixture labels and verified matching build and markings." };
+    await expect(mergeSkus(db, actor, { ...firstMerge, identityConfirmed: undefined })).rejects.toThrow(/same physical variant/);
+    await expect(mergeSkus(db, actor, { ...firstMerge, targetSkuId: draft.id })).rejects.toThrow(/only merge into a READY SKU/);
+    await expect(mergeSkus(db, actor, firstMerge)).rejects.toThrow(/Approved KA canonical content is required/);
+    expect((await listSkuMergeTargets(db, source.id)).map(({ id }) => id)).not.toContain(middle.id);
+    expect(await resolveSkuSlug(db, slug)).toMatchObject({ skuId: source.id, redirected: false });
+
+    const middleProof = await submitSkuEvidence(db, actor, { skuId: middle.id, type: "FACTORY_SPEC_SHEET", claims });
+    await reviewSkuEvidence(db, actor, { evidenceId: middleProof.id, status: "ACCEPTED", claims, reason: "Synthetic sheet" });
+    const title = "საწყობის საცდელი ხელსაწყო";
+    for (const sku of [middle, survivor]) {
+      const { version } = await saveCanonicalVersion(db, actor, { skuId: sku.id, locale: "ka",
+        draft: { displayName: title, shortDescription: title, fullDescription: sku.id === middle.id ? "წონა 40 კგ" : title, searchAliases: [] } });
+      await approveCanonicalVersion(db, actor, { skuId: sku.id, versionId: version.id });
+    }
+    expect((await listSkuMergeTargets(db, source.id)).map(({ id }) => id)).toContain(middle.id);
+    await expect(mergeSkus(db, actor, firstMerge)).rejects.toThrow(/surviving listing/);
+    const pending = await submitSkuEvidence(db, actor, { skuId: source.id, type: "STAFF_STATEMENT", claims: { weight_kg: 41 } });
+    await expect(mergeSkus(db, actor, { ...firstMerge, listingChoices: { [store.id]: "SOURCE" } }))
+      .rejects.toThrow(/combined evidence would invalidate/);
+    expect(await resolveSkuSlug(db, slug)).toMatchObject({ skuId: source.id, redirected: false });
+    expect((await getSkuWithDetails(db, source.id)).storefrontListings).toContainEqual(expect.objectContaining({ storefrontId: store.id, enabled: true }));
+    await reviewSkuEvidence(db, actor, { evidenceId: pending.id, status: "REJECTED", reason: "Compared both fixture sheets" });
+
     await mergeSkus(db, actor, { ...firstMerge, listingChoices: { [store.id]: "SOURCE" } });
-    await mergeSkus(db, actor, { sourceSkuId: middle.id, targetSkuId: survivor.id, reason: "Same fixture SKU" });
+    await mergeSkus(db, actor, { ...firstMerge, sourceSkuId: middle.id, targetSkuId: survivor.id });
+    expect(await db.select().from(auditLogs).where(and(eq(auditLogs.entityId, source.id), eq(auditLogs.action, "SKU_MERGED"))))
+      .toEqual([expect.objectContaining({ reason: firstMerge.reason, afterJson: expect.objectContaining({ identityConfirmed: true }) })]);
     const result = await receiveIntake(db, admin, input({ scannedValue: source.internalSku }));
     expect(result.body).toMatchObject({ scannedSkuId: source.id, matchedSkuId: survivor.id, reviewReason: null });
     expect(await db.query.productIntakes.findFirst({ where: (row, { eq }) => eq(row.id, result.body.id) }))

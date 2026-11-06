@@ -23,7 +23,8 @@ export function SkuMergeForm({ sourceSkuId, candidates }: {
     try {
       const result = await fetch("/api/products/merge", { method: "POST", headers: {
         "Content-Type": "application/json", "Idempotency-Key": createUuidV7()
-      }, body: JSON.stringify({ sourceSkuId, targetSkuId, reason: data.get("reason"), listingChoices }) });
+      }, body: JSON.stringify({ sourceSkuId, targetSkuId, identityConfirmed: data.get("identityConfirmed") === "on",
+        reason: data.get("reason"), listingChoices }) });
       if (!result.ok) throw new Error();
       router.push(`/products/${targetSkuId}`);
       router.refresh();
@@ -46,7 +47,8 @@ export function SkuMergeForm({ sourceSkuId, candidates }: {
             <option value="TARGET">{t("merge.target_listing")} · {t(store.targetEnabled ? "merge.listing_on" : "merge.listing_off")}</option>
           </select>
         </label>)}
-        <label>{t("evidence.reason")} <input name="reason" required maxLength={4000} /></label>
+        <label><input type="checkbox" name="identityConfirmed" required /> {t("merge.confirm_identity")}</label>
+        <label>{t("merge.identity_basis")} <input name="reason" required maxLength={4000} /></label>
         <button>{t("merge.submit")}</button>
       </fieldset>
     </form>
