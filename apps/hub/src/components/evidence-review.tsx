@@ -5,12 +5,13 @@ import { useRouter } from "next/navigation";
 import { t, type TranslationKey } from "@khidi/i18n";
 import { createUuidV7 } from "@khidi/shared/uuid";
 import type { EvidenceFieldOption } from "@khidi/evidence";
+import type { EvidenceClaimSource } from "@khidi/db";
 
 type FactValue = string | boolean | number;
 interface Item {
   id: string; type: string; status: string; sensitivity: string; strength: string; notes: string | null;
   supplierName: string | null; documentNumber: string | null; lineText: string | null; quantity: number | null;
-  claims: Record<string, FactValue>; attachment: boolean; imageId: string | null;
+  claims: Record<string, FactValue>; claimSources: Record<string, EvidenceClaimSource>; attachment: boolean; imageId: string | null;
 }
 interface Field {
   fieldName: string; status: string; value: FactValue | null; notDeterminableReason: string | null; evidenceIds: string[];
@@ -43,6 +44,7 @@ export function EvidenceReview({ skuId, kind, items, fields, distinguishing, pho
       const response = await fetch("/api/evidence", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": createUuidV7() },
         body: JSON.stringify({ ...action, claims, reason: data.get("reason"), ...(submitter?.value ? { status: submitter.value } : {}),
           ...(action.action === "distinguishing" ? { fields: data.getAll("distinguishing") } : {}),
+          ...(action.action === "review" ? { confirmedAiFields: data.getAll("confirmedAiField") } : {}),
           ...(data.get("evidenceId") ? { evidenceId: data.get("evidenceId") } : {}),
           ...(data.get("productTypeId") ? { productTypeId: data.get("productTypeId") } : {}),
           ...(data.get("documentNumber") ? { documentNumber: data.get("documentNumber") } : {}),
@@ -98,13 +100,24 @@ export function EvidenceReview({ skuId, kind, items, fields, distinguishing, pho
     {items.map((item) => <details key={item.id}>
       <summary>{t(`evidence.type.${item.type}` as TranslationKey)} · {t(`evidence.status.${item.status}` as TranslationKey)}</summary>
       <p>{[item.notes, item.supplierName, item.documentNumber, item.lineText, item.quantity].filter((value) => value !== null).join(" · ")}</p>
-      <ul>{Object.entries(item.claims).map(([key, value]) => <li key={key}>{key} · {String(value)}</li>)}</ul>
+      <ul>{Object.entries(item.claims).filter(([key]) => item.claimSources[key]?.origin !== "AI")
+        .map(([key, value]) => <li key={key}>{key} · {String(value)}</li>)}</ul>
       {item.attachment ? <a href={`/api/evidence?skuId=${skuId}&attachment=${item.id}`}>{t("evidence.photo")}</a>
         : item.imageId && photoUrls[item.imageId] ? <a href={photoUrls[item.imageId]}>{t("evidence.photo")}</a> : null}
       <form onSubmit={(event) => void send(event, { action: "review", evidenceId: item.id, claims: item.claims })}>
+        {Object.values(item.claimSources).some((source) => source.origin === "AI") ? <fieldset>
+          <legend>{t(item.status === "ACCEPTED" ? "evidence.ai_readings" : "evidence.ai_review_readings")}</legend>
+          {item.status !== "ACCEPTED" ? <p>{t("evidence.ai_drop_unconfirmed")}</p> : null}
+          {Object.entries(item.claims).filter(([key]) => item.claimSources[key]?.origin === "AI").map(([key, value]) =>
+            item.status === "ACCEPTED" ? <p key={key}>{key} · {String(value)}</p> : <div key={key}>
+              <label><input type="checkbox" name="confirmedAiField" value={key} /> {t("evidence.confirm_ai_reading")} · {key} · {String(value)}</label>
+            </div>
+          )}
+        </fieldset> : null}
         {item.status !== "ACCEPTED" && item.type !== "MEASUREMENT" ? <>
           <label>{t("evidence.reading_field")} <select name="manualField">
-            <option value="">—</option>{fieldOptions.map((field) => <option key={field.key} value={field.key}>{field.label}</option>)}
+            <option value="">—</option>{fieldOptions.filter((field) => item.claimSources[field.key]?.origin !== "AI")
+              .map((field) => <option key={field.key} value={field.key}>{field.label}</option>)}
           </select></label>
           <label>{t("evidence.reading_value")} <input name="manualValue" maxLength={400} /></label>
         </> : null}

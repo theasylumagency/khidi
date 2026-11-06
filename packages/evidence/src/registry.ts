@@ -2,7 +2,7 @@ import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   evidence, productImages, productTypes, scanTasks, skuFieldProvenance, skus, users,
-  type DbExecutor, type EvidenceValue
+  type DbExecutor, type EvidenceClaimSource, type EvidenceValue
 } from "@khidi/db";
 import { withDomainTransaction, type DomainActor, type DomainTransactionContext } from "@khidi/domain";
 import { AppError, createUuidV7 } from "@khidi/shared";
@@ -181,15 +181,19 @@ async function evidenceChanged(ctx: DomainTransactionContext, item: EvidenceRow,
     consumers: action === "EVIDENCE_SUBMITTED" && item.imageId && item.sensitivity === "AI_ALLOWED" ? ["ai-discovery"] : [] });
 }
 
-export async function applyAiEvidenceCandidates(ctx: DomainTransactionContext, evidenceId: string, raw: Record<string, EvidenceValue>) {
+export async function applyAiEvidenceCandidates(ctx: DomainTransactionContext, evidenceId: string, jobId: string, raw: Record<string, EvidenceValue>) {
   await lockIdentityCatalog(ctx.tx);
   const [item] = await ctx.tx.select().from(evidence).where(eq(evidence.id, evidenceId));
-  if (!item || item.status !== "PENDING" || item.sensitivity !== "AI_ALLOWED") return;
+  if (!item || item.status !== "PENDING" || item.sensitivity !== "AI_ALLOWED" || item.type === "MEASUREMENT") return;
   const sku = await loadSku(ctx.tx, item.skuId), type = await loadType(ctx.tx, sku);
   const parsed = claimsSchema.safeParse(raw);
   if (!parsed.success) throw new AppError("VALIDATION_ERROR", "Invalid provider candidates.");
-  validateClaims(parsed.data, type, item.type);
-  const [updated] = await ctx.tx.update(evidence).set({ claims: { ...parsed.data, ...item.claims } })
+  const candidates = Object.entries(parsed.data).filter(([field]) => !Object.hasOwn(item.claims, field));
+  if (!candidates.length) return;
+  validateClaims(Object.fromEntries(candidates), type, item.type);
+  const claimSources = { ...item.claimSources };
+  for (const [field] of candidates) claimSources[field] = { origin: "AI", jobId };
+  const [updated] = await ctx.tx.update(evidence).set({ claims: { ...item.claims, ...Object.fromEntries(candidates) }, claimSources })
     .where(eq(evidence.id, item.id)).returning();
   await evidenceChanged(ctx, updated!, "AI_EVIDENCE_CANDIDATES_RECORDED");
   await recomputeSkuIdentity(ctx, item.skuId);
@@ -245,6 +249,7 @@ export async function submitSkuEvidence(
     validateClaims(input.claims, productType, input.type);
     const [item] = await ctx.tx.insert(evidence).values({
       ...input, id: createUuidV7(), authorId: author.id, authorRole: author.role,
+      claimSources: Object.fromEntries(Object.keys(input.claims).map((field) => [field, { origin: "HUMAN", userId: author.id }])),
       capturedAt: input.capturedAt ? new Date(input.capturedAt) : new Date(),
       sensitivity: evidenceSensitivity(input.type, !!input.imageId, !!attachment),
       privateStorageKey: attachment?.key, privateSha256: attachment?.sha256, privateMimeType: attachment?.mimeType
@@ -267,7 +272,8 @@ export async function submitSkuEvidence(
 
 export async function reviewSkuEvidence(db: DbExecutor, actor: DomainActor, raw: unknown) {
   const parsed = z.object({ evidenceId: uuid, status: z.enum(["ACCEPTED", "REJECTED"]), reason: notesSchema,
-    claims: claimsSchema.optional(), documentNumber: z.string().trim().min(1).max(200).optional(),
+    claims: claimsSchema.optional(), confirmedAiFields: z.array(z.string()).optional(),
+    documentNumber: z.string().trim().min(1).max(200).optional(),
     lineText: notesSchema.optional(), quantity: z.number().int().min(1).max(2147483647).optional() }).strict().safeParse(raw);
   if (!parsed.success || (parsed.data.status === "ACCEPTED" && !parsed.data.claims)) {
     throw new AppError("VALIDATION_ERROR", "Review requires a reason and explicitly confirmed readings on acceptance.");
@@ -280,14 +286,41 @@ export async function reviewSkuEvidence(db: DbExecutor, actor: DomainActor, raw:
     if (!item) throw new AppError("NOT_FOUND", "Evidence not found.");
     const sku = await loadSku(ctx.tx, item.skuId);
     const productType = await loadType(ctx.tx, sku);
-    const claims = input.status === "ACCEPTED" ? input.claims! : item.claims;
+    let claims = item.claims, claimSources = item.claimSources;
     if (input.status === "ACCEPTED") {
+      claims = { ...input.claims! };
+      claimSources = {};
+      const confirmedAiFields = new Set(input.confirmedAiFields);
+      const confirmed: { field: string; jobId: string; value: EvidenceValue }[] = [];
+      for (const field of confirmedAiFields) {
+        const source = item.claimSources[field];
+        if (source?.origin !== "AI" || !Object.hasOwn(claims, field) || claims[field] !== item.claims[field]) {
+          throw new AppError("VALIDATION_ERROR", "Confirm the exact AI reading shown for each selected field.");
+        }
+        confirmed.push({ field, jobId: source.jobId, value: claims[field]! });
+      }
+      for (const [field, value] of Object.entries(claims)) {
+        const source = item.claimSources[field];
+        if (source?.origin === "AI") {
+          if (!confirmedAiFields.has(field)) {
+            delete claims[field];
+            continue;
+          }
+          claimSources[field] = { ...source, confirmedBy: adminId };
+        } else {
+          claimSources[field] = source && value === item.claims[field] ? source : { origin: "HUMAN", userId: adminId };
+        }
+      }
       validateClaims(claims, productType, item.type);
       const [fieldName] = Object.keys(claims);
       if (item.type === "MEASUREMENT" && (Object.keys(claims).length !== 1 || !fieldName || !Object.hasOwn(item.claims, fieldName)
         || typeof claims[fieldName] !== "number" || !item.measurementUnit
         || evidenceFieldOptions(productType).find((field) => field.key === fieldName)?.unit !== item.measurementUnit)) {
         throw new AppError("VALIDATION_ERROR", "Confirm the measured value in its recorded field and unit.");
+      }
+      if (confirmed.length) {
+        await ctx.recordAudit({ action: "EVIDENCE_AI_CLAIMS_CONFIRMED", entityType: "evidence", entityId: item.id,
+          after: { confirmed }, reason: input.reason });
       }
     }
     const documentNumber = input.documentNumber ?? item.documentNumber, lineText = input.lineText ?? item.lineText;
@@ -303,7 +336,7 @@ export async function reviewSkuEvidence(db: DbExecutor, actor: DomainActor, raw:
       await ctx.recordAudit({ action: "EVIDENCE_FIELD_CONFIRMATION_REVOKED", entityType: "sku", entityId: sku.id,
         before: { field: fieldName, evidenceId: item.id }, reason: input.reason });
     }
-    const [updated] = await ctx.tx.update(evidence).set({ claims, status: input.status, decidedBy: adminId, decidedAt: new Date(),
+    const [updated] = await ctx.tx.update(evidence).set({ claims, claimSources, status: input.status, decidedBy: adminId, decidedAt: new Date(),
       decisionReason: input.reason, documentNumber, lineText, quantity: input.quantity ?? item.quantity }).where(eq(evidence.id, item.id)).returning();
     await evidenceChanged(ctx, updated!, input.status === "ACCEPTED" ? "EVIDENCE_ACCEPTED" : "EVIDENCE_REJECTED", input.reason);
     await recomputeSkuIdentity(ctx, item.skuId);

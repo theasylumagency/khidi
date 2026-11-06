@@ -656,6 +656,9 @@ export const productImages = pgTable("product_images", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 });
 export type EvidenceValue = string | number | boolean;
+export type EvidenceClaimSource =
+  | { origin: "HUMAN"; userId?: string }
+  | { origin: "AI"; jobId: string; confirmedBy?: string };
 
 export const evidence = pgTable("evidence", {
   id: uuid("id").primaryKey(),
@@ -680,6 +683,7 @@ export const evidence = pgTable("evidence", {
   notes: text("notes"),
   comparisonSkuId: uuid("comparison_sku_id").references(() => skus.id),
   claims: jsonb("claims_json").$type<Record<string, EvidenceValue>>().notNull().default({}),
+  claimSources: jsonb("claim_sources_json").$type<Record<string, EvidenceClaimSource>>().notNull().default({}),
   decidedBy: uuid("decided_by").references(() => users.id),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
   decisionReason: text("decision_reason"),

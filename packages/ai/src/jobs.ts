@@ -194,7 +194,7 @@ export async function executeAiJob(db: DbExecutor, storage: MediaStorage, provid
       }
       if (local && job.imageId && job.imageVersion) await queueMediaJob(ctx, "process-image",
         { imageId: job.imageId, imageVersion: job.imageVersion }, `process-image:${job.imageId}:${job.imageVersion}`);
-      if (job.evidenceId && output && Object.keys(output.candidates).length) await applyAiEvidenceCandidates(ctx, job.evidenceId, output.candidates);
+      if (job.evidenceId && output && Object.keys(output.candidates).length) await applyAiEvidenceCandidates(ctx, job.evidenceId, job.id, output.candidates);
       if (job.jobName === "analyze-photo-quality" && output?.photoQuality) await recordSemanticQuality(ctx, job, output.photoQuality);
       await recordState(ctx, job, status, output ?? undefined);
     });

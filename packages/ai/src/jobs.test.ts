@@ -1,11 +1,11 @@
 import { and, eq, sql } from "drizzle-orm";
 import { expect, it, vi } from "vitest";
-import { aiJobLogs, aiJobs, getDb, imageMasterVersions, productImages, users } from "@khidi/db";
+import { aiJobLogs, aiJobs, auditLogs, evidence, getDb, imageMasterVersions, productImages, users } from "@khidi/db";
 import { withDomainTransaction } from "@khidi/domain";
 import { createHash } from "node:crypto";
 import { createUuidV7 } from "@khidi/shared";
 import { createSkuDraft, getProductTypeByKey } from "@khidi/products";
-import { submitSkuEvidence } from "@khidi/evidence";
+import { getStorefrontIdentityFacts, reviewSkuEvidence, submitSkuEvidence } from "@khidi/evidence";
 import type { MediaStorage } from "@khidi/media/storage";
 import { fixturePhoto } from "../../media/src/test-fixtures.ts";
 import { executeAiJob, queueAiJob } from "./jobs.ts";
@@ -37,18 +37,36 @@ it("only sends a verified processed master and records the exact job cost", asyn
   await db.insert(imageMasterVersions).values({ id: createUuidV7(), imageId, version: 1, storageKey: masterKey, sha256: hash,
     bytes: bytes.byteLength, width: 1920, height: 1920, derivativesJson: {} });
   const target = { imageId, imageVersion: 1 };
-  const item = await submitSkuEvidence(db, actor, { skuId: sku.id, imageId, type: "PRODUCT_MARKING_PHOTO" });
+  const item = await submitSkuEvidence(db, actor, { skuId: sku.id, imageId, type: "PRODUCT_MARKING_PHOTO", claims: { brand: "TEST-BRAND" } });
   const job = await create("ocr-label", { ...target, evidenceId: item.id });
   const storage = storageWith(vi.fn().mockResolvedValue(bytes));
   const provider: AiProvider = { provider: "synthetic", model: "fixture", reserveCostUsdMicros: () => 0,
-    run: vi.fn().mockResolvedValue({ candidates: { brand: "TEST-BRAND", price: 80, confidence: "HIGH" }, inputTokens: 10, outputTokens: 5, costUsdMicros: 0 }) };
+    run: vi.fn().mockResolvedValue({ candidates: { brand: "AI-BRAND", model_code: "178FE", wheel_type: "IRON", price: 80, confidence: "HIGH" },
+      inputTokens: 10, outputTokens: 5, costUsdMicros: 0 }) };
   await executeAiJob(db, storage, provider, job, 0, 0);
   expect(storage.readPrivate).toHaveBeenCalledExactlyOnceWith(masterKey, hash, undefined);
   expect(provider.run).toHaveBeenCalledOnce();
   const [attempt] = await db.select().from(aiJobLogs).where(eq(aiJobLogs.jobId, job));
   expect(attempt).toMatchObject({ provider: "synthetic", model: "fixture", promptVersion: "evidence-v1", costUsdMicros: 0, status: "SUCCEEDED" });
   const [stored] = await db.select().from(aiJobs).where(eq(aiJobs.id, job));
-  expect(stored?.result).toEqual({ candidates: { brand: "TEST-BRAND" } });
+  expect(stored?.result).toEqual({ candidates: { brand: "AI-BRAND", model_code: "178FE", wheel_type: "IRON" } });
+  const [pending] = await db.select().from(evidence).where(eq(evidence.id, item.id));
+  expect(pending?.claims).toEqual({ brand: "TEST-BRAND", model_code: "178FE", wheel_type: "IRON" });
+  expect(pending?.claimSources).toEqual({
+    brand: { origin: "HUMAN", userId: actor.userId }, model_code: { origin: "AI", jobId: job }, wheel_type: { origin: "AI", jobId: job }
+  });
+  expect((await getStorefrontIdentityFacts(db, sku.id)).fields).toEqual({});
+  const review = { evidenceId: item.id, status: "ACCEPTED", reason: "Read the model from the label", confirmedAiFields: ["model_code"] };
+  await expect(reviewSkuEvidence(db, actor, { ...review, claims: { ...pending!.claims, model_code: "178F" } }))
+    .rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  const accepted = await reviewSkuEvidence(db, actor, { ...review, claims: pending!.claims });
+  expect(accepted.claims).toEqual({ brand: "TEST-BRAND", model_code: "178FE" });
+  expect(accepted.claimSources).toEqual({
+    brand: { origin: "HUMAN", userId: actor.userId }, model_code: { origin: "AI", jobId: job, confirmedBy: actor.userId }
+  });
+  expect((await getStorefrontIdentityFacts(db, sku.id)).fields).toEqual({ brand: "TEST-BRAND", model_code: "178FE" });
+  const [confirmation] = await db.select().from(auditLogs).where(and(eq(auditLogs.entityId, item.id), eq(auditLogs.action, "EVIDENCE_AI_CLAIMS_CONFIRMED")));
+  expect(confirmation).toMatchObject({ actorUserId: actor.userId, afterJson: { confirmed: [{ field: "model_code", jobId: job, value: "178FE" }] } });
   const blocked = await submitSkuEvidence(db, actor, { skuId: sku.id, imageId, type: "SUPPLIER_DOCUMENT", documentNumber: "ABC", lineText: "Private line" });
   await expect(create("extract-evidence", { ...target, evidenceId: blocked.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
   await executeAiJob(db, storage, provider, await create("analyze-photo-quality", target), 0, 0);

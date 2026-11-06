@@ -72,8 +72,9 @@ only by a new ADR after the client agrees.
 Only **accepted** evidence counts. An admin accepts an evidence item after checking that it is
 authentic, belongs to this SKU, and that the values attributed to it are read correctly.
 `PENDING` evidence creates candidate values and reveals conflicts, but never verifies a field.
-Values extracted by AI are always candidates until a human confirms the reading as part of
-accepting the item.
+Each claim records whether it came from a person or from an AI job, with the job ID for
+AI readings. At acceptance, the admin explicitly confirms each AI reading to keep it.
+The system audits the confirmed fields and drops unchecked AI readings.
 
 A factual field becomes `VERIFIED` only when one of these holds and no contradicting evidence is
 unresolved:
