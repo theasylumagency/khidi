@@ -1,0 +1,55 @@
+"use client";
+
+import { useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { t } from "@khidi/i18n";
+import { createUuidV7 } from "@khidi/shared/uuid";
+import type { listSkuMergeTargets } from "@khidi/products";
+
+export function SkuMergeForm({ sourceSkuId, candidates }: {
+  sourceSkuId: string; candidates: Awaited<ReturnType<typeof listSkuMergeTargets>>;
+}) {
+  const router = useRouter();
+  const [targetSkuId, setTargetSkuId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const shared = candidates.find((candidate) => candidate.id === targetSkuId)?.sharedListings ?? [];
+  async function merge(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+    const data = new FormData(event.currentTarget);
+    const listingChoices = Object.fromEntries(shared.map((store) => [store.id, data.get(store.id)]));
+    setBusy(true); setMessage("");
+    try {
+      const result = await fetch("/api/products/merge", { method: "POST", headers: {
+        "Content-Type": "application/json", "Idempotency-Key": createUuidV7()
+      }, body: JSON.stringify({ sourceSkuId, targetSkuId, reason: data.get("reason"), listingChoices }) });
+      if (!result.ok) throw new Error();
+      router.push(`/products/${targetSkuId}`);
+      router.refresh();
+    } catch { setMessage(t("merge.failed")); }
+    finally { setBusy(false); }
+  }
+  if (!candidates.length) return null;
+  return <details><summary>{t("merge.title")}</summary>
+    <form className="office-login" onSubmit={merge}>
+      <fieldset disabled={busy}>
+        <p>{t("merge.hint")}</p>
+        <label>{t("merge.target")} <select required value={targetSkuId} onChange={(event) => setTargetSkuId(event.target.value)}>
+          <option value="">—</option>
+          {candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.internalSku} · {candidate.name}</option>)}
+        </select></label>
+        {shared.map((store) => <label key={`${targetSkuId}:${store.id}`}>{store.name} · {t("merge.listing_choice")}
+          <select name={store.id} required>
+            <option value="">—</option>
+            <option value="SOURCE">{t("merge.source_listing")} · {t(store.sourceEnabled ? "merge.listing_on" : "merge.listing_off")}</option>
+            <option value="TARGET">{t("merge.target_listing")} · {t(store.targetEnabled ? "merge.listing_on" : "merge.listing_off")}</option>
+          </select>
+        </label>)}
+        <label>{t("evidence.reason")} <input name="reason" required maxLength={4000} /></label>
+        <button>{t("merge.submit")}</button>
+      </fieldset>
+    </form>
+    <p role="status">{message}</p>
+  </details>;
+}

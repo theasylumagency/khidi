@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@khidi/db";
 import { listLegalEntities, listStorefronts } from "@khidi/entities";
-import { getCanonicalContentReview, getSkuWithDetails, listProductTypes, ALLOWED_LIFECYCLE_TRANSITIONS, type SkuLifecycleState } from "@khidi/products";
+import { getCanonicalContentReview, getSkuWithDetails, listProductTypes, listSkuMergeTargets, ALLOWED_LIFECYCLE_TRANSITIONS, type SkuLifecycleState } from "@khidi/products";
 import { evidenceFieldOptions, evidenceStrength, listSkuEvidence } from "@khidi/evidence";
 import { AppError } from "@khidi/shared";
 import { requirePageAuth } from "../../../lib/session.ts";
@@ -17,6 +17,7 @@ import { EvidenceReview } from "../../../components/evidence-review.tsx";
 import { EvidenceRequestForm } from "../../../components/evidence-request-form.tsx";
 import { AiJobAction } from "../../../components/ai-job-action.tsx";
 import { CanonicalContentEditor } from "../../../components/canonical-content-editor.tsx";
+import { SkuMergeForm } from "../../../components/sku-merge-form.tsx";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +59,7 @@ export default async function SkuDetailPage({
     storefrontListings,
     slugHistory,
     bundleComponents,
-    labelSpec
+    labelSpec, intakeHistory
   } = details;
 
   const storefrontOptions = allStorefronts.map((sf) => {
@@ -74,6 +75,7 @@ export default async function SkuDetailPage({
     listMediaImageViews(db, principal, { skuId }), listSkuEvidence(db, { userId: principal.userId }, skuId), getCanonicalContentReview(db, skuId)
   ]) : [[] as Awaited<ReturnType<typeof listMediaImageViews>>, null, null] as const;
   const typeOptions = evidenceView ? (await listProductTypes(db)).filter((type) => type.active).map((type) => ({ id: type.id, nameKa: type.nameKa })) : [];
+  const mergeTargets = principal.role === "ADMIN" ? await listSkuMergeTargets(db, skuId) : [];
 
   return (
     <div style={{ display: "grid", gap: "1.5rem" }}>
@@ -249,6 +251,13 @@ export default async function SkuDetailPage({
         </section>
       )}
       {contentReview ? <CanonicalContentEditor skuId={skuId} review={contentReview} archived={sku.lifecycleState === "ARCHIVED"} /> : null}
+      {sku.mergedIntoSkuId ? <p><Link href={`/products/${sku.mergedIntoSkuId}`}>{t("merge.survivor_link")}</Link></p> : null}
+      {principal.role === "ADMIN" ? <SkuMergeForm sourceSkuId={skuId} candidates={mergeTargets} /> : null}
+      {intakeHistory.length ? <details><summary>{t("merge.intake_history")}</summary>
+        <ul>{intakeHistory.map((intake) => <li key={intake.id}>
+          <Link href={`/intakes/${intake.id}/review`}>{intake.scannedAt.toLocaleString("ka-GE", { timeZone: "Asia/Tbilisi" })}</Link>
+        </li>)}</ul>
+      </details> : null}
       {evidenceView ? <section className="office-login">
         <h2>{t("evidence.items")}</h2>
         {sku.reverificationRequired ? <p role="status">{t("evidence.reverification")}</p> : null}
@@ -256,7 +265,7 @@ export default async function SkuDetailPage({
         <EvidenceCapture skuId={sku.id} fields={evidenceFieldOptions(productType)}
           comparisons={evidenceView.comparisonPhotos.map((photo) => ({ ...photo,
             label: `${t(`media.slot.${photo.slot}` as TranslationKey)} · ${photo.sortOrder + 1}` }))}
-          replaceable={evidenceView.items.filter((item) => item.status === "ACCEPTED").map((item) => ({ id: item.id,
+          replaceable={evidenceView.items.filter((item) => item.skuId === skuId && item.status === "ACCEPTED").map((item) => ({ id: item.id,
             label: `${t(`evidence.type.${item.type}` as TranslationKey)} · ${item.documentNumber ?? item.id.slice(-8)}` }))}
           images={images.map((image) => ({ id: image.id, verified: image.status === "VERIFIED",
             label: `${t(`media.slot.${image.slot}` as TranslationKey)} · ${image.sortOrder + 1}` }))} />

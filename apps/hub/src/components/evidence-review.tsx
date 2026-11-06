@@ -10,6 +10,7 @@ import type { EvidenceClaimSource } from "@khidi/db";
 type FactValue = string | boolean | number;
 interface Item {
   id: string; type: string; status: string; sensitivity: string; strength: string; notes: string | null;
+  skuId: string;
   supplierName: string | null; documentNumber: string | null; lineText: string | null; quantity: number | null;
   claims: Record<string, FactValue>; claimSources: Record<string, EvidenceClaimSource>;
   attachmentUrl: string | null; privateMimeType: string | null; imageId: string | null;
@@ -127,6 +128,7 @@ export function EvidenceReview({ skuId, kind, items, fields, distinguishing, pho
       <summary>{t(`evidence.type.${item.type}` as TranslationKey)} · {t(`evidence.status.${item.status}` as TranslationKey)}</summary>
       <p>{[item.notes, item.supplierName, item.documentNumber, item.lineText, item.quantity].filter((value) => value !== null).join(" · ")}</p>
       {item.supersedesEvidenceId ? <a href={`#evidence-${item.supersedesEvidenceId}`}>{t("evidence.previous_evidence")}</a> : null}
+      {item.skuId !== skuId ? <p><a href={`/products/${item.skuId}#evidence-${item.id}`}>{t("merge.original_evidence")}</a></p> : null}
       <ul>{Object.entries(item.claims).filter(([key]) => item.claimSources[key]?.origin !== "AI")
         .map(([key, value]) => <li key={key}>{key} · {String(value)}</li>)}</ul>
       {item.attachmentUrl ? <a href={item.attachmentUrl}>{t(item.privateMimeType === "application/pdf" ? "evidence.open_pdf" : "evidence.photo")}</a>
@@ -147,7 +149,7 @@ export function EvidenceReview({ skuId, kind, items, fields, distinguishing, pho
             </div>
           )}
         </fieldset> : null}
-        {item.status === "PENDING" && item.type !== "MEASUREMENT" ? <>
+        {item.skuId === skuId && item.status === "PENDING" && item.type !== "MEASUREMENT" ? <>
           <label>{t("evidence.reading_field")} <select name="manualField">
             <option value="">—</option>{fieldOptions.filter((field) => item.claimSources[field.key]?.origin !== "AI"
               && (item.type !== "ADMIN_PHYSICAL_INSPECTION" || field.observable))
@@ -156,12 +158,12 @@ export function EvidenceReview({ skuId, kind, items, fields, distinguishing, pho
           <label>{t("evidence.reading_value")} <input name="manualValue" maxLength={400} /></label>
           {item.comparisonClaims ? <label>{t("evidence.compared_value")} <input name="comparedValue" maxLength={400} /></label> : null}
         </> : null}
-        {item.status === "PENDING" && item.type === "SUPPLIER_DOCUMENT" ? <>
+        {item.skuId === skuId && item.status === "PENDING" && item.type === "SUPPLIER_DOCUMENT" ? <>
           <label>{t("evidence.document_number")} <input name="documentNumber" defaultValue={item.documentNumber ?? ""} maxLength={200} /></label>
           <label>{t("evidence.line_text")} <input name="lineText" defaultValue={item.lineText ?? ""} maxLength={4000} /></label>
           <label>{t("evidence.quantity")} <input name="quantity" defaultValue={item.quantity ?? ""} type="number" min={1} step={1} /></label>
         </> : null}
-        {item.status !== "REJECTED" ? <>
+        {item.skuId === skuId && item.status !== "REJECTED" ? <>
           <label>{t("evidence.reason")} <input name="reason" required maxLength={4000} /></label>
           {item.status === "PENDING" ? <button disabled={busy} value="ACCEPTED">{t("evidence.accept_reading")}</button> : null}
           <button disabled={busy} value="REJECTED">{t("evidence.reject")}</button>

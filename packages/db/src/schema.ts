@@ -391,6 +391,7 @@ export const skus = pgTable("skus", {
   internalSku: text("internal_sku").notNull().unique(),
   productFamilyId: uuid("product_family_id").references(() => productFamilies.id),
   productTypeId: uuid("product_type_id").references(() => productTypes.id),
+  mergedIntoSkuId: uuid("merged_into_sku_id").references((): AnyPgColumn => skus.id, { onDelete: "restrict" }),
   categoryId: uuid("category_id")
     .notNull()
     .references(() => categories.id),
@@ -589,6 +590,7 @@ export const productIntakes = pgTable("product_intakes", {
   normalizedIdentifier: text("normalized_identifier"),
   isNoBarcode: boolean("is_no_barcode").notNull().default(false),
   matchedSkuId: uuid("matched_sku_id").references(() => skus.id),
+  scannedSkuId: uuid("scanned_sku_id").references(() => skus.id, { onDelete: "restrict" }),
   duplicateOfIntakeId: uuid("duplicate_of_intake_id").references((): AnyPgColumn => productIntakes.id),
   labelStatus: text("label_status").notNull().default("NOT_REQUIRED"),
   resultState: text("result_state").notNull(),

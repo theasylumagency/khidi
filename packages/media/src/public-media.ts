@@ -1,5 +1,5 @@
-import { and, asc, eq, ne, sql } from "drizzle-orm";
-import { type DbExecutor, type MediaDerivative, imagePublications, productImages, skus, storefronts } from "@khidi/db";
+import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
+import { type DbExecutor, type MediaDerivative, getSkuLineageIds, imagePublications, productImages, skus, storefronts } from "@khidi/db";
 import { withDomainTransaction, type DomainTransactionContext } from "@khidi/domain";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import type { MediaStorage } from "./storage.ts";
@@ -11,7 +11,8 @@ export function publicMediaKey(slug: string, ordinal: number, width: number, for
 }
 export function buildPublicMediaUrl(mediaBaseUrl: string, key: string, hubHost = process.env.HUB_NEUTRAL_DOMAIN ?? "khidi.internal.local") {
   let base: URL; try { base = new URL(mediaBaseUrl); } catch { throw new AppError("VALIDATION_ERROR", "Invalid storefront media URL."); }
-  if (base.protocol !== "https:" || base.username || base.password || base.search || base.hash || base.hostname === hubHost || base.hostname.endsWith(`.${hubHost}`)
+  if (base.protocol !== "https:" || base.username || base.password || base.search || base.hash
+    || [hubHost, "app.khidi.app"].some((host) => base.hostname === host || base.hostname.endsWith(`.${host}`))
     || INTERNAL_ID.test(decodeURIComponent(base.pathname)) || !/^[a-z0-9-]+-[1-9][0-9]*-(400|800|1600)\.(webp|avif)$/.test(key) || INTERNAL_ID.test(key)) throw new AppError("VALIDATION_ERROR", "Unsafe storefront media URL.");
   base.pathname = `${base.pathname.replace(/\/$/, "")}/${key}`; return base.toString();
 }
@@ -22,7 +23,8 @@ async function desiredCopies(ctx: DomainTransactionContext, skuId: string): Prom
   if (!sku) throw new AppError("NOT_FOUND", "SKU not found.");
   if (sku.lifecycleState !== "READY" || !sku.canonicalSlug) return [];
   try { publicMediaKey(sku.canonicalSlug, 1, 400, "webp"); } catch { return []; }
-  const images = await ctx.tx.select().from(productImages).where(and(eq(productImages.skuId, skuId), eq(productImages.status, "VERIFIED"), eq(productImages.usage, "PUBLIC"))).orderBy(asc(productImages.sortOrder), asc(productImages.createdAt), asc(productImages.id)).for("update");
+  const lineage = await getSkuLineageIds(ctx.tx, skuId);
+  const images = await ctx.tx.select().from(productImages).where(and(inArray(productImages.skuId, lineage), eq(productImages.status, "VERIFIED"), eq(productImages.usage, "PUBLIC"))).orderBy(asc(productImages.sortOrder), asc(productImages.createdAt), asc(productImages.id)).for("update");
   images.sort((a, b) => Number(b.role === "MAIN") - Number(a.role === "MAIN"));
   const copies: DesiredCopy[] = [];
   for (const [index, image] of images.entries()) for (const derivative of Object.values(image.derivativesJson)) copies.push({ imageId: image.id, skuId, version: image.masterVersion, key: publicMediaKey(sku.canonicalSlug, index + 1, derivative.width, derivative.format), derivative });

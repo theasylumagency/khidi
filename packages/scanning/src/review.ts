@@ -81,7 +81,8 @@ export async function resolveIntakeReview(db: DbExecutor, principal: Authenticat
           )).orderBy(asc(productIntakes.createdAt)).limit(1);
           if (!identity.skuId && !first) identity = await resolveScanIdentity(ctx.tx, ctx.actor, normalized, { allowCreate: true, productTypeId: task.productTypeId });
           if (identity.reviewReason) throw new AppError("CONFLICT", "Identity changed during review; retry the resolution.");
-          changes = { ...changes, reviewReason: null, matchedSkuId: first?.matchedSkuId ?? identity.skuId,
+          changes = { ...changes, reviewReason: null,
+            matchedSkuId: normalized?.internal ? identity.skuId : first?.matchedSkuId ?? identity.skuId,
             resultState: first?.resultState ?? identity.resultState, duplicateOfIntakeId: first?.id ?? null,
             labelStatus: original.isNoBarcode ? "TO_PRINT" : "NOT_REQUIRED" };
           if (original.isNoBarcode) await ctx.tx.insert(labelEvents).values({ id: createUuidV7(), intakeId: original.id,

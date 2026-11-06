@@ -31,6 +31,7 @@ export type IntakeInput = z.infer<typeof intakeInputSchema>;
 export interface IntakeResult extends Record<string, unknown> {
   id: string;
   matchedSkuId: string | null;
+  scannedSkuId?: string;
   resultState: (typeof RESULT_STATES)[number];
   duplicateOfIntakeId: string | null;
   labelStatus: (typeof LABEL_STATUSES)[number];
