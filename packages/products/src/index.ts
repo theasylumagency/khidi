@@ -20,6 +20,8 @@ import {
   skuIdentifiers,
   skuSlugHistory,
   resolveActiveSku,
+  skuContentApprovals,
+  skuContentVersions,
   skus,
   storefrontListings,
   storefronts,
@@ -1894,7 +1896,11 @@ export async function getSkuWithDetails(db: AppDatabase | DbExecutor, skuId: str
 }
 
 export async function listSkusWorkspace(db: AppDatabase | DbExecutor) {
-  const allSkus = await db.select().from(skus).orderBy(asc(skus.internalSku));
+  const allSkus = await db.select({ sku: skus, enApproved: skuContentApprovals.versionId,
+    enDraftExists: sql<boolean>`exists (select 1 from ${skuContentVersions}
+      where ${skuContentVersions.skuId} = ${skus.id} and ${skuContentVersions.locale} = 'en')`
+  }).from(skus).leftJoin(skuContentApprovals, and(eq(skuContentApprovals.skuId, skus.id), eq(skuContentApprovals.locale, "en")))
+    .orderBy(asc(skus.internalSku));
   const allCategories = await db.select().from(categories);
   const allTypes = await db.select().from(productTypes);
   const allMappings = await db
@@ -1922,7 +1928,7 @@ export async function listSkusWorkspace(db: AppDatabase | DbExecutor) {
   const catMap = new Map(allCategories.map((c) => [c.id, c]));
   const typeMap = new Map(allTypes.map((t) => [t.id, t]));
 
-  return allSkus.map((s) => {
+  return allSkus.map(({ sku: s, enApproved, enDraftExists }) => {
     const cat = catMap.get(s.categoryId);
     const pt = s.productTypeId ? typeMap.get(s.productTypeId) : undefined;
     const skuMappings = allMappings.filter((m) => m.skuId === s.id);
@@ -1931,6 +1937,7 @@ export async function listSkusWorkspace(db: AppDatabase | DbExecutor) {
 
     return {
       ...s,
+      englishContentStatus: enApproved ? "approved" as const : enDraftExists ? "pending" as const : "missing" as const,
       categoryNameKa: cat?.nameKa ?? "—",
       categoryKey: cat?.key ?? "UNCLASSIFIED",
       productTypeNameKa: pt?.nameKa ?? "—",

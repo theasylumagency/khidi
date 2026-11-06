@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { productTypes, skuContentApprovals, skuContentVersions, skus, users, type CanonicalContentOrigin, type DbExecutor } from "@khidi/db";
 import { withDomainTransaction, type DomainActor, type DomainTransactionContext } from "@khidi/domain";
@@ -154,11 +154,18 @@ export async function getCanonicalContentReview(db: DbExecutor, skuId: string) {
     getApprovedContent(db, skuId), getContentFactFields(db, skuId), getCanonicalContentContext(db, skuId)
   ]);
   return {
-    versions: versions.map((version) => ({ ...version, issues: validateCanonicalDraft(version, context, version.locale).issues })),
+    versions: versions.map((version) => ({ ...version,
+      dateLabel: version.createdAt.toLocaleString("ka-GE", { timeZone: "Asia/Tbilisi" }),
+      issues: validateCanonicalDraft(version, context, version.locale).issues })),
     approved: approved.map(({ version, approvedAt }) => ({ id: version.id, locale: version.locale, approvedAt,
       ...compareApprovedContentFacts(version.verifiedFacts, fields) })),
     facts: context.facts
   };
+}
+
+export async function listSkusRequiringContentReview(db: DbExecutor) {
+  return db.select({ id: skus.id, internalSku: skus.internalSku, name: skus.displayNameKa }).from(skus)
+    .where(and(eq(skus.contentReviewRequired, true), ne(skus.lifecycleState, "ARCHIVED"))).orderBy(asc(skus.internalSku));
 }
 
 export { generateCanonicalDraft, isPublicCanonicalField, isPublicCanonicalText, validateCanonicalDraft };

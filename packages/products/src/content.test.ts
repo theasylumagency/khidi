@@ -16,12 +16,12 @@ it("rejects unsupported facts and preserves approved immutable content when its 
   const generated = await saveCanonicalVersion(db, actor, { skuId: sku.id, locale: "ka" });
   expect(generated.issues).toEqual([]);
   const bad = await saveCanonicalVersion(db, actor, { skuId: sku.id, locale: "ka", draft: {
-    displayName: generated.version.displayName, shortDescription: "UNVERIFIEDBRAND 9 kW",
+    displayName: generated.version.displayName, shortDescription: "UNVERIFIEDBRAND 9 kW -5 kW",
     fullDescription: generated.version.fullDescription, searchAliases: []
   } });
   await expect(approveCanonicalVersion(db, actor, { skuId: sku.id, versionId: bad.version.id })).rejects.toMatchObject({
     code: "VALIDATION_ERROR", details: { issues: expect.arrayContaining([
-      expect.objectContaining({ phrase: "UNVERIFIEDBRAND" }), expect.objectContaining({ phrase: "9" })
+      expect.objectContaining({ phrase: "UNVERIFIEDBRAND" }), expect.objectContaining({ phrase: "9" }), expect.objectContaining({ phrase: "-5" })
     ]) }
   });
   await approveCanonicalVersion(db, actor, { skuId: sku.id, versionId: generated.version.id });

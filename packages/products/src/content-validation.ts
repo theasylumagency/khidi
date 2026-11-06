@@ -23,12 +23,12 @@ export interface CanonicalContentContext {
   facts: Record<string, CanonicalFact>;
 }
 
-const internalText = /\bkh[-\s]?\d{6,}|\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b|https?:\/\/|(?:\b|\.)khidi\.(?:app|internal\.local)\b|\S+@\S+\.\S+/iu;
+const internalText = /\bagro\s*trade\b|\bkh[-\s]?\d{6,}|\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b|https?:\/\/|(?:\b|\.)khidi\.(?:app|internal\.local)\b|\S+@\S+\.\S+/iu;
 export function isPublicCanonicalText(value: string) {
   return !internalText.test(value.normalize("NFKC"));
 }
 export function isPublicCanonicalField(key: string) {
-  return !/supplier|invoice|packing|price|cost|currency|address|phone|email|tax_id|internal|document|url/i.test(key);
+  return !/supplier|vendor|invoice|packing|price|cost|currency|address|phone|email|tax_id|internal|document|url|accounting|barcode|gtin/i.test(key);
 }
 
 const localWords = {
@@ -39,8 +39,8 @@ const localizedUnits: Record<string, string[]> = {
   kW: ["კვტ"], kg: ["კგ"], mm: ["მმ"], "cm³": ["სმ³"], L: ["ლ"], bar: ["ბარი"], "L/min": ["ლ/წთ"],
   V: ["ვ"], A: ["ა"], HP: ["ცხ.ძ."]
 };
-const words = (text: string) => text.normalize("NFKC").match(/[\p{L}\p{N}]+(?:[.,/\-][\p{L}\p{N}]+)*/gu) ?? [];
-const normalize = (token: string) => token.toLowerCase().replace(/(?<=\d),(?=\d)/g, ".");
+const words = (text: string) => text.normalize("NFKC").match(/(?:[+−-](?=\d))?[\p{L}\p{N}]+(?:[.,/\-][\p{L}\p{N}]+)*/gu) ?? [];
+const normalize = (token: string) => token.toLowerCase().replace(/^−/, "-").replace(/(?<=\d),(?=\d)/g, ".");
 const numericWord = /\d/u;
 const unitTokens = new Set(Object.entries(localizedUnits).flatMap(([unit, labels]) => [unit, ...labels])
   .flatMap(words).map(normalize).filter((unit) => unit.length > 1));
@@ -133,10 +133,12 @@ export function validateCanonicalDraft(draft: CanonicalDraft, context: Canonical
             const prefix = words(label).map(normalize);
             return prefix.length > 0 && prefix.length <= i && prefix.every((token, index) => token === tokens[i - prefix.length + index]);
           }));
-        const resolved = labeled.length === 1 ? labeled : longest;
+        const brand = longest.find((reading) => reading.key === "brand");
+        const brandAndManufacturer = longest.length === 2 && brand && longest.some((reading) => reading.key === "manufacturer");
+        const resolved = labeled.length === 1 ? labeled : brandAndManufacturer ? [brand] : longest;
         if (resolved.length > 1) issues.push({ field, phrase: raw.slice(i, i + length).join(" "), code: "AMBIGUOUS_FACT" });
         else for (const reading of resolved) {
-          facts[reading.key] = reading.value;
+          if (field !== "searchAliases") facts[reading.key] = reading.value;
           used.add(reading.key);
         }
         i += length;

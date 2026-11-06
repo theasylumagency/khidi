@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getDb } from "@khidi/db";
+import { t } from "@khidi/i18n";
 import {
   listCategories,
   listLegacyUrls,
@@ -11,20 +12,30 @@ import { ProductCreateForm } from "../../components/product-create-form.tsx";
 
 export const dynamic = "force-dynamic";
 
-export default async function ProductsWorkspacePage() {
+export default async function ProductsWorkspacePage({ searchParams }: {
+  searchParams: Promise<{ q?: string | string[]; english?: string | string[] }>;
+}) {
   const principal = await requirePageAuth({
     allowedRoles: ["ADMIN", "OPERATOR", "STOCK_MANAGER"]
   });
 
   const db = getDb();
-  const [skus, categories, productTypes, legacyUrls] = await Promise.all([
+  const [skus, categories, productTypes, legacyUrls, filters] = await Promise.all([
     listSkusWorkspace(db),
     listCategories(db),
     listProductTypes(db),
-    listLegacyUrls(db)
+    listLegacyUrls(db), searchParams
   ]);
 
   const canCreateSku = principal.role === "ADMIN" || principal.role === "OPERATOR";
+  const search = typeof filters.q === "string" ? filters.q.trim() : "";
+  const query = search.toLowerCase();
+  const readyWithoutEnglish = filters.english === "ready-without-approval";
+  const visibleSkus = skus.filter((sku) => {
+    if (readyWithoutEnglish && (sku.lifecycleState !== "READY" || sku.englishContentStatus === "approved")) return false;
+    return !query || [sku.internalSku, sku.displayNameKa, sku.displayNameEn, sku.modelCode,
+      ...(sku.searchAliasesKa ?? []), ...(sku.searchAliasesEn ?? [])].some((value) => value?.toLowerCase().includes(query));
+  });
 
   return (
     <div style={{ display: "grid", gap: "1.5rem" }}>
@@ -40,24 +51,9 @@ export default async function ProductsWorkspacePage() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <h1 style={{ margin: "0 0 0.4rem 0", fontSize: "1.45rem" }}>
-              პროდუქტების კატალოგი (Product Master — Milestone 2)
+              {t("content.catalog")}
             </h1>
-            <p style={{ margin: 0, color: "#475569", fontSize: "0.9rem" }}>
-              ტაქსონომიის 8 კატეგორია + UNCLASSIFIED (§5.7), 30 Product Type (§5.8), ვარიანტები და ბანდლები (§5.2), `canonical_slug` მხოლოდ `READY`-ზე ([C8]), `sku_slug_history` ([C7]) და `accounting_mappings` ([C9]).
-            </p>
           </div>
-          <span
-            style={{
-              background: "#dcfce7",
-              color: "#166534",
-              padding: "0.35rem 0.75rem",
-              borderRadius: "999px",
-              fontSize: "0.8rem",
-              fontWeight: 700
-            }}
-          >
-            Milestone 2 Active [C7, C8, C9]
-          </span>
         </div>
 
         <div
@@ -151,8 +147,14 @@ export default async function ProductsWorkspacePage() {
         }}
       >
         <h2 style={{ margin: "0 0 1rem 0", fontSize: "1.1rem" }}>
-          პროდუქტების ცხრილი (§15.4 Products Workspace)
+          {t("content.catalog_table")}
         </h2>
+        <form action="/products" style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" }}>
+          <label>{t("content.search")} <input type="search" name="q" defaultValue={search} /></label>
+          <label><input type="checkbox" name="english" value="ready-without-approval" defaultChecked={readyWithoutEnglish} /> {t("content.ready_without_en")}</label>
+          <button type="submit">{t("content.apply_filters")}</button>
+        </form>
+        {visibleSkus.length === 0 ? <p>{t("content.no_matches")}</p> : null}
 
         <table
           style={{
@@ -167,6 +169,7 @@ export default async function ProductsWorkspacePage() {
               <th style={{ padding: "0.6rem" }}>პროდუქტი / დეტერმინისტული სახელი (§5.10)</th>
               <th style={{ padding: "0.6rem" }}>ტიპი & კატეგორია</th>
               <th style={{ padding: "0.6rem" }}>სტატუსი & სლაგი ([C8])</th>
+              <th scope="col" style={{ padding: "0.6rem" }}>{t("content.english_status")}</th>
               <th style={{ padding: "0.6rem" }}>ერთეულები (§5.6)</th>
               <th style={{ padding: "0.6rem" }}>ბუღალტრული მეპინგი ([C9])</th>
               <th style={{ padding: "0.6rem" }}>მაღაზიები (§4.5)</th>
@@ -174,7 +177,7 @@ export default async function ProductsWorkspacePage() {
             </tr>
           </thead>
           <tbody>
-            {skus.map((sku) => (
+            {visibleSkus.map((sku) => (
               <tr key={sku.id} style={{ borderBottom: "1px solid #e2e8f0" }}>
                 <td style={{ padding: "0.65rem", fontFamily: "monospace", fontWeight: 700 }}>
                   <Link href={`/products/${sku.id}`} style={{ color: "#15803d" }}>
@@ -264,7 +267,10 @@ export default async function ProductsWorkspacePage() {
                   >
                     {sku.canonicalSlug ?? "slug: NULL [C8]"}
                   </div>
+                  {sku.reverificationRequired && sku.lifecycleState !== "ARCHIVED" ? <p>{t("evidence.reverification")}</p> : null}
+                  {sku.contentReviewRequired && sku.lifecycleState !== "ARCHIVED" ? <p>{t("content.review_required")}</p> : null}
                 </td>
+                <td style={{ padding: "0.65rem" }}>{t(`content.${sku.englishContentStatus}`)}</td>
 
                 <td style={{ padding: "0.65rem", fontSize: "0.78rem" }}>
                   {sku.powerKw && (

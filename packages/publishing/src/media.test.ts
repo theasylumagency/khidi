@@ -8,7 +8,7 @@ import { evaluateSkuMediaSellability } from "./index.ts";
 it("derives verified PUBLIC MAIN eligibility from persisted admin decisions", async () => {
   const db = getDb(), user = await db.query.users.findFirst({ where: (user, { eq }) => eq(user.role, "ADMIN") });
   const principal = await loadPrincipalByUserId(db, user!.id), skuId = (await createSkuDraft(db, { userId: user!.id }, {})).id;
-  const facts = { lifecycleState: "READY" as const, canonicalSlug: "neutral-product", hasActiveSellerAccountingMapping: true, requiresOwnerAccountingMapping: false, hasActiveOwnerAccountingMapping: false, hasCurrentBasePrice: true, isStorefrontListingEnabled: true };
+  const facts = { lifecycleState: "READY" as const, canonicalSlug: "neutral-product", hasActiveSellerAccountingMapping: true, requiresOwnerAccountingMapping: false, hasActiveOwnerAccountingMapping: false, hasCurrentBasePrice: true, isStorefrontListingEnabled: true, hasApprovedLocaleContent: true };
   expect((await evaluateSkuMediaSellability(db, skuId, facts)).blockingReasons).toEqual(["MISSING_VERIFIED_PUBLIC_MAIN_IMAGE"]);
   const id = createUuidV7(), key = `master/${id}/v1/master.jpg`;
   await db.insert(productImages).values({ id, skuId, slot: "MAIN", role: "MAIN", usage: "PUBLIC", rawStorageKey: `raw/${id}/original.jpg`, rawSha256: "a".repeat(64), rawBytes: 123,

@@ -18,6 +18,7 @@ import { EvidenceRequestForm } from "../../../components/evidence-request-form.t
 import { AiJobAction } from "../../../components/ai-job-action.tsx";
 import { CanonicalContentEditor } from "../../../components/canonical-content-editor.tsx";
 import { SkuMergeForm } from "../../../components/sku-merge-form.tsx";
+import { getSkuPublicationReview } from "@khidi/publishing";
 
 export const dynamic = "force-dynamic";
 
@@ -71,11 +72,14 @@ export default async function SkuDetailPage({
       enabled: Boolean(found?.enabled)
     };
   });
-  const [images, evidenceView, contentReview] = principal.role === "ADMIN" ? await Promise.all([
-    listMediaImageViews(db, principal, { skuId }), listSkuEvidence(db, { userId: principal.userId }, skuId), getCanonicalContentReview(db, skuId)
-  ]) : [[] as Awaited<ReturnType<typeof listMediaImageViews>>, null, null] as const;
-  const typeOptions = evidenceView ? (await listProductTypes(db)).filter((type) => type.active).map((type) => ({ id: type.id, nameKa: type.nameKa })) : [];
-  const mergeTargets = principal.role === "ADMIN" ? await listSkuMergeTargets(db, skuId) : [];
+  const [images, evidenceView, contentReview, publicationReview, mergeTargets, types] = principal.role === "ADMIN" ? await Promise.all([
+    listMediaImageViews(db, principal, { skuId }), listSkuEvidence(db, { userId: principal.userId }, skuId), getCanonicalContentReview(db, skuId),
+    getSkuPublicationReview(db, skuId, { details, stores: allStorefronts }), listSkuMergeTargets(db, skuId), listProductTypes(db)
+  ]) : [[] as Awaited<ReturnType<typeof listMediaImageViews>>, null, null, [], [], []] as const;
+  const typeOptions = types.filter((type) => type.active).map((type) => ({ id: type.id, nameKa: type.nameKa }));
+  const approvedKa = contentReview?.approved.find((version) => version.locale === "ka");
+  const canUseKaForReady = !!approvedKa && approvedKa.changedFields.length === 0 &&
+    contentReview?.versions.find((version) => version.id === approvedKa.id)?.issues.length === 0;
 
   return (
     <div style={{ display: "grid", gap: "1.5rem" }}>
@@ -243,6 +247,7 @@ export default async function SkuDetailPage({
             lifecycleState={sku.lifecycleState}
             identityConfidence={sku.identityConfidence}
             identityKind={sku.identityKind}
+            canUseKaForReady={canUseKaForReady}
             nextStates={(ALLOWED_LIFECYCLE_TRANSITIONS[sku.lifecycleState as SkuLifecycleState] ?? []).filter((state) => state !== "READY")}
             canonicalSlug={sku.canonicalSlug}
             entities={entities}
@@ -251,9 +256,21 @@ export default async function SkuDetailPage({
         </section>
       )}
       {contentReview ? <CanonicalContentEditor skuId={skuId} review={contentReview} archived={sku.lifecycleState === "ARCHIVED"} /> : null}
+      {principal.role === "ADMIN" ? <section className="office-login">
+        <h2>{t("publishing.title")}</h2>
+        {publicationReview.length ? <table>
+          <thead><tr><th scope="col">{t("publishing.storefront")}</th><th scope="col">{t("content.locale")}</th>
+            <th scope="col">{t("publishing.publish_ready")}</th><th scope="col">{t("publishing.sellable")}</th></tr></thead>
+          <tbody>{publicationReview.map((row) => <tr key={`${row.storefrontId}:${row.locale}`}>
+            <th scope="row">{row.storefrontName}</th><td>{row.locale.toUpperCase()}</td>
+            <td>{row.publishReady ? t("publishing.eligible") : <ul>{row.publicationBlockers.map((reason) => <li key={reason}>{t(`publishing.blocker.${reason}` as TranslationKey)}</li>)}</ul>}</td>
+            <td>{row.sellable ? t("publishing.eligible") : <ul>{row.blockingReasons.map((reason) => <li key={reason}>{t(`publishing.blocker.${reason}` as TranslationKey)}</li>)}</ul>}</td>
+          </tr>)}</tbody>
+        </table> : <p>{t("publishing.no_storefronts")}</p>}
+      </section> : null}
       {sku.mergedIntoSkuId ? <p><Link href={`/products/${sku.mergedIntoSkuId}`}>{t("merge.survivor_link")}</Link></p> : null}
       {principal.role === "ADMIN" ? <SkuMergeForm sourceSkuId={skuId} candidates={mergeTargets} /> : null}
-      {intakeHistory.length ? <details><summary>{t("merge.intake_history")}</summary>
+      {principal.role === "ADMIN" && intakeHistory.length ? <details><summary>{t("merge.intake_history")}</summary>
         <ul>{intakeHistory.map((intake) => <li key={intake.id}>
           <Link href={`/intakes/${intake.id}/review`}>{intake.scannedAt.toLocaleString("ka-GE", { timeZone: "Asia/Tbilisi" })}</Link>
         </li>)}</ul>

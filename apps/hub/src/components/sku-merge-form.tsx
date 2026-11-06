@@ -7,7 +7,7 @@ import { createUuidV7 } from "@khidi/shared/uuid";
 import type { listSkuMergeTargets } from "@khidi/products";
 
 export function SkuMergeForm({ sourceSkuId, candidates }: {
-  sourceSkuId: string; candidates: Awaited<ReturnType<typeof listSkuMergeTargets>>;
+  sourceSkuId: string; candidates: Readonly<Awaited<ReturnType<typeof listSkuMergeTargets>>>;
 }) {
   const router = useRouter();
   const [targetSkuId, setTargetSkuId] = useState("");

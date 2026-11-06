@@ -59,7 +59,7 @@ export function CanonicalContentEditor({ skuId, review, archived }: { skuId: str
     {versions.length ? <label>{t("content.version")} <select value={selected?.id}
       onChange={(event) => { setSelectedId(event.target.value); setIssues(null); }}>
       {versions.map((version) => <option key={version.id} value={version.id}>
-        {t(`content.origin.${version.origin}` as TranslationKey)} · {new Date(version.createdAt).toLocaleString("ka-GE", { timeZone: "Asia/Tbilisi" })}
+        {t(`content.origin.${version.origin}` as TranslationKey)} · {version.dateLabel}
         {version.id === approved?.id ? ` · ${t("content.approved")}` : ""}
       </option>)}
     </select></label> : null}
