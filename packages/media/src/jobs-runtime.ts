@@ -7,7 +7,7 @@ import type { MediaStorage } from "./storage.ts";
 import { synchronizePublicMedia } from "./public-media.ts";
 export const MEDIA_QUEUES = ["process-image", "tier2-image-check", "publish-sku-media"] as const;
 export const MEDIA_JOB_SCHEMA = "khidi_jobs";
-export async function deployMediaJobs() {
+export async function deployMediaJobs(aiQueues: readonly string[] = []) {
   const pool = createMigratorPool();
   const boss = new PgBoss({ connectionString: resolveMigratorDatabaseUrl(), schema: MEDIA_JOB_SCHEMA, schedule: false, supervise: false });
   boss.on("error", () => {});
@@ -17,6 +17,11 @@ export async function deployMediaJobs() {
     await boss.start();
     await boss.createQueue("media-dead-letter", { retryLimit: 0, retentionSeconds: 2592000 });
     for (const queue of MEDIA_QUEUES) await boss.createQueue(queue, { retryLimit: 2, retryDelay: 1, retryBackoff: true, expireInSeconds: 300, retentionSeconds: 2592000, deadLetter: "media-dead-letter" });
+    if (aiQueues.length) {
+      await boss.createQueue("ai-dead-letter", { retryLimit: 0, retentionSeconds: 2592000 });
+      for (const queue of aiQueues) await boss.createQueue(queue, { retryLimit: 2, retryDelay: 10, retryBackoff: true,
+        expireInSeconds: 300, retentionSeconds: 2592000, deadLetter: "ai-dead-letter" });
+    }
     await pool.query(`REVOKE ALL ON SCHEMA khidi_jobs FROM PUBLIC; REVOKE CREATE ON SCHEMA khidi_jobs FROM hub_app;
       GRANT USAGE ON SCHEMA khidi_jobs TO hub_app;
       GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA khidi_jobs TO hub_app;

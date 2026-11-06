@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
-import { type DbExecutor, imageMasterVersions, productImages } from "@khidi/db";
+import { type DbExecutor, evidence, imageMasterVersions, productImages } from "@khidi/db";
 import { AppError } from "@khidi/shared";
 import { assertMediaPrincipal } from "./principal.ts";
 import { verifyPrivateMedia } from "./signing.ts";
@@ -8,6 +8,14 @@ import type { MediaStorage } from "./storage.ts";
 export async function readSignedPrivateMedia(db: DbExecutor, storage: MediaStorage, principal: AuthenticatedPrincipal, raw: Record<string, string>, now = Date.now()) {
   await assertMediaPrincipal(db, principal, true);
   const request = verifyPrivateMedia(principal.userId, raw, now);
+  if (request.variant === "evidence") {
+    if (request.version !== 0) throw new AppError("VALIDATION_ERROR", "Evidence has no processing version.");
+    const [item] = await db.select({
+      key: evidence.privateStorageKey, sha256: evidence.privateSha256, contentType: evidence.privateMimeType
+    }).from(evidence).where(and(eq(evidence.id, request.imageId), eq(evidence.sensitivity, "INTERNAL_ONLY")));
+    if (!item?.key || !item.sha256 || !item.contentType) throw new AppError("NOT_FOUND", "Evidence attachment not found.");
+    return { bytes: await storage.readPrivate(item.key, item.sha256), contentType: item.contentType };
+  }
   const [image] = await db.select().from(productImages).where(eq(productImages.id, request.imageId)).limit(1);
   if (!image) throw new AppError("NOT_FOUND", "Image not found.");
   if (request.variant === "raw") {

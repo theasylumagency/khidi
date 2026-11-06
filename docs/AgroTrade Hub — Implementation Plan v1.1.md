@@ -1054,13 +1054,14 @@ flowchart LR
 
 ### Milestone 5: Evidence & AI Identity Pipeline (`packages/evidence`, `packages/ai`, `apps/worker`)
 - **რას ვაწყობთ:**
-  - მტკიცებულებების რეესტრი (`INVOICE` მხოლოდ `ADMIN`-ისთვის), `sku_field_provenance` (პრიორიტეტები 1..9), დეტერმინისტული Identity Confidence კალკულატორი (`HIGH`, `MEDIUM`, `LOW`, `CONFLICT`), 8 AI ფონური ჯობი (`pg-boss`) Non-Invention წესებით და Tier-2 ასინქრონული ფოტო-შემოწმება.
-- **ვერიფიკაცია:** კონფლიქტების დეტექციისა და AI-ს გათიშვისას ხელით მუშაობის ტესტები.
+  - [ADR-010-ის](adr/ADR-010-evidence-identity-and-house-defined-products.md) მტკიცებულებების რეესტრი, ველების წარმომავლობა, დეტერმინისტული სანდოობა, `EVIDENCE_REQUEST` და გადასამოწმებელი SKU-ების სია. დოკუმენტის გარეშე პროდუქტი გადის ადმინისტრატორის ფიზიკურ შემოწმებას და `MEDIUM`-ის დადასტურებით გადადის `READY`-ზე.
+  - 8 ფონური დავალება (`pg-boss`), ლოკალური სინთეტიკური პროვაიდერი, Tier-2 ფოტო-შემოწმება, თითოეული მცდელობის ხარჯი და დღიური ლიმიტი.
+- **ვერიფიკაცია:** დოკუმენტის გარეშე `READY`, მსგავსი SKU-ის დაბლოკვა, კონფლიქტი `READY`-ის შემდეგ, AI-ის გათიშვისას ხელით მუშაობა და კონფიდენციალურობის შემოწმება.
 
 ### Milestone 6: Review Workflow, Canonical Content & Publishing (`packages/products`, `packages/publishing`, `apps/hub`) `[C5, C8]`
 - **რას ვაწყობთ:**
   - დეტერმინისტული Naming Engine (KA/EN), SKU Lifecycle State Machine (`INTAKE` → ... → `READY` → `ARCHIVED`).
-  - **`[C8]` Slug Assignment at READY:** `canonical_slug` გენერირდება მხოლოდ `READY`-ზე გადასვლისას დადასტურებული ბრენდიდან და მოდელიდან; `READY`-ს შემდეგ სლაგის ნებისმიერი ცვლილება წერს ძველ მნიშვნელობას `sku_slug_history`-ში.
+  - **`[C8]` Slug Assignment at READY:** `canonical_slug` პირველად ენიჭება `READY`-ზე გადასვლისას [ADR-010-ის](adr/ADR-010-evidence-identity-and-house-defined-products.md#7-naming-and-slugs-for-house-defined-products) დასახელების წესით. შემდგომი ცვლილება ინახავს წინა მნიშვნელობას `sku_slug_history`-ში.
   - **`[C5]` `packages/publishing`:** Per-Storefront Sellability Evaluator (§15.2, მათ შორის არა-ნულოვანი `canonical_slug`-ისა `[C8]` და გამყიდველი/მფლობელი იურიდიული პირების `accounting_mappings`-ის შემოწმება `[C9]`).
   - Review Screen (§15.3) და დესკტოპის Products Workspace ცხრილი (§15.4).
 - **ვერიფიკაცია:** სლაგის გენერაციისა და ისტორიის ტესტები `[C8]`, Sellability Evaluator-ის ტესტები `packages/publishing`-ში `[C5]`.

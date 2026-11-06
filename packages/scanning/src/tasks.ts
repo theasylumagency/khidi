@@ -11,8 +11,8 @@ export async function createScanTask(db: DbExecutor, principal: AuthenticatedPri
   const parsed = createScanTaskSchema.safeParse(raw);
   if (!parsed.success) throw new AppError("VALIDATION_ERROR", "Invalid task.");
   const input = parsed.data;
-  if (input.taskType !== "INTAKE_UNIQUE" && input.taskType !== "PHOTO_REQUEST") {
-    const milestone = { PHYSICAL_COUNT: 8, PHOTO_REQUEST: 4, EVIDENCE_REQUEST: 5, PICK: 9 }[input.taskType];
+  if (input.taskType === "PHYSICAL_COUNT" || input.taskType === "PICK") {
+    const milestone = { PHYSICAL_COUNT: 8, PICK: 9 }[input.taskType];
     throw new AppError("PRECONDITION_FAILED", `Task type is available from milestone ${milestone}.`, { milestone });
   }
   return executeIdempotent(db, { scope: "scanning:tasks:create", idempotencyKey: input.idempotencyKey, payload: { ...input, userId: principal.userId } }, (tx) =>
@@ -20,11 +20,11 @@ export async function createScanTask(db: DbExecutor, principal: AuthenticatedPri
       if (input.assigneeUserId) {
         const [user] = await ctx.tx.select({ active: users.active, role: users.role }).from(users).where(eq(users.id, input.assigneeUserId)).limit(1);
         if (!user?.active) throw new AppError("NOT_FOUND", "Active assignee not found.");
-        if (input.taskType === "PHOTO_REQUEST" && !["WAREHOUSE", "ADMIN"].includes(user.role)) throw new AppError("VALIDATION_ERROR", "Photo requests require a warehouse assignee.");
+        if (input.taskType !== "INTAKE_UNIQUE" && !["WAREHOUSE", "ADMIN"].includes(user.role)) throw new AppError("VALIDATION_ERROR", "Capture requests require a warehouse assignee.");
       }
-      if (input.taskType === "PHOTO_REQUEST") {
-        if (input.assigneeRole && !["WAREHOUSE", "ADMIN"].includes(input.assigneeRole)) throw new AppError("VALIDATION_ERROR", "Photo requests require a warehouse assignee.");
-        const [sku] = await ctx.tx.select({ id: skus.id }).from(skus).where(eq(skus.id, input.targetSkuId!)).limit(1);
+      if (input.taskType !== "INTAKE_UNIQUE") {
+        if (input.assigneeRole && !["WAREHOUSE", "ADMIN"].includes(input.assigneeRole)) throw new AppError("VALIDATION_ERROR", "Capture requests require a warehouse assignee.");
+        const [sku] = await ctx.tx.select({ id: skus.id }).from(skus).where(and(eq(skus.id, input.targetSkuId!), sql`${skus.lifecycleState} <> 'ARCHIVED'`)).limit(1);
         if (!sku) throw new AppError("NOT_FOUND", "Requested SKU not found.");
       }
       if (input.productTypeId) {
@@ -34,7 +34,8 @@ export async function createScanTask(db: DbExecutor, principal: AuthenticatedPri
       const id = createUuidV7();
       await ctx.tx.insert(scanTasks).values({ id, taskType: input.taskType, title: input.title,
         assigneeUserId: input.assigneeUserId, assigneeRole: input.assigneeRole, productTypeId: input.productTypeId,
-        targetCount: input.taskType === "PHOTO_REQUEST" ? input.requestedPhotoSlots!.length : input.targetCount,
+        targetCount: input.taskType === "PHOTO_REQUEST" ? input.requestedPhotoSlots!.length
+          : input.taskType === "EVIDENCE_REQUEST" ? input.targetCount ?? 1 : input.targetCount,
         photosRequired: input.photosRequired, targetSkuId: input.targetSkuId, requestedPhotoSlotsJson: input.requestedPhotoSlots, photoRequestNote: input.photoRequestNote,
         dueDate: input.dueDate ? new Date(input.dueDate) : null, createdBy: principal.userId });
       const body = { id };
@@ -85,13 +86,16 @@ const scannerTaskFields = { id: scanTasks.id, title: scanTasks.title, status: sc
 function scannerAssignment(principal: AuthenticatedPrincipal) {
   return principal.role === "ADMIN" ? undefined : or(eq(scanTasks.assigneeUserId, principal.userId), eq(scanTasks.assigneeRole, principal.role));
 }
+function scannerTaskTypes(principal: AuthenticatedPrincipal) {
+  return ["ADMIN", "WAREHOUSE"].includes(principal.role) ? ["INTAKE_UNIQUE", "PHOTO_REQUEST", "EVIDENCE_REQUEST"] : ["INTAKE_UNIQUE"];
+}
 
 /** Scanner reads expose only assigned intake work, never administration or other users. */
 export async function listAssignedScanTasks(db: DbExecutor, principal: AuthenticatedPrincipal, page = 1) {
   await assertScanningPrincipal(db, principal);
   if (!Number.isSafeInteger(page) || page < 1 || page > 100000) throw new AppError("VALIDATION_ERROR", "Invalid page.");
   const rows = await db.select(scannerTaskFields).from(scanTasks).where(and(scannerAssignment(principal),
-    inArray(scanTasks.taskType, ["ADMIN", "WAREHOUSE"].includes(principal.role) ? ["INTAKE_UNIQUE", "PHOTO_REQUEST"] : ["INTAKE_UNIQUE"]), inArray(scanTasks.status, ["OPEN", "IN_PROGRESS"])))
+    inArray(scanTasks.taskType, scannerTaskTypes(principal)), inArray(scanTasks.status, ["OPEN", "IN_PROGRESS"])))
     .orderBy(asc(scanTasks.dueDate), asc(scanTasks.createdAt), asc(scanTasks.id)).limit(51).offset((page - 1) * 50);
   return { rows: rows.slice(0, 50), hasMore: rows.length > 50 };
 }
@@ -100,7 +104,7 @@ export async function getAssignedScanTask(db: DbExecutor, principal: Authenticat
   await assertScanningPrincipal(db, principal);
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(taskId)) throw new AppError("VALIDATION_ERROR", "Invalid task ID.");
   const [task] = await db.select(scannerTaskFields).from(scanTasks).where(and(eq(scanTasks.id, taskId),
-    inArray(scanTasks.taskType, ["ADMIN", "WAREHOUSE"].includes(principal.role) ? ["INTAKE_UNIQUE", "PHOTO_REQUEST"] : ["INTAKE_UNIQUE"]), scannerAssignment(principal))).limit(1);
+    inArray(scanTasks.taskType, scannerTaskTypes(principal)), scannerAssignment(principal))).limit(1);
   if (!task) throw new AppError("NOT_FOUND", "Assigned intake task not found.");
   return task;
 }

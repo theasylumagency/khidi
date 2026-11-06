@@ -1,3 +1,4 @@
+import { decideSkuEvidenceField, reviewSkuEvidence, setSkuIdentityKind, submitSkuEvidence } from "@khidi/evidence";
 import { beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import {
@@ -36,8 +37,6 @@ import {
   resolveSkuByScannedIdentifier,
   seedTaxonomyAndProductTypes,
   setComposedBundleComponents,
-  setSkuIdentityConfidence,
-  setSkuIdentityConfidenceManually,
   setStorefrontListing,
   transitionSkuLifecycle,
   transitionSkuToReady,
@@ -297,45 +296,22 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
       transitionSkuToReady(db, { userId: adminUserId }, draft.id)
     ).rejects.toThrow(/identity_confidence="LOW"/);
 
-    // 5. G1: Manual confidence determination requires ADMIN, a mandatory non-empty reason, and writes a dedicated IDENTITY_CONFIDENCE_SET_MANUALLY audit record
-    await expect(
-      setSkuIdentityConfidence(
-        db,
-        { userId: operatorUserId },
-        draft.id,
-        "HIGH",
-        "Operator trying to set confidence"
-      )
-    ).rejects.toThrow(/Only an active ADMIN user/);
-
-    await expect(
-      setSkuIdentityConfidence(db, { userId: adminUserId }, draft.id, "MEDIUM", "   ")
-    ).rejects.toThrow(/requires a non-empty reason/);
-
-    await setSkuIdentityConfidence(
-      db,
-      { userId: adminUserId },
-      draft.id,
-      "MEDIUM",
-      "Admin manually verified model code from supplier carton photo (pre-M5)"
-    );
-
-    const confidenceAuditRows = await db
-      .select()
-      .from(auditLogs)
-      .where(
-        and(
-          eq(auditLogs.entityType, "sku"),
-          eq(auditLogs.entityId, draft.id),
-          eq(auditLogs.action, "IDENTITY_CONFIDENCE_SET_MANUALLY")
-        )
-      );
-    expect(confidenceAuditRows).toHaveLength(1);
-    expect(confidenceAuditRows[0]?.beforeJson).toEqual({ identityConfidence: "LOW" });
-    expect(confidenceAuditRows[0]?.afterJson).toEqual({ identityConfidence: "MEDIUM" });
-    expect(confidenceAuditRows[0]?.reason).toBe(
-      "Admin manually verified model code from supplier carton photo (pre-M5)"
-    );
+    // 5. ADR-010: only accepted evidence plus an explicit field decision yields MEDIUM.
+    const actor = { userId: adminUserId };
+    const claims = { brand: "HIROMIKI", model_code: uniqueModel };
+    const carton = await submitSkuEvidence(db, actor, { skuId: draft.id, type: "PACKAGING_PHOTO", claims });
+    await expect(reviewSkuEvidence(db, { userId: operatorUserId }, {
+      evidenceId: carton.id, status: "ACCEPTED", reason: "Attempted operator acceptance", claims
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await reviewSkuEvidence(db, actor, { evidenceId: carton.id, status: "ACCEPTED", reason: "Confirmed carton reading", claims });
+    for (const field of Object.keys(claims)) await decideSkuEvidenceField(db, actor, {
+      skuId: draft.id, evidenceId: carton.id, field, reason: "Explicit carton field confirmation"
+    });
+    await setSkuIdentityKind(db, actor, draft.id, "MANUFACTURER_IDENTIFIED", "Both manufacturer fields verified");
+    const confidenceAuditRows = await db.select().from(auditLogs).where(and(
+      eq(auditLogs.entityId, draft.id), eq(auditLogs.action, "SKU_IDENTITY_RECOMPUTED")
+    ));
+    expect(confidenceAuditRows.at(-1)?.afterJson).toMatchObject({ level: "MEDIUM", ruleVersion: "identity-rule-v1" });
 
     await expect(
       transitionSkuToReady(db, { userId: adminUserId }, draft.id)
@@ -450,13 +426,11 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
         }
       );
       await transitionSkuLifecycle(db, { userId: adminUserId }, variant.id, "IDENTIFYING");
-      await setSkuIdentityConfidenceManually(
-        db,
-        { userId: adminUserId },
-        variant.id,
-        "HIGH",
-        "Manufacturer plate verified for variant slug test"
-      );
+      const actor = { userId: adminUserId };
+      const claims = { brand: "HIROMIKI", model_code: sharedModel, ...(variant.id === ironSku.id ? { wheel_type: "IRON" } : {}) };
+      const sheet = await submitSkuEvidence(db, actor, { skuId: variant.id, type: "FACTORY_SPEC_SHEET", claims });
+      await reviewSkuEvidence(db, actor, { evidenceId: sheet.id, status: "ACCEPTED", reason: "Confirmed fixture specification", claims });
+      await setSkuIdentityKind(db, actor, variant.id, "MANUFACTURER_IDENTIFIED", "Confirmed variant identity");
       await transitionSkuLifecycle(db, { userId: adminUserId }, variant.id, "IDENTIFIED");
       await transitionSkuLifecycle(
         db,
@@ -468,9 +442,17 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
       await transitionSkuLifecycle(db, { userId: adminUserId }, variant.id, "CONTENT_REVIEW");
     }
 
-    // Even when Iron transitions first and Rubber second, neither gets "-2"; both get deterministic differentiator slugs!
-    const readyIron = await transitionSkuToReady(db, { userId: adminUserId }, ironSku.id);
-    const readyRubber = await transitionSkuToReady(db, { userId: adminUserId }, rubberSku.id);
+    const actor = { userId: adminUserId };
+    const readyIron = await transitionSkuToReady(db, actor, ironSku.id);
+    const rubberClaims = { wheel_type: "RUBBER" };
+    const wheelEvidence = await submitSkuEvidence(db, actor, { skuId: rubberSku.id, type: "ADMIN_PHYSICAL_INSPECTION",
+      notes: "Observed the wheel material on the machine.", claims: rubberClaims });
+    const [blocked] = await db.select().from(skus).where(eq(skus.id, rubberSku.id));
+    expect(blocked?.identityConfidence).toBe("LOW");
+    await expect(transitionSkuToReady(db, actor, rubberSku.id)).rejects.toMatchObject({ code: "CONFLICT" });
+    await reviewSkuEvidence(db, actor, { evidenceId: wheelEvidence.id, status: "ACCEPTED", reason: "Verified wheel material", claims: rubberClaims });
+    const readyRubber = await transitionSkuToReady(db, actor, rubberSku.id);
+    expect(readyRubber.identityConfidence).toBe("HIGH");
 
     expect(readyIron.canonicalSlug).toBe(`hiromiki-${sharedModel.toLowerCase()}-9-hp-iron-wheels`);
     expect(readyRubber.canonicalSlug).toBe(

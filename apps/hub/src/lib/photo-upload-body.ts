@@ -1,7 +1,7 @@
 import { AppError } from "@khidi/shared";
 import { MAX_PHOTO_BYTES } from "@khidi/media/contracts";
 /** Bound the actual stream too: Content-Length is optional and untrusted. */
-export async function parsePhotoUpload(request: Request) {
+export async function readPhotoFormData(request: Request) {
   const limit = MAX_PHOTO_BYTES + 65536;
   if (Number(request.headers.get("content-length")) > limit) throw new AppError("VALIDATION_ERROR", "Upload exceeds size limit.", { mediaReason: "FILE_TOO_LARGE" });
   if (!request.headers.get("content-type")?.startsWith("multipart/form-data;") || !request.body) throw new AppError("VALIDATION_ERROR", "Multipart upload required.");
@@ -15,9 +15,12 @@ export async function parsePhotoUpload(request: Request) {
       chunks.push(value);
     }
   } finally { reader.releaseLock(); }
-  let form: FormData;
-  try { form = await new Response(Uint8Array.from(Buffer.concat(chunks)).buffer, { headers: { "Content-Type": request.headers.get("content-type")! } }).formData(); }
+  try { return await new Response(Uint8Array.from(Buffer.concat(chunks)).buffer, { headers: { "Content-Type": request.headers.get("content-type")! } }).formData(); }
   catch { throw new AppError("VALIDATION_ERROR", "Invalid multipart upload."); }
+}
+
+export async function parsePhotoUpload(request: Request) {
+  const form = await readPhotoFormData(request);
   const metadata = form.get("metadata"), file = form.get("file"), key = request.headers.get("Idempotency-Key");
   if (!(file instanceof File) || typeof metadata !== "string" || metadata.length > 16384 || !key) throw new AppError("VALIDATION_ERROR", "Photo, metadata and Idempotency-Key are required.");
   if (file.size > MAX_PHOTO_BYTES) throw new AppError("VALIDATION_ERROR", "Photo exceeds size limit.", { mediaReason: "FILE_TOO_LARGE" });

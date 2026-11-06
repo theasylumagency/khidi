@@ -6,7 +6,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { loadPrincipalByUserId, type AuthenticatedPrincipal } from "@khidi/auth";
 import { getDb, imagePublications, mediaJobs, skus, storefronts, users } from "@khidi/db";
 import { createUuidV7 } from "@khidi/shared";
-import { createSkuDraft, setSkuIdentityConfidence, transitionSkuLifecycle, updateSkuCanonicalSlug } from "../../products/src/index.ts";
+import { createSkuDraft, transitionSkuLifecycle, updateSkuCanonicalSlug } from "../../products/src/index.ts";
 import { receivePhoto } from "./upload.ts";
 import { executeMediaJob } from "./jobs.ts";
 import { manageImage } from "./management.ts";
@@ -28,8 +28,7 @@ describe("P9 eligible public copies and recoverable transfer intents", () => {
   }
   const action = (imageId: string, action: string, fields = {}) => manageImage(db, admin, { idempotencyKey: createUuidV7(), imageId, action, ...fields });
   async function ready(item: Awaited<ReturnType<typeof candidate>>) {
-    await setSkuIdentityConfidence(db, { userId: admin.userId }, item.skuId, "HIGH", "Dedicated public-media test fixture");
-    await db.update(skus).set({ lifecycleState: "READY", canonicalSlug: item.slug }).where(eq(skus.id, item.skuId));
+    await db.update(skus).set({ lifecycleState: "READY", canonicalSlug: item.slug, reverificationRequired: true }).where(eq(skus.id, item.skuId));
   }
   async function active(skuId: string) { return db.select().from(imagePublications).where(and(eq(imagePublications.skuId, skuId), eq(imagePublications.status, "PUBLISHED"))); }
   it("publishes only VERIFIED PUBLIC images on READY SKUs, builds storefront URLs and withdraws rejected copies", async () => {

@@ -23,6 +23,7 @@ import {
   users
 } from "@khidi/db";
 import { type DomainActor, withDomainTransaction } from "@khidi/domain";
+import { lockIdentityCatalog, recomputeSkuIdentity, UNIVERSAL_EVIDENCE_FIELDS, withDefaultObservableAttributes } from "@khidi/evidence";
 import { queueMediaJob } from "@khidi/media";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import {
@@ -174,11 +175,13 @@ export async function seedTaxonomyAndProductTypes(db: AppDatabase | DbExecutor):
         defaultCategoryId,
         nameKa: typeDef.nameKa,
         nameEn: typeDef.nameEn,
-        attributeSchemaJson: [...typeDef.attributeSchema],
+        attributeSchemaJson: withDefaultObservableAttributes(typeDef.attributeSchema),
         photoInstructionsJson: [...typeDef.photoInstructions],
         namingTemplateKa: typeDef.namingTemplateKa,
         namingTemplateEn: typeDef.namingTemplateEn,
         aiResearchContractJson: typeDef.aiResearchContract,
+        distinguishingAttributes: typeDef.key === "MOTOBLOCK" ? ["fuel_type", "power_kw", "transmission_gears", "wheel_type"]
+          : typeDef.attributeSchema.filter((field) => field.tier === "REQUIRED_IDENTITY").map((field) => field.key),
         searchAliasesKa: [...typeDef.searchAliasesKa],
         searchAliasesEn: [...typeDef.searchAliasesEn],
         active: true
@@ -228,6 +231,8 @@ export async function upsertProductType(
     namingTemplateKa?: string;
     namingTemplateEn?: string;
     aiResearchContractJson?: ProductTypeAiResearchContract;
+    distinguishingAttributes?: string[];
+    reason?: string;
     searchAliasesKa?: string[];
     searchAliasesEn?: string[];
   }
@@ -238,12 +243,24 @@ export async function upsertProductType(
   }
 
   return withDomainTransaction(db, actor, async (ctx) => {
+    await lockIdentityCatalog(ctx.tx);
     const [existing] = await ctx.tx
       .select()
       .from(productTypes)
       .where(eq(productTypes.key, normalizedKey))
       .limit(1);
 
+    const distinguishingAttributes = [...new Set(input.distinguishingAttributes ?? existing?.distinguishingAttributes
+      ?? input.attributeSchemaJson.filter((field) => field.tier === "REQUIRED_IDENTITY").map((field) => field.key))];
+    if (distinguishingAttributes.some((key) => !input.attributeSchemaJson.some((field) => field.key === key)
+      && !UNIVERSAL_EVIDENCE_FIELDS.some((field) => field === key))) {
+      throw new AppError("VALIDATION_ERROR", "Distinguishing attributes must be declared fields.");
+    }
+    if (input.distinguishingAttributes) {
+      const [admin] = actor.userId ? await ctx.tx.select({ id: users.id }).from(users)
+        .where(and(eq(users.id, actor.userId), eq(users.role, "ADMIN"), eq(users.active, true))) : [];
+      if (!admin) throw new AppError("FORBIDDEN", "Only ADMIN can change distinguishing attributes.");
+    }
     const contract: ProductTypeAiResearchContract = input.aiResearchContractJson ?? {
       requiredIdentityFields: [
         "brand",
@@ -266,13 +283,14 @@ export async function upsertProductType(
           defaultCategoryId: input.defaultCategoryId,
           nameKa: input.nameKa.trim(),
           nameEn: input.nameEn.trim(),
-          attributeSchemaJson: input.attributeSchemaJson,
+          attributeSchemaJson: withDefaultObservableAttributes(input.attributeSchemaJson),
           photoInstructionsJson: input.photoInstructionsJson,
           namingTemplateKa:
             input.namingTemplateKa ?? "[Brand] [Model] — [Product Type], [Key differentiator]",
           namingTemplateEn:
             input.namingTemplateEn ?? "[Brand] [Model] — [Product Type], [Key differentiator]",
           aiResearchContractJson: contract,
+          distinguishingAttributes,
           searchAliasesKa: input.searchAliasesKa ?? existing.searchAliasesKa,
           searchAliasesEn: input.searchAliasesEn ?? existing.searchAliasesEn,
           updatedAt: new Date()
@@ -284,8 +302,16 @@ export async function upsertProductType(
         action: "PRODUCT_TYPE_UPDATED",
         entityType: "product_type",
         entityId: existing.id,
-        after: { key: normalizedKey }
+        before: { distinguishingAttributes: existing.distinguishingAttributes },
+        after: { key: normalizedKey, distinguishingAttributes }, reason: input.reason
       });
+      await ctx.emitOutboxEvent({ eventType: "PRODUCT_UPDATED", aggregateType: "product_type", aggregateId: existing.id,
+        payload: { distinguishingAttributes }, consumers: [] });
+      if (JSON.stringify(existing.distinguishingAttributes) !== JSON.stringify(distinguishingAttributes)) {
+        const affected = await ctx.tx.select({ id: skus.id }).from(skus)
+          .where(and(eq(skus.productTypeId, existing.id), ne(skus.lifecycleState, "ARCHIVED")));
+        for (const sku of affected) await recomputeSkuIdentity(ctx, sku.id);
+      }
 
       return updated!;
     }
@@ -299,13 +325,14 @@ export async function upsertProductType(
         defaultCategoryId: input.defaultCategoryId,
         nameKa: input.nameKa.trim(),
         nameEn: input.nameEn.trim(),
-        attributeSchemaJson: input.attributeSchemaJson,
+        attributeSchemaJson: withDefaultObservableAttributes(input.attributeSchemaJson),
         photoInstructionsJson: input.photoInstructionsJson,
         namingTemplateKa:
           input.namingTemplateKa ?? "[Brand] [Model] — [Product Type], [Key differentiator]",
         namingTemplateEn:
           input.namingTemplateEn ?? "[Brand] [Model] — [Product Type], [Key differentiator]",
         aiResearchContractJson: contract,
+        distinguishingAttributes,
         searchAliasesKa: input.searchAliasesKa ?? [],
         searchAliasesEn: input.searchAliasesEn ?? [],
         active: true
@@ -618,12 +645,18 @@ export async function transitionSkuLifecycle(
   }
 ) {
   return withDomainTransaction(db, actor, async (ctx) => {
+    await lockIdentityCatalog(ctx.tx);
     const [sku] = await ctx.tx.select().from(skus).where(eq(skus.id, skuId)).limit(1);
     if (!sku) {
       throw new AppError("NOT_FOUND", `SKU ${skuId} not found.`);
     }
 
     const currentState = sku.lifecycleState as SkuLifecycleState;
+    if (currentState === "READY") {
+      const [admin] = actor.userId ? await ctx.tx.select({ id: users.id }).from(users)
+        .where(and(eq(users.id, actor.userId), eq(users.role, "ADMIN"), eq(users.active, true))) : [];
+      if (!admin) throw new AppError("FORBIDDEN", "Moving a READY SKU into review requires ADMIN.");
+    }
     if (!canTransitionSkuLifecycle(currentState, targetState)) {
       throw new AppError(
         "PRECONDITION_FAILED",
@@ -635,6 +668,7 @@ export async function transitionSkuLifecycle(
       .update(skus)
       .set({
         lifecycleState: targetState,
+        reverificationRequired: false,
         updatedAt: new Date()
       })
       .where(eq(skus.id, sku.id))
@@ -677,97 +711,6 @@ export async function transitionSkuLifecycle(
     return updated!;
   });
 }
-
-/**
- * G1 / E2 — Dedicated manual override action for `identity_confidence` (pre-M5 manual mode until `packages/evidence` computes confidence from evidence).
- * - ADMIN only (checks `users.role === 'ADMIN'` in DB).
- * - Requires a mandatory non-empty `reason`.
- * - Not allowed on `ARCHIVED` SKUs.
- * - Audits as `IDENTITY_CONFIDENCE_SET_MANUALLY` with before/after values and the reason.
- * NOTE: In Milestone 5 (`packages/evidence`), `identity_confidence` must be derived from evidence and never accepted from client input.
- */
-export async function setSkuIdentityConfidence(
-  db: AppDatabase | DbExecutor,
-  actor: DomainActor,
-  skuId: string,
-  level: IdentityConfidenceLevel,
-  reason: string
-) {
-  if (!actor.userId) {
-    throw new AppError(
-      "FORBIDDEN",
-      "Manual identity confidence determination requires an authenticated ADMIN user (actor.userId)."
-    );
-  }
-
-  if (!IDENTITY_CONFIDENCE_LEVELS.includes(level)) {
-    throw new AppError(
-      "VALIDATION_ERROR",
-      `Invalid identity_confidence "${String(level)}". Must be one of: ${IDENTITY_CONFIDENCE_LEVELS.join(", ")}.`
-    );
-  }
-
-  const trimmedReason = reason?.trim() ?? "";
-  if (!trimmedReason) {
-    throw new AppError(
-      "VALIDATION_ERROR",
-      "Manual identity confidence determination requires a non-empty reason."
-    );
-  }
-
-  return withDomainTransaction(db, actor, async (ctx) => {
-    const [actorUser] = await ctx.tx
-      .select({ id: users.id, role: users.role, active: users.active })
-      .from(users)
-      .where(eq(users.id, actor.userId!))
-      .limit(1);
-
-    if (!actorUser || !actorUser.active || actorUser.role !== "ADMIN") {
-      throw new AppError(
-        "FORBIDDEN",
-        "Only an active ADMIN user may manually set SKU identity confidence (G1)."
-      );
-    }
-
-    const [sku] = await ctx.tx.select().from(skus).where(eq(skus.id, skuId)).limit(1);
-    if (!sku) {
-      throw new AppError("NOT_FOUND", `SKU ${skuId} not found.`);
-    }
-
-    if (sku.lifecycleState === "ARCHIVED") {
-      throw new AppError(
-        "PRECONDITION_FAILED",
-        `Cannot modify identity_confidence on archived SKU ${sku.internalSku}.`
-      );
-    }
-
-    const [updated] = await ctx.tx
-      .update(skus)
-      .set({
-        identityConfidence: level,
-        updatedAt: new Date()
-      })
-      .where(eq(skus.id, sku.id))
-      .returning();
-
-    await ctx.recordAudit({
-      action: "IDENTITY_CONFIDENCE_SET_MANUALLY",
-      entityType: "sku",
-      entityId: sku.id,
-      before: {
-        identityConfidence: sku.identityConfidence
-      },
-      after: {
-        identityConfidence: level
-      },
-      reason: trimmedReason
-    });
-
-    return updated!;
-  });
-}
-
-export const setSkuIdentityConfidenceManually = setSkuIdentityConfidence;
 
 async function resolveUniqueCanonicalSlug(
   tx: AppDatabase | DbExecutor,
@@ -814,7 +757,7 @@ async function resolveUniqueCanonicalSlug(
  * 2. `actor.userId` is required (`approved_by`).
  * 3. `identity_confidence` must be `HIGH`, or `MEDIUM` with `humanConfirmedMediumConfidence = true` (`LOW` and `CONFLICT` are forbidden).
  * 4. `product_type_id` must be assigned and category must not be `UNCLASSIFIED`.
- * 5. `brand` and `model_code` must be present.
+ * 5. ADR-010 verifies manufacturer identity or a house-defined identity and checks variant uniqueness.
  * 6. At least one active `accounting_mappings` row must exist for the SKU.
  * 7. When the SKU belongs to a multi-SKU Product Family (or shares `brand` + `model_code` with another SKU),
  *    includes the variant differentiator in `canonical_slug` so variant slugs are deterministic and independent of approval order.
@@ -825,6 +768,7 @@ export async function transitionSkuToReady(
   skuId: string,
   options?: {
     customCanonicalSlug?: string;
+    allowHouseSlugSuffix?: boolean;
     humanConfirmedMediumConfidence?: boolean;
   }
 ) {
@@ -836,6 +780,10 @@ export async function transitionSkuToReady(
   }
 
   return withDomainTransaction(db, actor, async (ctx) => {
+    await lockIdentityCatalog(ctx.tx);
+    const [admin] = await ctx.tx.select({ id: users.id }).from(users)
+      .where(and(eq(users.id, actor.userId!), eq(users.role, "ADMIN"), eq(users.active, true)));
+    if (!admin) throw new AppError("FORBIDDEN", "Transitioning to READY requires ADMIN.");
     const [sku] = await ctx.tx.select().from(skus).where(eq(skus.id, skuId)).limit(1);
     if (!sku) {
       throw new AppError("NOT_FOUND", `SKU ${skuId} not found.`);
@@ -849,24 +797,21 @@ export async function transitionSkuToReady(
       );
     }
 
-    if (sku.identityConfidence === "LOW" || sku.identityConfidence === "CONFLICT") {
+    const identity = await recomputeSkuIdentity(ctx, sku.id);
+    if (identity.duplicates.length) throw new AppError("CONFLICT", `An indistinguishable SKU is already READY (identity_confidence="${identity.level}").`, {
+      duplicateSkuIds: identity.duplicates.map((item) => item.id)
+    });
+    if (identity.level === "LOW" || identity.level === "CONFLICT") {
       throw new AppError(
         "PRECONDITION_FAILED",
-        `SKU ${sku.internalSku} has identity_confidence="${sku.identityConfidence}" and cannot transition to READY (§15.1).`
+        `SKU ${sku.internalSku} has identity_confidence="${identity.level}" and cannot transition to READY (§15.1).`
       );
     }
 
-    if (sku.identityConfidence === "MEDIUM" && !options?.humanConfirmedMediumConfidence) {
+    if (identity.level === "MEDIUM" && options?.humanConfirmedMediumConfidence !== true) {
       throw new AppError(
         "PRECONDITION_FAILED",
         `SKU ${sku.internalSku} has identity_confidence="MEDIUM" and requires explicit human confirmation (humanConfirmedMediumConfidence: true) to transition to READY (§15.1).`
-      );
-    }
-
-    if (!sku.brand?.trim() || !sku.modelCode?.trim()) {
-      throw new AppError(
-        "PRECONDITION_FAILED",
-        `SKU ${sku.internalSku} requires verified brand and model_code before transitioning to READY.`
       );
     }
 
@@ -886,6 +831,18 @@ export async function transitionSkuToReady(
     if (!productType) {
       throw new AppError("NOT_FOUND", `Product Type ${sku.productTypeId} not found.`);
     }
+    const houseDefined = sku.identityKind === "HOUSE_DEFINED";
+    const verifiedValue = (key: string) => {
+      const field = identity.fields.get(key);
+      return field?.status === "VERIFIED" && !identity.decisions.get(key)?.notDeterminableReason ? String(field.value) : null;
+    };
+    const brand = verifiedValue("brand"), modelCode = verifiedValue("model_code");
+    const verifiedAttributes = productType.distinguishingAttributes.flatMap((key) => {
+      const value = verifiedValue(key);
+      if (value === null) return [];
+      const unit = productType.attributeSchemaJson.find((field) => field.key === key)?.unit ?? (key === "power_kw" ? "kW" : null);
+      return [unit ? `${value} ${unit}` : value];
+    });
 
     const [cat] = await ctx.tx
       .select()
@@ -915,7 +872,7 @@ export async function transitionSkuToReady(
 
     // Check if this SKU is part of a multi-SKU Product Family or shares (brand, model_code) with another SKU
     let shouldIncludeDifferentiator = false;
-    if (sku.productFamilyId) {
+    if (!houseDefined && sku.productFamilyId) {
       const familySiblings = await ctx.tx
         .select({ id: skus.id })
         .from(skus)
@@ -925,14 +882,14 @@ export async function transitionSkuToReady(
         shouldIncludeDifferentiator = true;
       }
     }
-    if (!shouldIncludeDifferentiator && sku.brand && sku.modelCode) {
+    if (!houseDefined && !shouldIncludeDifferentiator && brand && modelCode) {
       const sameModelSiblings = await ctx.tx
         .select({ id: skus.id })
         .from(skus)
         .where(
           and(
-            eq(skus.brand, sku.brand),
-            eq(skus.modelCode, sku.modelCode),
+            eq(skus.brand, brand),
+            eq(skus.modelCode, modelCode),
             ne(skus.id, sku.id)
           )
         )
@@ -950,12 +907,14 @@ export async function transitionSkuToReady(
       );
     }
 
-    const baseSlug = options?.customCanonicalSlug
+    const houseBase = houseDefined
+      ? generateCanonicalSlug(productType.nameEn, brand, [...verifiedAttributes, options?.customCanonicalSlug].filter(Boolean).join("-")) : null;
+    const baseSlug = houseDefined ? sku.canonicalSlug ?? houseBase! : options?.customCanonicalSlug
       ? generateCanonicalSlug(options.customCanonicalSlug, null)
       : sku.canonicalSlug ??
         generateCanonicalSlug(
-          sku.brand,
-          sku.modelCode,
+          brand,
+          modelCode,
           differentiatorForSlug,
           sku.internalSku
         );
@@ -964,7 +923,7 @@ export async function transitionSkuToReady(
       ctx.tx,
       sku.id,
       baseSlug,
-      !options?.customCanonicalSlug
+      houseDefined ? options?.allowHouseSlugSuffix === true : !options?.customCanonicalSlug
     );
 
     if (sku.canonicalSlug && sku.canonicalSlug !== finalSlug) {
@@ -975,9 +934,12 @@ export async function transitionSkuToReady(
       });
     }
 
-    const names = generateDeterministicDisplayNames({
-      brand: sku.brand,
-      modelCode: sku.modelCode,
+    const names = houseDefined ? {
+      displayNameKa: [[brand, productType.nameKa].filter(Boolean).join(" "), ...verifiedAttributes].join(", "),
+      displayNameEn: [[brand, productType.nameEn].filter(Boolean).join(" "), ...verifiedAttributes].join(", ")
+    } : generateDeterministicDisplayNames({
+      brand,
+      modelCode,
       productTypeNameKa: productType.nameKa,
       productTypeNameEn: productType.nameEn,
       keyDifferentiatorKa: sku.keyDifferentiatorKa,
@@ -995,6 +957,9 @@ export async function transitionSkuToReady(
       .update(skus)
       .set({
         lifecycleState: "READY",
+        brand,
+        modelCode: houseDefined ? null : modelCode,
+        reverificationRequired: false,
         canonicalSlug: finalSlug,
         displayNameKa: names.displayNameKa,
         displayNameEn: names.displayNameEn,
@@ -1016,7 +981,10 @@ export async function transitionSkuToReady(
       after: {
         lifecycleState: "READY",
         canonicalSlug: finalSlug,
-        identityConfidence: sku.identityConfidence
+        identityConfidence: identity.level,
+        identityRuleVersion: identity.ruleVersion,
+        identityEvidenceIds: identity.evidenceIds,
+        humanConfirmedMediumConfidence: identity.level === "MEDIUM"
       }
     });
 

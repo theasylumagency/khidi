@@ -96,5 +96,5 @@ export async function linkIntakeImagesToSku(ctx: DomainTransactionContext, intak
   for (const image of linked) if (image.version) await queueMediaJob(ctx, "tier2-image-check", { imageId: image.id, imageVersion: image.version }, `tier2-linked:${image.id}:${image.version}:${skuId}`);
   await queueMediaJob(ctx, "publish-sku-media", { skuId });
   await ctx.recordAudit({ action: "INTAKE_IMAGES_LINKED", entityType: "product_intake", entityId: intakeId, after: { skuId, imageIds: linked.map((image) => image.id) } });
-  await ctx.emitOutboxEvent({ eventType: "INTAKE_IMAGES_LINKED", aggregateType: "product_intake", aggregateId: intakeId, payload: { skuId, imageIds: linked.map((image) => image.id) }, consumers: [] });
+  await ctx.emitOutboxEvent({ eventType: "INTAKE_IMAGES_LINKED", aggregateType: "product_intake", aggregateId: intakeId, payload: { skuId, imageIds: linked.map((image) => image.id) }, consumers: ["ai-discovery"] });
 }

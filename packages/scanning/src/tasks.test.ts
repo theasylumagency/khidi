@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { loadPrincipalByUserId, type AuthenticatedPrincipal } from "@khidi/auth";
-import { getDb, scanTasks, users } from "@khidi/db";
+import { getDb, scanTasks, skus, users } from "@khidi/db";
+import { submitSkuEvidence } from "@khidi/evidence";
 import { createUuidV7 } from "@khidi/shared";
 import { createScanTask, getAssignedScanTask, listAssignedScanTasks, listIntakes, listScanTasks, markLabelsPrinted, receiveIntake } from "./index.ts";
 
@@ -25,8 +26,18 @@ describe("M3 S4 task administration and Quick Scan", () => {
     await expect(createScanTask(db, admin, { ...taskInput(), assigneeUserId: warehouse.userId })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     await expect(createScanTask(db, admin, { ...taskInput(), targetCount: -1 })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
-  it.each([["PHYSICAL_COUNT", 8], ["EVIDENCE_REQUEST", 5], ["PICK", 9]])("reports %s as available from M%s", async (taskType, milestone) => {
+  it.each([["PHYSICAL_COUNT", 8], ["PICK", 9]])("reports %s as available from M%s", async (taskType, milestone) => {
     await expect(createScanTask(db, admin, { ...taskInput(), taskType })).rejects.toMatchObject({ code: "PRECONDITION_FAILED", details: { milestone } });
+  });
+  it("assigns and completes an evidence capture task without accepting its evidence", async () => {
+    const [sku] = await db.select({ id: skus.id }).from(skus).where(eq(skus.internalSku, "KH-000001"));
+    const created = await createScanTask(db, admin, { ...taskInput(), taskType: "EVIDENCE_REQUEST", targetCount: 1,
+      targetSkuId: sku!.id, photoRequestNote: "Measure the verified fixture", assigneeRole: null, assigneeUserId: warehouse.userId });
+    expect((await getAssignedScanTask(db, warehouse, created.body.id)).taskType).toBe("EVIDENCE_REQUEST");
+    const item = await submitSkuEvidence(db, { userId: warehouse.userId }, { skuId: sku!.id, taskId: created.body.id,
+      type: "MEASUREMENT", claims: { weight_kg: 11 }, measurementMethod: "Warehouse scale", measurementUnit: "kg" });
+    expect(item).toMatchObject({ status: "PENDING", sensitivity: "INTERNAL_ONLY", authorId: warehouse.userId });
+    expect(await getAssignedScanTask(db, warehouse, created.body.id)).toMatchObject({ status: "COMPLETED", completedCount: 1 });
   });
   it("rejects every non-admin role for task creation and keeps warehouse users out of task/intake administration", async () => {
     const staff = await db.select().from(users);

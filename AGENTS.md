@@ -37,8 +37,9 @@ If two sources conflict and this list does not resolve it, stop and ask. Do not 
 | M1 Foundation, auth, PWA shell | Done |
 | M2 Product model | Done (F1–F7, G1–G2 closed) |
 | M3 Scanning, intake, labels, offline queue, backup tooling | Done — merged to `main` (PR #1). Human checks below pending |
-| M4 Photo capture and media pipeline | Implemented (P1–P10) on `m4-media`; PR review and human deployment checks pending |
-| M5–M11 | Not started |
+| M4 Photo capture and media pipeline | Merged to `main`. Human deployment checks below pending |
+| M5 Evidence and AI identity | Implemented on `codex/m5-evidence-ai` for PR review. Local synthetic provider |
+| M6–M11 | Not started |
 
 Human checks still pending (the owner updates these lines):
 
@@ -158,13 +159,9 @@ the interactive `pnpm ops:bootstrap-admin` command, never development accounts.
 - Desktop admin: dense, table-first, keyboard-friendly. Mobile: scanning, tasks, photos.
 - AI and automation must never invent specifications, model identity, manufacturers or GTINs.
   Unknown is a valid state (`value: null, status: NOT_FOUND`).
-- **Identity confidence (`skus.identity_confidence`).** Until Milestone 5 (`packages/evidence`),
-  `identity_confidence` may only be set by an `ADMIN` via the dedicated manual action
-  (`setSkuIdentityConfidence` / `POST /api/products/confidence`) with a mandatory non-empty
-  `reason` and its own `IDENTITY_CONFIDENCE_SET_MANUALLY` audit log entry — never as a side-effect
-  of `transitionSkuLifecycle` or `/api/products/ready`. **Starting in M5 (`packages/evidence`),
-  `identity_confidence` must be computed exclusively from evidence and must no longer be accepted
-  from client input.**
+- **Identity confidence (`skus.identity_confidence`).** `packages/evidence` computes it under
+  ADR-010. Client input cannot set it. The admin's explicit confirmation for a MEDIUM SKU
+  belongs to the READY transition.
 - Business semantics (stock rules, reservation policies, ownership, pricing boundaries,
   lifecycle states, permissions, AI rules) may not be changed on your own. Write an ADR in
   `docs/adr/` marked **Proposed** and stop that item until it is approved.
@@ -175,13 +172,9 @@ the interactive `pnpm ops:bootstrap-admin` command, never development accounts.
 - **E1 — Internal SKU format.** Internal SKUs and printed labels never contain a company
   abbreviation. Format `KH-000001`, sequence starting at 1. Applied in M2 (F2); the
   specification has been updated accordingly.
-- **E2 — Identity confidence is temporarily manual.** Until M5 builds the evidence-based
-  confidence calculator, confidence can only be set by an ADMIN through the dedicated,
-  audited action from G1. It must never arrive as an incidental field in another request.
-  M5 must replace manual confidence with the computed value and decide in an ADR whether a
-  manual override remains at all.
+- **E2 — Superseded by ADR-010.** M5 retires manual confidence and retains prior audit entries.
 
-## 10. Current task: Milestone 4 — photo capture and media pipeline
+## 10. Milestone 4 record — photo capture and media pipeline
 
 Branch: `m4-media` from `main`. Never commit to `main`. One commit per step, message prefixed
 with the step ID (P1…P10). Each step needs tests. Schema changes only in new migrations

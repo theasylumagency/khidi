@@ -50,6 +50,7 @@ export const createScanTaskSchema = z.object({
   dueDate: z.string().datetime({ offset: true }).nullable().default(null)
 }).strict().refine((input) => Number(input.assigneeUserId !== null) + Number(input.assigneeRole !== null) === 1, "Choose one assignee user or role.").superRefine((input, ctx) => {
   if (input.taskType === "PHOTO_REQUEST" && (!input.targetSkuId || !input.requestedPhotoSlots || !input.photoRequestNote || !input.photosRequired)) ctx.addIssue({ code: "custom", message: "Photo requests require SKU, requested slots and a note." });
+  if (input.taskType === "EVIDENCE_REQUEST" && (!input.targetSkuId || !input.photoRequestNote || input.requestedPhotoSlots)) ctx.addIssue({ code: "custom", message: "Evidence requests require a SKU and a note." });
   if (input.taskType === "INTAKE_UNIQUE" && (input.targetSkuId || input.requestedPhotoSlots || input.photoRequestNote)) ctx.addIssue({ code: "custom", message: "Photo request fields require PHOTO_REQUEST." });
 });
 export const intakeFiltersSchema = z.object({

@@ -8,6 +8,8 @@ export async function GET(request: Request) {
   try {
     const principal = await getCurrentPrincipal(); if (!principal) throw new AppError("UNAUTHORIZED", "Authentication required."); assertRoleAllowed(principal, ["ADMIN"]);
     const image = await readSignedPrivateMedia(getDb(), getMediaStorage(), principal, Object.fromEntries(new URL(request.url).searchParams));
-    return new Response(new Uint8Array(image.bytes).buffer, { headers: { "Content-Type": image.contentType, "Cache-Control": "private, no-store, max-age=0", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" } });
+    return new Response(new Uint8Array(image.bytes).buffer, { headers: { "Content-Type": image.contentType,
+      "Cache-Control": "private, no-store, max-age=0", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
+      ...(image.contentType === "application/pdf" ? { "Content-Disposition": 'inline; filename="evidence.pdf"' } : {}) } });
   } catch (error) { return mediaErrorResponse(error); }
 }

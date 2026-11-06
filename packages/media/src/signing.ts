@@ -7,7 +7,7 @@ export function mediaSigningSecret(env: NodeJS.ProcessEnv = process.env) {
   return key;
 }
 export interface PrivateMediaRequest { imageId: string; variant: string; version: number; expires: number; signature: string }
-const variantValid = (variant: string) => /^(raw|master|(?:400|800|1600)\.(?:webp|avif))$/.test(variant);
+const variantValid = (variant: string) => /^(raw|master|evidence|(?:400|800|1600)\.(?:webp|avif))$/.test(variant);
 function signature(userId: string, request: Omit<PrivateMediaRequest, "signature">, key: string) { return createHmac("sha256", key).update(JSON.stringify(["khidi-media-v1", userId, request.imageId, request.variant, request.version, request.expires])).digest("hex"); }
 export function signPrivateMedia(userId: string, imageId: string, variant: string, version: number, now = Date.now(), key = mediaSigningSecret()) {
   if (!variantValid(variant) || !Number.isSafeInteger(version) || version < 0) throw new Error("Invalid private media variant.");

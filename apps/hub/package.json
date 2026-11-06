@@ -11,6 +11,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@khidi/ai": "workspace:*",
     "@khidi/auth": "workspace:*",
     "@khidi/db": "workspace:*",
     "@khidi/domain": "workspace:*",

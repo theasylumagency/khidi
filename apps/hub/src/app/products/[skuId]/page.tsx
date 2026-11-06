@@ -2,15 +2,20 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@khidi/db";
 import { listLegalEntities, listStorefronts } from "@khidi/entities";
-import { getSkuWithDetails } from "@khidi/products";
+import { getSkuWithDetails, listProductTypes, ALLOWED_LIFECYCLE_TRANSITIONS, type SkuLifecycleState } from "@khidi/products";
+import { evidenceFieldOptions, evidenceStrength, listSkuEvidence } from "@khidi/evidence";
 import { AppError } from "@khidi/shared";
 import { requirePageAuth } from "../../../lib/session.ts";
 import { SkuDetailActions } from "../../../components/sku-detail-actions.tsx";
 import { PhotoRequestForm } from "../../../components/photo-request-form.tsx";
 import { listTaskAssignees } from "@khidi/scanning";
-import { formatStaffName } from "@khidi/i18n";
-import { listMediaImageViews } from "@khidi/media";
+import { formatStaffName, t, type TranslationKey } from "@khidi/i18n";
+import { listMediaImageViews, signPrivateMedia } from "@khidi/media";
 import { AdminMediaPanel } from "../../../components/admin-media-panel.tsx";
+import { EvidenceCapture } from "../../../components/evidence-capture.tsx";
+import { EvidenceReview } from "../../../components/evidence-review.tsx";
+import { EvidenceRequestForm } from "../../../components/evidence-request-form.tsx";
+import { AiJobAction } from "../../../components/ai-job-action.tsx";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +70,8 @@ export default async function SkuDetailPage({
     };
   });
   const images = principal.role === "ADMIN" ? await listMediaImageViews(db, principal, { skuId }) : [];
+  const evidenceView = principal.role === "ADMIN" ? await listSkuEvidence(db, { userId: principal.userId }, skuId) : null;
+  const typeOptions = evidenceView ? (await listProductTypes(db)).filter((type) => type.active).map((type) => ({ id: type.id, nameKa: type.nameKa })) : [];
 
   return (
     <div style={{ display: "grid", gap: "1.5rem" }}>
@@ -231,12 +238,40 @@ export default async function SkuDetailPage({
             skuId={sku.id}
             lifecycleState={sku.lifecycleState}
             identityConfidence={sku.identityConfidence}
+            identityKind={sku.identityKind}
+            nextStates={(ALLOWED_LIFECYCLE_TRANSITIONS[sku.lifecycleState as SkuLifecycleState] ?? []).filter((state) => state !== "READY")}
             canonicalSlug={sku.canonicalSlug}
             entities={entities}
             storefronts={storefrontOptions}
           />
         </section>
       )}
+      {evidenceView ? <section className="office-login">
+        <h2>{t("evidence.items")}</h2>
+        {sku.reverificationRequired ? <p role="status">{t("evidence.reverification")}</p> : null}
+        {evidenceView.comparisons.length ? <p>{t("evidence.duplicate_warning")} {evidenceView.comparisons.map((item) => item.internalSku).join(", ")}</p> : null}
+        <EvidenceCapture skuId={sku.id} fields={evidenceFieldOptions(productType)}
+          comparisons={evidenceView.comparisonPhotos.map((photo) => ({ ...photo,
+            label: `${t(`media.slot.${photo.slot}` as TranslationKey)} · ${photo.sortOrder + 1}` }))}
+          replaceable={evidenceView.items.filter((item) => item.status === "ACCEPTED").map((item) => ({ id: item.id,
+            label: `${t(`evidence.type.${item.type}` as TranslationKey)} · ${item.documentNumber ?? item.id.slice(-8)}` }))}
+          images={images.map((image) => ({ id: image.id, verified: image.status === "VERIFIED",
+            label: `${t(`media.slot.${image.slot}` as TranslationKey)} · ${image.sortOrder + 1}` }))} />
+        <EvidenceReview skuId={sku.id} kind={sku.identityKind} productTypes={typeOptions} productTypeId={sku.productTypeId}
+          editableType={!["READY", "ARCHIVED"].includes(sku.lifecycleState)} fields={evidenceView.fields}
+          fieldOptions={evidenceFieldOptions(productType)}
+          distinguishing={productType?.distinguishingAttributes ?? []}
+          incomingComparisons={evidenceView.incomingComparisons}
+          photoUrls={Object.fromEntries(images.map((image) => [image.id, image.previewUrl]))}
+          items={evidenceView.items.map((item) => ({ ...item, strength: evidenceStrength(item),
+            attachmentUrl: item.privateStorageKey ? signPrivateMedia(principal.userId, item.id, "evidence", 0) : null,
+            comparisonPhotoUrl: item.comparisonImageId ? signPrivateMedia(principal.userId, item.comparisonImageId, "raw", 0) : null,
+            privateStorageKey: undefined, privateSha256: undefined }))} />
+        <EvidenceRequestForm skuId={sku.id} assignees={photoAssignees} />
+        <AiJobAction skuId={sku.id} />
+        <Link href="/evidence/jobs">{t("evidence.ai_jobs")}</Link>
+        <Link href="/evidence/missing">{t("evidence.missing")}</Link>
+      </section> : null}
 
       {/* Universal Units & Type Attributes */}
       <div

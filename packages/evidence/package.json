@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./rules": "./src/rules.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -12,7 +13,11 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@khidi/db": "workspace:*",
     "@khidi/domain": "workspace:*",
-    "@khidi/shared": "workspace:*"
+    "@khidi/shared": "workspace:*",
+    "drizzle-orm": "0.40.0",
+    "pg": "8.13.3",
+    "zod": "3.24.2"
   }
 }

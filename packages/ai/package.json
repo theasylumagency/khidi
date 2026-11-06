@@ -12,10 +12,15 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@khidi/db": "workspace:*",
     "@khidi/domain": "workspace:*",
     "@khidi/evidence": "workspace:*",
+    "@khidi/i18n": "workspace:*",
     "@khidi/media": "workspace:*",
     "@khidi/products": "workspace:*",
-    "@khidi/shared": "workspace:*"
+    "@khidi/shared": "workspace:*",
+    "drizzle-orm": "0.40.0",
+    "pg": "8.13.3",
+    "pg-boss": "12.38.0"
   }
 }

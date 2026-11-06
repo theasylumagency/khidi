@@ -397,9 +397,13 @@ HIROMIKI D178E-DF900Q — Motoblock, 9 HP
 
 Unknown differentiator → omit it. Never invent. Public KA term is "მოტობლოკი"; "კულტივატორი" and similar historic terms remain search aliases. Accounting names are preserved unchanged.
 
+The example above applies to manufacturer-identified products. For house-defined products use the Product Type, an optional verified brand, and verified distinguishing attributes. The name can change when evidence changes. See [ADR-010](adr/ADR-010-evidence-identity-and-house-defined-products.md).
+
 ### 5.11 Canonical slug
 
 Each SKU gets a stable ASCII `canonical_slug`, e.g. `hiromiki-d178e-df900q`. It does not change when the display name changes. If it ever changes, the old slug is kept in slug history for redirects.
+
+For a house-defined product, derive the initial slug from its English Product Type and verified brand and distinguishing attributes. On collision, ask the administrator for a distinguishing term before offering a numeric suffix. See [ADR-010](adr/ADR-010-evidence-identity-and-house-defined-products.md).
 
 ### 5.12 Canonical content
 
@@ -411,62 +415,19 @@ Identity is resolved from evidence, not from the internet. For this market an of
 
 ### 6.1 Evidence priority
 
-Default order, adjustable per field:
-
-1. Physical product / model plate photo.
-2. Factory specification sheet.
-3. Importer documentation.
-4. Packing list.
-5. Supplier invoice.
-6. Manual.
-7. Packaging.
-8. Verified supplier/distributor material.
-9. Public internet research.
-
-A model plate is usually strongest for model and engine identity; a factory spec sheet for working width.
+The evidence type determines its strength and sensitivity. A source supports only the facts it establishes. Physical inspection supports observable facts. Public web evidence is Weak. See the [ADR-010 evidence type matrix](adr/ADR-010-evidence-identity-and-house-defined-products.md#2-evidence-registry).
 
 ### 6.2 Evidence items
 
-```text
-evidence
-  id
-  sku_id | product_family_id | intake_id
-  type          PHOTO | SPEC_SHEET | IMPORTER_DOC | PACKING_LIST |
-                INVOICE | MANUAL | PACKAGING | DISTRIBUTOR | PUBLIC_URL
-  title
-  source
-  source_date
-  uploaded_by
-  storage_key | url
-  verified
-  notes
-  created_at
-```
-
-Supplier invoices may contain commercial data. They are visible to ADMIN only.
+Each evidence item belongs to a SKU and records its type, sensitivity, author, capture time, optional media, candidate readings and administrative decision. Evidence starts as `PENDING` and an admin may mark it `ACCEPTED` or `REJECTED`. Supplier document images and their line extracts stay internal and are visible to ADMIN only.
 
 ### 6.3 Field provenance
 
-Every factual field links to its evidence:
-
-```text
-working_width_mm: 1050
-  status:      VERIFIED
-  source_type: IMPORTER_SPEC_SHEET
-  evidence_id: DOC-882
-  verified_by: user | null
-```
+Every factual field links to its source evidence and has status `NOT_FOUND`, `UNVERIFIED`, `VERIFIED` or `CONFLICT`. Pending evidence can propose candidates and reveal a disagreement. When there is no unresolved contradiction, one accepted Strong item, two accepted Medium items of different types, or one accepted Medium item plus an explicit audited field confirmation verifies the reading. The storefront projection includes only verified facts.
 
 ### 6.4 Identity confidence
 
-Confidence is computed from evidence, never from an LLM statement alone. Inputs: exact GTIN match, exact model/MPN match, plate match, importer document match, multiple independent matching specs, photo consistency, contradictions.
-
-| State | Rule |
-| --- | --- |
-| HIGH | May be proposed for approval |
-| MEDIUM | Requires admin confirmation |
-| LOW | Cannot become publish-ready |
-| CONFLICT | Review screen shows conflicting evidence side by side |
+Confidence is computed under [ADR-010](adr/ADR-010-evidence-identity-and-house-defined-products.md). Manufacturer-identified products require verified brand and model. House-defined products require a Product Type, verified reference photos, distinguishing attributes verified or marked not determinable, and a uniqueness check. An accepted document anchor supports HIGH; an accepted administrative physical inspection supports MEDIUM without a document. MEDIUM requires explicit admin confirmation at READY. Existing READY products retain their slug if confidence drops to LOW or CONFLICT and enter the re-verification list. An identity conflict blocks sellability.
 
 ### 6.5 AI may
 
@@ -491,7 +452,7 @@ All AI work runs in background jobs: `identify-product`, `extract-evidence`, `oc
 
 Requirements: retries with backoff, idempotency, visible job status, dead-letter queue, admin retry action. Scanning never waits for AI. The Hub stays fully usable for manual work when AI is unavailable.
 
-Provider and model are configuration, behind one internal interface. Log model, prompt version and token cost per job.
+Provider and model are configuration behind one internal interface. Record provider, model, prompt version, token usage and monetary cost per attempt. Reserve the daily budget before provider execution, using Asia/Tbilisi calendar days. Provider input is limited to processed, metadata-free masters or derivatives and approved research fields. Raw images, invoices, packing lists, prices and `INTERNAL_ONLY` evidence stay internal. M5 uses local synthetic fixtures.
 
 ## 7. Scanning and intake
 
