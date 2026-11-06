@@ -24,9 +24,10 @@ Khidi never receives fingerprint, face or device-PIN data. See [ADR-008](../adr/
 - **სწრაფი შესვლა** uses discoverable credentials; no email lookup is exposed publicly.
   Cancel or failure leaves password/TOTP fallback available. Account existence, revocation
   and internal verifier errors share one anonymous failure message.
-- A signed browser preference controls the welcome screen and expires after 180 days.
-  A first-name greeting requires an explicit opt-in during registration and a still-active
-  credential. The preference grants no access to the account.
+- A signed browser preference expires after 180 days. The welcome screen shows quick
+  sign-in only with a remembered active credential and browser WebAuthn support.
+  **ანგარიშის უსაფრთხოება** lets the owner turn the first-name greeting on or off for
+  that browser and credential without another registration. This setting controls the greeting.
 - Registration, revocation, password change, TOTP replacement and security/device management
   require recent strong proof, ten minutes by default. Complete the password plus TOTP or
   passkey prompt, then repeat the action. Proof refreshes only the current session and does

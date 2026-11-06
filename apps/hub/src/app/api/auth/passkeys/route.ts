@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { cookies } from "next/headers";
 import { getDb } from "@khidi/db";
 import { executeIdempotent } from "@khidi/domain";
 import { AppError } from "@khidi/shared";
@@ -22,11 +23,18 @@ function failure(error: unknown, publicSignIn = false) {
   return json({ error: code, message: t(code === "RECENT_AUTH_REQUIRED" ? "passkey.reauth_required" : "passkey.operation_failed") }, status);
 }
 
+function ownRememberedPreference(preference: ReturnType<typeof readQuickSignInPreference>, keys: { id: string }[]) {
+  return preference && preference.mode !== "deferred" && keys.some((key) => key.id === preference.id) ? preference : null;
+}
+
 export async function GET() {
   try {
     const principal = await getCurrentPrincipal();
     if (!principal || principal.authMethod === "WAREHOUSE_PIN" || principal.role === "WAREHOUSE") throw new AppError("UNAUTHORIZED", "Office login required.");
-    return json({ ok: true, ...await ownSecurityState(getDb(), principal, await isSharedWarehouseBrowser()) });
+    const state = await ownSecurityState(getDb(), principal, await isSharedWarehouseBrowser());
+    const remembered = readQuickSignInPreference((await cookies()).get(QUICK_SIGN_IN_COOKIE)?.value);
+    const preference = ownRememberedPreference(remembered, state.keys);
+    return json({ ok: true, ...state, rememberName: preference ? preference.mode === "named" : null });
   } catch (error) { return failure(error); }
 }
 
@@ -43,13 +51,24 @@ export async function POST(request: NextRequest) {
     finishing = action.endsWith("-verify");
     const principal = await getCurrentPrincipal(), sharedDevice = await isSharedWarehouseBrowser() || principal?.authMethod === "WAREHOUSE_PIN", db = getDb();
     if (!publicSignIn && (!principal || principal.authMethod === "WAREHOUSE_PIN" || principal.role === "WAREHOUSE")) throw new AppError("UNAUTHORIZED", "Office login required.");
-    const passkeyAction = ["register-options", "register-verify", "sign-in-options", "sign-in-verify", "reauth-options", "reauth-verify", "rename", "revoke", "defer-offer"].includes(action);
+    const passkeyAction = ["register-options", "register-verify", "sign-in-options", "sign-in-verify", "reauth-options", "reauth-verify", "rename", "revoke", "defer-offer", "remember-name"].includes(action);
     if (passkeyAction && sharedDevice) throw new AppError("FORBIDDEN", "Passkeys unavailable on a warehouse browser.");
 
     if (action === "defer-offer") {
       if (!principal!.lastStrongAuthAt) throw new AppError("FORBIDDEN", "Strong sign-in required.");
       const response = json({ ok: true });
       response.cookies.set(QUICK_SIGN_IN_DEFERRED_COOKIE, signQuickSignInPreference("deferred", principal!.userId), quickSignInCookieOptions);
+      return response;
+    }
+
+    if (action === "remember-name") {
+      if (typeof body.enabled !== "boolean") throw new AppError("VALIDATION_ERROR", "Name preference required.");
+      const state = await ownSecurityState(db, principal!, sharedDevice);
+      const remembered = readQuickSignInPreference(request.cookies.get(QUICK_SIGN_IN_COOKIE)?.value);
+      const preference = ownRememberedPreference(remembered, state.keys);
+      if (!preference) throw new AppError("FORBIDDEN", "An active passkey remembered in this browser is required.");
+      const response = json({ ok: true });
+      response.cookies.set(QUICK_SIGN_IN_COOKIE, signQuickSignInPreference(body.enabled ? "named" : "key", preference.id), quickSignInCookieOptions);
       return response;
     }
 
@@ -61,6 +80,9 @@ export async function POST(request: NextRequest) {
       return response;
     }
     if (["register-verify", "sign-in-verify", "reauth-verify"].includes(action)) {
+      const preference = readQuickSignInPreference(request.cookies.get(QUICK_SIGN_IN_COOKIE)?.value);
+      const keepNameOnRegistration = action === "register-verify" && preference?.mode === "named"
+        && !!ownRememberedPreference(preference, (await ownSecurityState(db, principal!, sharedDevice)).keys);
       const result = await finishPasskeyCeremony(db, { ceremony: action === "register-verify" ? "REGISTER" : action === "reauth-verify" ? "REAUTH" : "SIGN_IN",
         challengeId: String(body.challengeId ?? ""), bindingToken: request.cookies.get(BINDING_COOKIE)?.value ?? "",
         response: body.response as RegistrationResponseJSON | AuthenticationResponseJSON, desktopIpad: body.desktopIpad === true,
@@ -71,8 +93,7 @@ export async function POST(request: NextRequest) {
       if ("sessionToken" in result && result.sessionToken) response.cookies.set(KHIDI_SESSION_COOKIE, result.sessionToken, {
         httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 12 * 60 * 60 });
       if (result.passkeyId && action !== "reauth-verify") {
-        const preference = readQuickSignInPreference(request.cookies.get(QUICK_SIGN_IN_COOKIE)?.value);
-        const named = action === "register-verify" ? body.rememberName === true
+        const named = action === "register-verify" ? keepNameOnRegistration || body.rememberName === true
           : preference?.mode === "named" && preference.id === result.passkeyId;
         response.cookies.set(QUICK_SIGN_IN_COOKIE, signQuickSignInPreference(named ? "named" : "key", result.passkeyId), quickSignInCookieOptions);
       }

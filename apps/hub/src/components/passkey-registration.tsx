@@ -9,7 +9,6 @@ import { StrongReauthentication } from "./strong-reauthentication.tsx";
 export function PasskeyRegistration({ needsTotp, locked, offered = false, onBusyChange, onRegistered }: {
   needsTotp: boolean; locked: boolean; offered?: boolean; onBusyChange: (busy: boolean) => void; onRegistered: () => void;
 }) {
-  const [rememberName, setRememberName] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [phase, setPhase] = useState<"prepare" | "prompt" | "verify" | null>(null);
   const [status, setStatus] = useState(""), [issue, setIssue] = useState<PasskeyIssue | null>(null);
@@ -25,8 +24,8 @@ export function PasskeyRegistration({ needsTotp, locked, offered = false, onBusy
     attempt.current = controller; onBusyChange(true); setPhase("prepare"); setStatus(""); setIssue(null); setShowHelp(false);
     setPlatform(passkeyPlatform(navigator.userAgent, navigator.maxTouchPoints));
     try {
-      await runPasskey("register", { signal: controller.signal, onPhase: setPhase, rememberName });
-      setRememberName(false); setStatus(t("passkey.added")); onRegistered();
+      await runPasskey("register", { signal: controller.signal, onPhase: setPhase });
+      setStatus(t("passkey.added")); onRegistered();
     } catch (error) {
       const code = classifyPasskeyError(error);
       if (code === "RECENT_AUTH_REQUIRED") { setReauth(true); setStatus(passkeyErrorMessage(error)); }
@@ -48,10 +47,6 @@ export function PasskeyRegistration({ needsTotp, locked, offered = false, onBusy
     {offered ? <h1>{title}</h1> : <h2>{title}</h2>}<p>{t("passkey.device_choice")}</p>
     {needsTotp ? <p><a href="#totp-settings">{t("passkey.enable_totp_first")}</a></p> : null}
     <form className="auth-welcome-actions" onSubmit={(event) => { event.preventDefault(); void register(); }} aria-busy={phase !== null || leaving}>
-      {!needsTotp ? <label className="quick-name-choice">
-        <input type="checkbox" checked={rememberName} onChange={(event) => setRememberName(event.target.checked)} disabled={!!phase || locked || leaving} />
-        {t("passkey.remember_name")}
-      </label> : null}
       <button ref={addButton} className="auth-primary" type="submit" disabled={!!phase || locked || needsTotp || reauth || leaving}>{t("passkey.add")}</button>
       {phase && phase !== "verify" ? <button className="auth-secondary" type="button" onClick={() => attempt.current?.abort()}>{t("auth.cancel")}</button> : null}
     </form>

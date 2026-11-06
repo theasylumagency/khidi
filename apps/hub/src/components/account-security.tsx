@@ -13,7 +13,7 @@ import "./office-login-form.css";
 import "./account-security.css";
 
 interface Key { id: string; displayName: string; registrationPlatform: string | null; createdAt: string; lastUsedAt: string | null }
-interface State { keys: Key[]; sharedDevice: boolean; totpEnabled: boolean; canStartTotp: boolean }
+interface State { keys: Key[]; sharedDevice: boolean; totpEnabled: boolean; canStartTotp: boolean; rememberName: boolean | null }
 type KeyAction = { id: string; action: "rename"; displayName: string } | { id: string; action: "revoke" };
 const platformLabels: Partial<Record<string, TranslationKey>> = {
   IPHONE: "passkey.platform.iphone", IPAD: "passkey.platform.ipad", ANDROID: "passkey.platform.android",
@@ -65,6 +65,21 @@ export function AccountSecurity({ email, sessionId, offer }: { email: string; se
     {!state ? (loadError ? null : <p>{t("auth.checking")}</p>) : <>
       {!state.sharedDevice ? <PasskeyRegistration needsTotp={state.canStartTotp} locked={!!busy}
         onBusyChange={setRegistering} onRegistered={() => void refresh().catch(() => setLoadError(true))} /> : null}
+      {typeof state.rememberName === "boolean" ? <section className="office-login">
+        <h2>{t("passkey.browser_greeting")}</h2>
+        <label className="quick-name-choice">
+          <input type="checkbox" checked={state.rememberName} disabled={disabled} onChange={(event) => {
+            const enabled = event.target.checked;
+            void perform("remember-name", async () => {
+              await securityRequest("remember-name", { enabled });
+              setState((current) => current ? { ...current, rememberName: enabled } : current);
+              setNotice({ place: "remember-name", message: t("passkey.name_preference_saved") });
+            });
+          }} />
+          {t("passkey.remember_name")}
+        </label>
+        {feedback("remember-name")}
+      </section> : null}
       <section className="office-login">
         <h2>{t("passkey.keys_title")}</h2><p>{t("passkey.sync_help")}</p>
         {state.sharedDevice ? <p>{t("passkey.shared_unavailable")}</p> : <>

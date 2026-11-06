@@ -18,14 +18,16 @@ export function LoginForms({
   registeredDevice, pinUsers, sharedWarehouseDevice = false, quickSignInPreferred = false, firstName
 }: LoginFormsProps) {
   const [view, setView] = useState<"welcome" | "password" | "pin">("welcome");
-  const [supportsQuickSignIn, setSupportsQuickSignIn] = useState(quickSignInPreferred);
+  const [supportsQuickSignIn, setSupportsQuickSignIn] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState(pinUsers.length === 1 ? pinUsers[0]!.id : "");
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState<string | null>(null);
   const [pinLoading, setPinLoading] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
 
-  useEffect(() => { setSupportsQuickSignIn(typeof PublicKeyCredential !== "undefined"); }, []);
+  useEffect(() => {
+    setSupportsQuickSignIn(window.isSecureContext && typeof PublicKeyCredential !== "undefined" && typeof navigator.credentials?.get === "function");
+  }, []);
 
   function changeView(next: typeof view) {
     setView(next);
@@ -65,19 +67,17 @@ export function LoginForms({
 
   const canUsePin = Boolean(registeredDevice && pinUsers.length);
   const personalBrowser = !sharedWarehouseDevice && !registeredDevice;
-  const canUseQuickSignIn = personalBrowser && supportsQuickSignIn;
-  const quickFirst = canUseQuickSignIn && quickSignInPreferred;
-  const greeting = quickFirst && firstName ? t("auth.welcome_name").replace("{name}", () => firstName) : t("auth.welcome");
+  const canUseQuickSignIn = personalBrowser && quickSignInPreferred && supportsQuickSignIn;
+  const greeting = canUseQuickSignIn && firstName ? t("auth.welcome_name").replace("{name}", () => firstName) : t("auth.welcome");
 
   return <div className="auth-entry">
     <h1 ref={heading} tabIndex={-1}>{greeting}</h1>
     {view === "welcome" ? <section className="office-login auth-welcome-actions">
       {canUsePin ? <button className="auth-primary" type="button" onClick={() => changeView("pin")}>{t("auth.pin_sign_in")}</button> : null}
-      {quickFirst ? <PasskeySignIn primary /> : null}
-      <button className={canUsePin || quickFirst ? "auth-secondary" : "auth-primary"} type="button" onClick={() => changeView("password")}>
-        {t(canUsePin || quickFirst ? "auth.password_sign_in" : "auth.sign_in")}
+      {canUseQuickSignIn ? <PasskeySignIn primary /> : null}
+      <button className={canUsePin || canUseQuickSignIn ? "auth-secondary" : "auth-primary"} type="button" onClick={() => changeView("password")}>
+        {t(canUsePin || canUseQuickSignIn ? "auth.password_sign_in" : "auth.sign_in")}
       </button>
-      {canUseQuickSignIn && !quickFirst ? <PasskeySignIn /> : null}
     </section> : <>
       {view === "password" ? <OfficeLoginForm beforeLogin={clearClientCachesBeforeSwitch} passkeysAllowed={personalBrowser} />
         : <form className="office-login" onSubmit={handlePinSubmit} aria-busy={pinLoading}>
