@@ -23,6 +23,10 @@ const anchorTypes = new Set([
   "SUPPLIER_CATALOG", "FACTORY_SPEC_SHEET", "PASSPORT_MANUAL"
 ]);
 
+export function allowsEvidencePdf(type: string) {
+  return anchorTypes.has(type);
+}
+
 export interface EvidenceFactSource {
   id: string;
   type: string;

@@ -1,17 +1,32 @@
 import { type DbExecutor, productImages } from "@khidi/db";
 import { createDomainTransactionContext } from "@khidi/domain";
-import { sha256Hex } from "@khidi/shared";
+import { allowsEvidencePdf } from "@khidi/evidence/rules";
+import { AppError, sha256Hex } from "@khidi/shared";
+import { MAX_PHOTO_BYTES } from "./contracts.ts";
 import { inspectPhoto } from "./upload.ts";
 import { putRetained } from "./processing.ts";
 import { privateImageKey, type MediaStorage } from "./storage.ts";
 import { queueMediaJob } from "./transactions.ts";
 
-/** Captured evidence uses the existing immutable media and metadata-stripping pipeline. */
-export async function storeEvidencePhoto(
+export async function storeEvidenceAttachment(
   tx: DbExecutor, storage: MediaStorage, input: {
     id: string; skuId: string; userId: string; deviceId?: string; privateDocument: boolean;
+    evidenceType: string; declaredMimeType: string;
   }, bytes: Uint8Array
 ) {
+  if (bytes.byteLength > MAX_PHOTO_BYTES) {
+    throw new AppError("VALIDATION_ERROR", "Evidence exceeds the upload size limit.", { mediaReason: "FILE_TOO_LARGE" });
+  }
+  const file = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const header = file.subarray(0, 9).toString("latin1");
+  if (input.declaredMimeType === "application/pdf" || header.startsWith("%PDF-")) {
+    if (!allowsEvidencePdf(input.evidenceType) || !/^%PDF-[12]\.\d[\r\n]/.test(header)
+      || !/%%EOF[\r\n\t\f ]*$/.test(file.subarray(-1024).toString("latin1"))) {
+      throw new AppError("VALIDATION_ERROR", "Expected a PDF attachment for document evidence.");
+    }
+    const stored = await putRetained(storage, `evidence/${input.id}/original.pdf`, bytes, "application/pdf");
+    return { attachment: { key: stored.key, sha256: stored.sha256, mimeType: stored.contentType } };
+  }
   const photo = await inspectPhoto(bytes);
   const suffix = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" }[photo.mime];
   const filename = `original.${suffix}`;

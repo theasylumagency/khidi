@@ -10,7 +10,7 @@ import { SkuDetailActions } from "../../../components/sku-detail-actions.tsx";
 import { PhotoRequestForm } from "../../../components/photo-request-form.tsx";
 import { listTaskAssignees } from "@khidi/scanning";
 import { formatStaffName, t, type TranslationKey } from "@khidi/i18n";
-import { listMediaImageViews } from "@khidi/media";
+import { listMediaImageViews, signPrivateMedia } from "@khidi/media";
 import { AdminMediaPanel } from "../../../components/admin-media-panel.tsx";
 import { EvidenceCapture } from "../../../components/evidence-capture.tsx";
 import { EvidenceReview } from "../../../components/evidence-review.tsx";
@@ -257,7 +257,8 @@ export default async function SkuDetailPage({
           fieldOptions={evidenceFieldOptions(productType)}
           distinguishing={productType?.distinguishingAttributes ?? []}
           photoUrls={Object.fromEntries(images.map((image) => [image.id, image.previewUrl]))}
-          items={evidenceView.items.map((item) => ({ ...item, strength: evidenceStrength(item), attachment: !!item.privateStorageKey,
+          items={evidenceView.items.map((item) => ({ ...item, strength: evidenceStrength(item),
+            attachmentUrl: item.privateStorageKey ? signPrivateMedia(principal.userId, item.id, "evidence", 0) : null,
             privateStorageKey: undefined, privateSha256: undefined }))} />
         <EvidenceRequestForm skuId={sku.id} assignees={photoAssignees} />
         <AiJobAction skuId={sku.id} />

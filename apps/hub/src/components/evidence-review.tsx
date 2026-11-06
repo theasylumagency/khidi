@@ -11,7 +11,8 @@ type FactValue = string | boolean | number;
 interface Item {
   id: string; type: string; status: string; sensitivity: string; strength: string; notes: string | null;
   supplierName: string | null; documentNumber: string | null; lineText: string | null; quantity: number | null;
-  claims: Record<string, FactValue>; claimSources: Record<string, EvidenceClaimSource>; attachment: boolean; imageId: string | null;
+  claims: Record<string, FactValue>; claimSources: Record<string, EvidenceClaimSource>;
+  attachmentUrl: string | null; privateMimeType: string | null; imageId: string | null;
 }
 interface Field {
   fieldName: string; status: string; value: FactValue | null; notDeterminableReason: string | null; evidenceIds: string[];
@@ -102,7 +103,7 @@ export function EvidenceReview({ skuId, kind, items, fields, distinguishing, pho
       <p>{[item.notes, item.supplierName, item.documentNumber, item.lineText, item.quantity].filter((value) => value !== null).join(" · ")}</p>
       <ul>{Object.entries(item.claims).filter(([key]) => item.claimSources[key]?.origin !== "AI")
         .map(([key, value]) => <li key={key}>{key} · {String(value)}</li>)}</ul>
-      {item.attachment ? <a href={`/api/evidence?skuId=${skuId}&attachment=${item.id}`}>{t("evidence.photo")}</a>
+      {item.attachmentUrl ? <a href={item.attachmentUrl}>{t(item.privateMimeType === "application/pdf" ? "evidence.open_pdf" : "evidence.photo")}</a>
         : item.imageId && photoUrls[item.imageId] ? <a href={photoUrls[item.imageId]}>{t("evidence.photo")}</a> : null}
       <form onSubmit={(event) => void send(event, { action: "review", evidenceId: item.id, claims: item.claims })}>
         {Object.values(item.claimSources).some((source) => source.origin === "AI") ? <fieldset>

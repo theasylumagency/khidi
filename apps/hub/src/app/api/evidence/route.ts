@@ -4,15 +4,16 @@ import { getDb } from "@khidi/db";
 import { assertRoleAllowed } from "@khidi/auth";
 import { executeIdempotent } from "@khidi/domain";
 import {
-  classifySkuProductType, decideSkuEvidenceField, listSkuEvidence, reviewSkuEvidence, setSkuIdentityKind, submitSkuEvidence,
+  classifySkuProductType, decideSkuEvidenceField, reviewSkuEvidence, setSkuIdentityKind, submitSkuEvidence,
   type IdentityKind
 } from "@khidi/evidence";
-import { getMediaStorage, MAX_PHOTO_BYTES, storeEvidencePhoto } from "@khidi/media";
+import { getMediaStorage, MAX_PHOTO_BYTES, storeEvidenceAttachment } from "@khidi/media";
 import { getAssignedScanTask } from "@khidi/scanning";
 import { listProductTypes, upsertProductType } from "@khidi/products";
 import { AppError } from "@khidi/shared";
 import { getCurrentPrincipal } from "../../../lib/session.ts";
 import { readPhotoFormData } from "../../../lib/photo-upload-body.ts";
+import { mediaErrorResponse } from "../../../lib/media-response.ts";
 import { assertSameSecurityOrigin } from "../../../lib/security-origin.ts";
 import { scanningErrorResponse } from "../../../lib/scanning-response.ts";
 
@@ -27,7 +28,9 @@ export async function POST(request: Request) {
     assertSameSecurityOrigin(request);
     const key = request.headers.get("Idempotency-Key") ?? "";
     if (!uuidV7.test(key)) throw new AppError("VALIDATION_ERROR", "Evidence submission key is required.");
-    if (Number(request.headers.get("Content-Length") ?? 0) > MAX_PHOTO_BYTES + 64_000) throw new AppError("VALIDATION_ERROR", "Upload too large.");
+    if (Number(request.headers.get("Content-Length") ?? 0) > MAX_PHOTO_BYTES + 65_536) {
+      throw new AppError("VALIDATION_ERROR", "Upload too large.", { mediaReason: "FILE_TOO_LARGE" });
+    }
     const multipart = request.headers.get("Content-Type")?.startsWith("multipart/form-data");
     const form = multipart ? await readPhotoFormData(request) : null;
     const metadata = form?.get("evidence");
@@ -35,7 +38,10 @@ export async function POST(request: Request) {
     const body = (typeof metadata === "string" ? JSON.parse(metadata) : await request.json()) as Record<string, unknown>;
     const { action, ...input } = body ?? {};
     const file = form?.get("photo");
-    if (file instanceof File && file.size > MAX_PHOTO_BYTES) throw new AppError("VALIDATION_ERROR", "Upload too large.");
+    if (file instanceof File && file.name && !file.size) throw new AppError("VALIDATION_ERROR", "Evidence attachment is empty.");
+    if (file instanceof File && file.size > MAX_PHOTO_BYTES) {
+      throw new AppError("VALIDATION_ERROR", "Upload too large.", { mediaReason: "FILE_TOO_LARGE" });
+    }
     const bytes = file instanceof File && file.size ? new Uint8Array(await file.arrayBuffer()) : null;
     const db = getDb(), actor = { userId: principal.userId };
     if (action !== "submit" || !input.taskId) assertRoleAllowed(principal, ["ADMIN"]);
@@ -48,8 +54,9 @@ export async function POST(request: Request) {
       if (action === "submit") {
         const skuId = String(input.skuId ?? "");
         if (!uuid.test(skuId)) throw new AppError("VALIDATION_ERROR", "SKU is required.");
-        const media = bytes ? await storeEvidencePhoto(tx, getMediaStorage(), {
+        const media = bytes && file instanceof File ? await storeEvidenceAttachment(tx, getMediaStorage(), {
           id: key, skuId, userId: principal.userId, deviceId: principal.deviceId ?? undefined,
+          declaredMimeType: file.type, evidenceType: String(input.type),
           privateDocument: ["SUPPLIER_DOCUMENT", "CUSTOMS_DECLARATION", "SUPPLIER_CORRESPONDENCE", "SUPPLIER_CATALOG"].includes(String(input.type))
         }, bytes) : null;
         const item = await submitSkuEvidence(tx, actor, { ...input, ...(media?.imageId ? { imageId: media.imageId } : {}) }, media?.attachment);
@@ -71,20 +78,7 @@ export async function POST(request: Request) {
       return { status: 200, body: { ok: true } };
     });
     return NextResponse.json(result.body, { status: result.status });
-  } catch (error) { return scanningErrorResponse(error); }
-}
-
-export async function GET(request: Request) {
-  try {
-    const principal = await getCurrentPrincipal();
-    if (!principal) throw new AppError("UNAUTHORIZED", "Authentication required.");
-    assertRoleAllowed(principal, ["ADMIN"]);
-    const query = new URL(request.url).searchParams, skuId = query.get("skuId") ?? "";
-    if (!uuid.test(skuId)) throw new AppError("VALIDATION_ERROR", "SKU is required.");
-    const { items } = await listSkuEvidence(getDb(), { userId: principal.userId }, skuId);
-    const item = items.find((candidate) => candidate.id === query.get("attachment"));
-    if (!item?.privateStorageKey || !item.privateSha256 || !item.privateMimeType) throw new AppError("NOT_FOUND", "Evidence attachment not found.");
-    const bytes = await getMediaStorage().readPrivate(item.privateStorageKey, item.privateSha256);
-    return new Response(Buffer.from(bytes), { headers: { "Content-Type": item.privateMimeType, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
-  } catch (error) { return scanningErrorResponse(error); }
+  } catch (error) {
+    return error instanceof AppError && error.details?.mediaReason ? mediaErrorResponse(error) : scanningErrorResponse(error);
+  }
 }

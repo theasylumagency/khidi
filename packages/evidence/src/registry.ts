@@ -7,7 +7,7 @@ import {
 import { withDomainTransaction, type DomainActor, type DomainTransactionContext } from "@khidi/domain";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import {
-  computeIdentity, evidenceSensitivity, evidenceStrength, EVIDENCE_TYPES, hasVerifiedDifference,
+  allowsEvidencePdf, computeIdentity, evidenceSensitivity, evidenceStrength, EVIDENCE_TYPES, hasVerifiedDifference,
   IDENTITY_KINDS, isDocumentAnchor, resolveEvidenceField, type IdentityKind, type ResolvedField
 } from "./rules.ts";
 
@@ -205,6 +205,9 @@ export async function submitSkuEvidence(
   const parsed = evidenceInput.safeParse(raw);
   if (!parsed.success) throw new AppError("VALIDATION_ERROR", "Invalid evidence submission.");
   const input = parsed.data;
+  if (attachment?.mimeType === "application/pdf" && (!allowsEvidencePdf(input.type) || input.imageId)) {
+    throw new AppError("VALIDATION_ERROR", "PDF evidence must be a private document without a linked photo.");
+  }
   return withDomainTransaction(db, actor, async (ctx) => {
     await lockIdentityCatalog(ctx.tx);
     const author = await activeActor(ctx.tx, actor);

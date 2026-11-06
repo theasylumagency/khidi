@@ -64,7 +64,9 @@ confused with a field's `VERIFIED` status.
 
 `INTERNAL_ONLY` evidence is never sent to an AI provider in M5. For supplier documents the admin
 enters the relevant line (document number, line text, quantity, stated attributes); the photo or
-scan of the document stays in internal storage. A redacted-document path for AI may be added later
+scan of the document stays in internal storage. Document evidence can also carry a PDF up to
+15 MiB. PDFs stay internal and are read through a short-lived, administrator-bound signed link.
+A redacted-document path for AI may be added later
 only by a new ADR after the client agrees.
 
 ### 3. Field verification rule

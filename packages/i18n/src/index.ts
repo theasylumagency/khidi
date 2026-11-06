@@ -141,6 +141,8 @@ const SCANNING_LABELS = {
   "evidence.type.STAFF_STATEMENT": "თანამშრომლის განცხადება",
   "evidence.type.PUBLIC_WEB": "საჯარო ვებგვერდი",
   "evidence.photo": "ფოტო",
+  "evidence.photo_or_pdf": "ფოტო ან PDF (15 მბ-მდე)",
+  "evidence.open_pdf": "PDF-ის გახსნა",
   "evidence.photo_retake": "ფოტოს ხელახლა გადაღება",
   "evidence.photo_retake_note": "გადაიღეთ მკაფიო ფოტო, სადაც პროდუქტი სრულად ჩანს და ნიშნული იკითხება.",
   "evidence.existing_photo": "არსებული ფოტო",

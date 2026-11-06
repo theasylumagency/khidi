@@ -5,6 +5,7 @@ import { t, type TranslationKey } from "@khidi/i18n";
 import { createUuidV7 } from "@khidi/shared/uuid";
 import { useRouter } from "next/navigation";
 import type { EvidenceFieldOption } from "@khidi/evidence";
+import { allowsEvidencePdf } from "@khidi/evidence/rules";
 
 const taskTypes = ["PACKAGING_PHOTO", "PRODUCT_MARKING_PHOTO", "SUPPLIER_DOCUMENT", "MEASUREMENT"];
 const adminTypes = [...taskTypes, "PRODUCT_PLATE_PHOTO", "PASSPORT_MANUAL", "FACTORY_SPEC_SHEET", "ADMIN_PHYSICAL_INSPECTION",
@@ -20,10 +21,13 @@ export function EvidenceCapture({ skuId, taskId, fields, images = [], comparison
   const key = useRef(createUuidV7());
   const options = kind === "MEASUREMENT" ? fields.filter((field) => field.dataType === "number" && field.unit) : fields;
   const usesFile = taskId && kind !== "MEASUREMENT";
+  const allowsPdf = !taskId && allowsEvidencePdf(kind);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
     const form = event.currentTarget, data = new FormData(form);
+    const attachment = data.get("photo");
+    const hasAttachment = attachment instanceof File && !!attachment.name;
     const read = (name: string) => String(data.get(name) ?? "").trim() || undefined;
     const claims = Object.fromEntries(chosen.flatMap((field, index) => {
       const definition = options.find((option) => option.key === field), value = read(`value-${index}`);
@@ -31,14 +35,13 @@ export function EvidenceCapture({ skuId, taskId, fields, images = [], comparison
       return [[field, definition.dataType === "number" ? Number(value) : definition.dataType === "boolean" ? value === "true" : value]];
     }));
     const payload = { action: "submit", skuId, taskId, type: kind, claims, notes: read("notes"),
-      imageId: read("imageId"), comparisonSkuId: read("comparisonSkuId"), supplierName: read("supplierName"),
+      imageId: hasAttachment ? undefined : read("imageId"), comparisonSkuId: read("comparisonSkuId"), supplierName: read("supplierName"),
       documentNumber: read("documentNumber"), lineText: read("lineText"), quantity: read("quantity") ? Number(read("quantity")) : undefined,
       measurementUnit: kind === "MEASUREMENT" ? options.find((field) => field.key === chosen[0])?.unit : undefined,
       measurementMethod: read("measurementMethod") };
     const body = new FormData();
     body.set("evidence", JSON.stringify(payload));
-    const photo = data.get("photo");
-    if (photo instanceof File && photo.size) body.set("photo", photo);
+    if (hasAttachment) body.set("photo", attachment);
     setBusy(true); setMessage("");
     try {
       const response = await fetch("/api/evidence", { method: "POST", headers: { "Idempotency-Key": key.current }, body });
@@ -52,7 +55,10 @@ export function EvidenceCapture({ skuId, taskId, fields, images = [], comparison
       <label>{t("evidence.type")}<select value={kind} onChange={(event) => { setKind(event.target.value); setChosen([""]); }}>
         {(taskId ? taskTypes : adminTypes).map((type) => <option key={type} value={type}>{t(`evidence.type.${type}` as TranslationKey)}</option>)}
       </select></label>
-      <label>{t("evidence.photo")}<input name="photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" required={!!usesFile} /></label>
+      <label>{t(allowsPdf ? "evidence.photo_or_pdf" : "evidence.photo")}
+        <input key={kind} name="photo" type="file" accept={allowsPdf ? "image/jpeg,image/png,image/webp,application/pdf" : "image/jpeg,image/png,image/webp"}
+          capture={allowsPdf ? undefined : "environment"} required={!!usesFile} />
+      </label>
       {!taskId && images.length ? <label>{t("evidence.existing_photo")}<select name="imageId">
         <option value="">—</option>{images.map((image) => <option key={image.id} value={image.id}>{image.label}</option>)}
       </select></label> : null}
