@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { users, sessions, type DbExecutor } from "@khidi/db";
+import { users, sessions, userPasskeys, type DbExecutor } from "@khidi/db";
 import { withDomainTransaction } from "@khidi/domain";
 import { AppError } from "@khidi/shared";
 import { officePassword } from "./password-policy.ts";
@@ -22,13 +22,14 @@ export function canResetTotpForRecovery(user: RecoveryUser): boolean {
 export async function inspectRecoveryUser(db: DbExecutor, email: string) {
   const [user] = await db.select().from(users).where(eq(users.email, email.trim().toLowerCase())).limit(1);
   if (!user?.active) throw new AppError("NOT_FOUND", "User does not exist or is inactive. No changes were made.");
-  return { email: user.email!, canResetTotp: canResetTotpForRecovery(user), canSetPassword: hasOfficeLogin(user) };
+  return { email: user.email!, canResetTotp: canResetTotpForRecovery(user), canSetPassword: hasOfficeLogin(user), canRevokePasskeys: hasOfficeLogin(user) };
 }
 
 const recoveryInput = z.object({
   email: z.string().trim().email().transform((value) => value.toLowerCase()),
   confirmationEmail: z.string().trim().email().transform((value) => value.toLowerCase()),
   resetTotp: z.boolean(), newPassword: officePassword.optional(), revokeSessions: z.boolean(),
+  revokePasskeys: z.boolean().optional().default(false),
   note: z.string().trim().min(1).max(2000)
 }).strict();
 
@@ -38,6 +39,7 @@ export interface RecoveryInput {
   resetTotp: boolean;
   newPassword?: string;
   revokeSessions: boolean;
+  revokePasskeys?: boolean;
   note: string;
 }
 
@@ -47,7 +49,7 @@ export async function recoverUser(db: DbExecutor, input: RecoveryInput) {
   if (!parsed.success) throw new AppError("VALIDATION_ERROR", "A valid email, confirmation, operator note and valid password (if selected) are required.");
   const data = parsed.data;
   if (data.email !== data.confirmationEmail) throw new AppError("VALIDATION_ERROR", "Email confirmation does not match. No changes were made.");
-  if (!data.resetTotp && data.newPassword === undefined && !data.revokeSessions) throw new AppError("VALIDATION_ERROR", "Select at least one recovery action.");
+  if (!data.resetTotp && data.newPassword === undefined && !data.revokeSessions && !data.revokePasskeys) throw new AppError("VALIDATION_ERROR", "Select at least one recovery action.");
   const passwordHash = data.newPassword === undefined ? undefined : await bcrypt.hash(data.newPassword, 10);
 
   return withDomainTransaction(db, {}, async (ctx) => {
@@ -64,11 +66,12 @@ export async function recoverUser(db: DbExecutor, input: RecoveryInput) {
     }).where(eq(users.id, user.id));
     const revoked = data.revokeSessions
       ? await ctx.tx.delete(sessions).where(eq(sessions.userId, user.id)).returning({ id: sessions.id }) : [];
-    const actions = { resetTotp: data.resetTotp, passwordChanged: Boolean(passwordHash), revokeSessions: data.revokeSessions };
+    const keys = data.revokePasskeys ? await ctx.tx.update(userPasskeys).set({ revokedAt: new Date() }).where(and(eq(userPasskeys.userId, user.id), isNull(userPasskeys.revokedAt))).returning({ id: userPasskeys.id }) : [];
+    const actions = { resetTotp: data.resetTotp, passwordChanged: Boolean(passwordHash), revokeSessions: data.revokeSessions, revokePasskeys: data.revokePasskeys };
     await ctx.recordAudit({ action: "USER_RECOVERY_PERFORMED", entityType: "user", entityId: user.id,
-      after: { actions, sessionsRevoked: revoked.length }, reason: data.note });
+      after: { actions, sessionsRevoked: revoked.length, passkeysRevoked: keys.length }, reason: data.note });
     await ctx.emitOutboxEvent({ eventType: "USER_RECOVERY_PERFORMED", aggregateType: "user", aggregateId: user.id,
-      payload: { actions, sessionsRevoked: revoked.length }, consumers: [] });
-    return { userId: user.id, actions, sessionsRevoked: revoked.length };
+      payload: { actions, sessionsRevoked: revoked.length, passkeysRevoked: keys.length }, consumers: [] });
+    return { userId: user.id, actions, sessionsRevoked: revoked.length, passkeysRevoked: keys.length };
   });
 }

@@ -2,34 +2,20 @@
 
 import { useState } from "react";
 import { t } from "@khidi/i18n";
+import { logoutSession } from "../lib/session-client.ts";
 
-export function LogoutButton() {
+export function LogoutButton({ sessionId }: { sessionId: string }) {
   const [loading, setLoading] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
 
   async function handleLogout() {
-    setLoading(true);
-    try {
-      if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({ type: "CLEAR_AUTH_CACHES" });
-      }
-      if ("caches" in window) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map((k) => caches.delete(k)));
-      }
-    } catch {
-      // Ignore cache clear failure
-    }
-
-    await fetch("/api/auth/logout", {
-      method: "POST",
-      credentials: "same-origin"
-    });
-
-    window.location.href = "/login";
+    setLoading(true); setUnavailable(false);
+    try { await logoutSession(sessionId); }
+    catch { setUnavailable(true); setLoading(false); }
   }
 
   return (
-    <button
+    <><button
       type="button"
       onClick={handleLogout}
       disabled={loading}
@@ -46,6 +32,6 @@ export function LogoutButton() {
       }}
     >
       {t(loading ? "scanner.logging_out" : "scanner.logout")}
-    </button>
+    </button>{unavailable ? <span role="status">{t("session.unavailable")}</span> : null}</>
   );
 }

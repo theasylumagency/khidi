@@ -1,0 +1,9 @@
+.account-security { max-width: 760px; display: grid; gap: 1.25rem; margin: 0 auto; }
+.account-security form { display: grid; gap: 1rem; }
+.security-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+.security-key-list { display: grid; gap: 1rem; margin-bottom: 1.5rem; }
+.security-key { border-bottom: 1px solid #cbd5e1; padding-bottom: 1rem; min-width: 0; }
+.security-key h3, .account-security p { overflow-wrap: anywhere; line-height: 1.6; }
+.security-notice { border: 1px solid #94a3b8; padding: 1rem; border-radius: 8px; background: white; }
+.security-action-status:empty { margin: 0; }
+.security-actions > button { flex: 1 1 12rem; }

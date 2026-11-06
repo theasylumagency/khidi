@@ -65,11 +65,12 @@ export async function runRecoveryConsole(options: {
     if (newPassword !== await terminal.hidden("Repeat new password: ")) throw new RecoveryConsoleError("Passwords differ. No changes were made.");
   }
   const revokeSessions = await yes("Revoke ALL user sessions?");
-  if (!resetTotp && newPassword === undefined && !revokeSessions) throw new RecoveryConsoleError("No actions selected. No changes were made.");
+  const revokePasskeys = target.canRevokePasskeys && await yes("Revoke ALL user passkeys?");
+  if (!resetTotp && newPassword === undefined && !revokeSessions && !revokePasskeys) throw new RecoveryConsoleError("No actions selected. No changes were made.");
   const note = await terminal.question("Operator note (required; no passwords or secrets): ");
   const confirmationEmail = await terminal.question(`To commit the selected actions, type ${target.email} again: `);
   if (confirmationEmail.trim().toLowerCase() !== target.email) throw new RecoveryConsoleError("Email confirmation does not match. No changes were made.");
-  const result = await services.recover({ email, confirmationEmail, resetTotp, newPassword, revokeSessions, note });
+  const result = await services.recover({ email, confirmationEmail, resetTotp, newPassword, revokeSessions, revokePasskeys, note });
   terminal.write("Recovery completed and audited. TOTP reset requires enrollment before the next session. Existing lockout timers are unchanged.");
   return result;
 }

@@ -3,9 +3,12 @@ import { getDb } from "@khidi/db";
 import { registerWarehouseDevice } from "@khidi/auth";
 import { AppError } from "@khidi/shared";
 import { getCurrentPrincipal, KHIDI_DEVICE_COOKIE } from "../../../../lib/session.ts";
+import { assertSecurityOrigin } from "../../../../lib/security-origin.ts";
+import { t } from "@khidi/i18n";
 
 export async function POST(request: NextRequest) {
   try {
+    assertSecurityOrigin(request);
     const principal = await getCurrentPrincipal();
     if (!principal) {
       return NextResponse.json(
@@ -45,6 +48,7 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (err) {
     if (err instanceof AppError) {
+      if (err.code === "RECENT_AUTH_REQUIRED") return NextResponse.json({ error: err.code, message: t("passkey.reauth_required") }, { status: 428, headers: { "Cache-Control": "no-store" } });
       const status = err.code === "UNAUTHORIZED" ? 401 : err.code === "FORBIDDEN" ? 403 : 400;
       return NextResponse.json({ error: err.code, message: err.message }, { status });
     }

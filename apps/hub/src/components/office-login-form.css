@@ -12,6 +12,14 @@
 .office-login button { width: 100%; }
 .office-login :focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
 .office-login :disabled { cursor: wait; opacity: .7; }
+.auth-entry { width: min(100%, 28rem); display: grid; gap: 1rem; margin: clamp(1.25rem, 6vh, 4rem) auto 0; }
+.auth-entry h1 { margin: 0 0 .5rem; font-size: clamp(1.65rem, 6vw, 2.25rem); text-align: center; }
+.auth-welcome-actions { display: grid; gap: .75rem; }
+.auth-entry-back, .office-login select { min-height: 48px; border-radius: 8px; padding: .65rem .75rem; font: inherit; }
+.office-login select { width: 100%; border: 1px solid #94a3b8; background: #fff; color: #0f172a; }
+.office-login .quick-name-choice { display: flex; align-items: center; gap: .65rem; }
+.office-login .quick-name-choice input { width: 1.25rem; min-height: 1.25rem; margin: 0; }
+.office-login .auth-later { margin-top: .75rem; }
 .auth-primary, .totp-open { background: #0f172a; color: #fff; border: 1px solid #0f172a; font-weight: 700; }
 .auth-secondary { background: #fff; color: #1e40af; border: 1px solid #94a3b8; }
 .auth-help { color: #475569; font-size: .9rem; line-height: 1.6; }

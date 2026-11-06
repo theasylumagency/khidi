@@ -1,7 +1,7 @@
 import { getDb } from "@khidi/db";
 import { listUsersWithMemberships } from "@khidi/auth";
 import { listLegalEntities } from "@khidi/entities";
-import { requirePageAuth } from "../../lib/session.ts";
+import { requirePageAuth, isSharedWarehouseBrowser } from "../../lib/session.ts";
 import { RegisterDeviceButton } from "../../components/register-device-button.tsx";
 
 export const dynamic = "force-dynamic";
@@ -48,7 +48,7 @@ export default async function UsersPage() {
           <div style={{ fontSize: "0.82rem", color: "#15803d", marginTop: "0.2rem" }}>
             დაარეგისტრირეთ მიმდინარე ბრაუზერი/ტელეფონი საწყობის ტერმინალად, რათა ამ მოწყობილობაზე ჩაირთოს პირადი PIN კოდით სწრაფი გადართვა:
           </div>
-          <RegisterDeviceButton />
+          <RegisterDeviceButton sharedDevice={await isSharedWarehouseBrowser()} />
         </div>
 
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9rem" }}>

@@ -25,10 +25,10 @@ it("allows a real interactive production command and local development trials", 
   expect(() => assertRecoveryConsole({ DATABASE_MIGRATOR_URL: "postgres://operator:p@localhost/khidi_dev" }, [], true, true)).not.toThrow();
 });
 
-function consoleFixture(answers: string[], canResetTotp = true, canSetPassword = true) {
+function consoleFixture(answers: string[], canResetTotp = true, canSetPassword = true, canRevokePasskeys = false) {
   const terminal = { question: vi.fn(async (_prompt: string) => answers.shift() ?? ""), hidden: vi.fn(async (_prompt: string) => "Synthetic-new-password-123"), write: vi.fn(), close: vi.fn() };
-  const services = { inspect: vi.fn(async () => ({ email: "recover@khidi.example", canResetTotp, canSetPassword })),
-    recover: vi.fn(async (_input: RecoveryInput) => ({ userId: "synthetic", actions: { resetTotp: true, passwordChanged: true, revokeSessions: true }, sessionsRevoked: 1 })) };
+  const services = { inspect: vi.fn(async () => ({ email: "recover@khidi.example", canResetTotp, canSetPassword, canRevokePasskeys })),
+    recover: vi.fn(async (_input: RecoveryInput) => ({ userId: "synthetic", actions: { resetTotp: true, passwordChanged: true, revokeSessions: true, revokePasskeys: false }, sessionsRevoked: 1, passkeysRevoked: 0 })) };
   return { env, args: [], inputTty: true, outputTty: true, terminal, services };
 }
 
@@ -42,7 +42,7 @@ it("passes only interactive inputs to the core and never prints the password", a
   const options = consoleFixture(["recover@khidi.example", "YES", "YES", "YES", "Operator note", "recover@khidi.example"]);
   await runRecoveryConsole(options);
   expect(options.services.recover).toHaveBeenCalledWith({ email: "recover@khidi.example", confirmationEmail: "recover@khidi.example",
-    resetTotp: true, newPassword: "Synthetic-new-password-123", revokeSessions: true, note: "Operator note" });
+    resetTotp: true, newPassword: "Synthetic-new-password-123", revokeSessions: true, revokePasskeys: false, note: "Operator note" });
   expect(options.terminal.hidden).toHaveBeenCalledTimes(2);
   expect(JSON.stringify(options.terminal.write.mock.calls)).not.toContain("Synthetic-new-password-123");
 });
@@ -58,6 +58,16 @@ it("performs no lookup or recovery without a TTY", async () => {
   const options = consoleFixture([]);
   await expect(runRecoveryConsole({ ...options, inputTty: false })).rejects.toThrow(/^SAFETY:/);
   expect(options.services.inspect).not.toHaveBeenCalled(); expect(options.services.recover).not.toHaveBeenCalled();
+});
+
+it("requires a separate confirmation to revoke all passkeys, including as the only action", async () => {
+  const options = consoleFixture(["recover@khidi.example", "no", "no", "no", "YES", "Lost synced credential", "recover@khidi.example"], true, true, true);
+  await runRecoveryConsole(options);
+  expect(options.services.recover).toHaveBeenCalledWith(expect.objectContaining({ resetTotp: false, newPassword: undefined, revokeSessions: false, revokePasskeys: true }));
+  expect(options.terminal.question.mock.calls.flat().join(" ")).toContain("Revoke ALL user passkeys?");
+  const declined = consoleFixture(["recover@khidi.example", "no", "no", "no", "no"], true, true, true);
+  await expect(runRecoveryConsole(declined)).rejects.toThrow(/No actions selected/);
+  expect(declined.services.recover).not.toHaveBeenCalled();
 });
 
 it("reads the actual readline password without echo", async () => {

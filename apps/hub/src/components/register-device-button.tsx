@@ -1,11 +1,14 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { StrongReauthentication } from "./strong-reauthentication.tsx";
+import { t } from "@khidi/i18n";
 
-export function RegisterDeviceButton() {
+export function RegisterDeviceButton({ sharedDevice = false }: { sharedDevice?: boolean }) {
   const [deviceName, setDeviceName] = useState("");
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [reauth, setReauth] = useState(false);
 
   async function handleRegister(e: FormEvent) {
     e.preventDefault();
@@ -21,8 +24,9 @@ export function RegisterDeviceButton() {
         credentials: "same-origin",
         body: JSON.stringify({ deviceName: deviceName.trim() })
       });
-      const data = (await res.json()) as { ok?: boolean; deviceName?: string; message?: string };
+      const data = (await res.json()) as { ok?: boolean; deviceName?: string; message?: string; error?: string };
       if (!res.ok || !data.ok) {
+        if (data.error === "RECENT_AUTH_REQUIRED") setReauth(true);
         setStatusMsg(`შეცდომა: ${data.message ?? "რეგისტრაცია ვერ მოხერხდა"}`);
         return;
       }
@@ -37,7 +41,7 @@ export function RegisterDeviceButton() {
   }
 
   return (
-    <form
+    <div><form
       onSubmit={handleRegister}
       style={{
         display: "flex",
@@ -81,6 +85,6 @@ export function RegisterDeviceButton() {
       {statusMsg && (
         <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "#166534" }}>{statusMsg}</span>
       )}
-    </form>
+    </form>{reauth ? <StrongReauthentication sharedDevice={sharedDevice} onSuccess={() => { setReauth(false); setStatusMsg(t("passkey.reauth_done")); }} /> : null}</div>
   );
 }

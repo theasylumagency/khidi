@@ -9,6 +9,7 @@ import type { PhotoTarget } from "@khidi/media/contracts";
 import { CameraShell } from "./camera-shell.tsx";
 import { cameraFlow, INITIAL_CAMERA_FLOW } from "../lib/camera-flow.ts";
 import { scanFeedback } from "../lib/camera-shell.ts";
+import { recordSessionActivity } from "../lib/session-client.ts";
 
 interface ScannerTask { id: string; title: string; status: string; completedCount: number; targetCount: number | null; photosRequired?: boolean }
 const INITIAL_CAMERA: CameraState = { running: false, starting: false, torchAvailable: false, torchOn: false, issue: null };
@@ -54,6 +55,7 @@ export function WarehouseScanner({ task }: { task?: ScannerTask }) {
     try {
       const duplicate = task && !noBarcode ? await queue.duplicate(task.id, scannedValue) : null;
       const key = await queue.enqueue({ sourceMode: task ? "TASK" : "QUICK_SCAN", taskId: task?.id ?? null, scannedValue, isNoBarcode: noBarcode });
+      recordSessionActivity();
       setAccepted(key); setManualValue(""); feedback(key, duplicate ? "duplicate" : "accepted"); dispatch({ type: "stored" });
       setDuplicate(duplicate ? duplicate.intakeId ? { intakeId: duplicate.intakeId } : { intakeIdempotencyKey: duplicate.intakeIdempotencyKey! } : null);
       if (task?.photosRequired && !duplicate) { camera.current?.stop(); dispatch({ type: "photos", photo: { target: { intakeIdempotencyKey: key }, onlyMissing: false, scanNotice: !noBarcode } }); }

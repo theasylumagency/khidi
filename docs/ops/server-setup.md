@@ -12,6 +12,14 @@ service's protected environment or an owner-readable `.env`; do not copy develop
 secrets from `.env.example`. Export `NODE_ENV=production` for every setup command. Keep
 the app and worker stopped until the following sequence is complete:
 
+Before the new version starts (also on upgrades), merge the non-secret WebAuthn values from
+`ops/hub.production.env.example` into that protected environment. Run
+`corepack pnpm ops:check-config` with `NODE_ENV=production` **before switching/stopping the
+current release**; abort deployment if it fails. Production requires exactly
+`WEBAUTHN_RP_ID=app.khidi.app` and `WEBAUTHN_ORIGIN=https://app.khidi.app`. See the complete
+[passkey release gate and device checklist](office-passkeys.md). Cloudflare Access and its
+independently configured session duration are unchanged.
+
 1. **Create the database**, with an infrastructure account and a fresh migrator credential.
    Use its real production name, without `_dev` or `_test`. Provision backups before intake.
 2. **Provision roles**. Run `docker/postgres/init-roles.sh` with `POSTGRES_USER`,

@@ -2,12 +2,15 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { AppError } from "@khidi/shared";
 import { renderInternalQrSvg } from "@khidi/products/labels";
+import { QUICK_SIGN_IN_COOKIE, QUICK_SIGN_IN_DEFERRED_COOKIE, signQuickSignInPreference } from "../../../../lib/quick-sign-in-cookie.ts";
 const login = vi.hoisted(() => vi.fn());
-vi.mock("@khidi/auth", () => ({ loginOfficeUser: login }));
+const passkeys = vi.hoisted(() => vi.fn());
+const shared = vi.hoisted(() => vi.fn());
+vi.mock("@khidi/auth", () => ({ loginOfficeUser: login, listOwnPasskeys: passkeys }));
 vi.mock("@khidi/db", () => ({ getDb: () => ({}) }));
-vi.mock("../../../../lib/session.ts", () => ({ KHIDI_SESSION_COOKIE: "khidi_session" }));
+vi.mock("../../../../lib/session.ts", () => ({ KHIDI_SESSION_COOKIE: "khidi_session", isSharedWarehouseBrowser: shared }));
 import { POST } from "./route.ts";
-beforeEach(() => login.mockReset());
+beforeEach(() => { login.mockReset(); passkeys.mockReset().mockResolvedValue([]); shared.mockReset().mockResolvedValue(false); });
 it("returns password-verified enrollment instructions without a session cookie or caching", async () => {
   const enrollment = { base32Secret: "LOCAL_TEST_SECRET", otpauthUri: "otpauth://totp/Khidi:test", accountLabel: "Khidi — test" };
   login.mockRejectedValueOnce(new AppError("PRECONDITION_FAILED", "Enrollment required", { totpEnrollment: enrollment }));
@@ -57,4 +60,35 @@ it("preserves password case/whitespace and leading zeroes in the submitted TOTP 
   await POST(new NextRequest("https://khidi.example/api/auth/office-login", { method: "POST",
     body: JSON.stringify({ email: "fixture@khidi.example", password: "  Synthetic-aBc-123  ", totpCode: "001234" }) }));
   expect(login).toHaveBeenLastCalledWith({}, expect.objectContaining({ password: "  Synthetic-aBc-123  ", totpCode: "001234" }));
+});
+
+it.each(["strong", "weak", "shared", "existing"])("offers explicit passkey setup only after strong office proof on a personal browser (%s)", async (kind) => {
+  login.mockResolvedValueOnce({ sessionToken: "khidi_sess_synthetic", principal: { userId: "fixture", lastStrongAuthAt: kind === "weak" ? null : new Date() } });
+  shared.mockResolvedValueOnce(kind === "shared");
+  passkeys.mockResolvedValueOnce(kind === "existing" ? [{ id: "fixture-key" }] : []);
+  const response = await POST(new NextRequest("http://localhost:3100/api/auth/office-login", { method: "POST", body: JSON.stringify({ email: "fixture@khidi.example", password: "Synthetic-test-password", totpCode: "001234" }) }));
+  expect(response.status).toBe(200);
+  expect(response.headers.get("set-cookie")).toContain("khidi_session=khidi_sess_synthetic");
+  expect(await response.json()).toMatchObject({ offerPasskey: kind === "strong" });
+});
+
+it("keeps offering setup until this account explicitly defers it in this browser", async () => {
+  const firstUser = "019a11a1-1111-7111-8111-111111111111";
+  const secondUser = "019a11a1-1111-7111-8111-111111111112";
+  async function signIn(userId: string, preference = "") {
+    login.mockResolvedValueOnce({ sessionToken: "khidi_sess_synthetic", principal: { userId, lastStrongAuthAt: new Date() } });
+    return POST(new NextRequest("http://localhost:3100/api/auth/office-login", { method: "POST",
+      headers: { Cookie: `${QUICK_SIGN_IN_DEFERRED_COOKIE}=${preference}` },
+      body: JSON.stringify({ email: "fixture@khidi.example", password: "Synthetic-test-password", totpCode: "001234" }) }));
+  }
+  // The first login could have taken place with an unavailable platform authenticator.
+  for (let loginAttempt = 0; loginAttempt < 2; loginAttempt++) {
+    const response = await signIn(firstUser);
+    expect(await response.json()).toMatchObject({ offerPasskey: true });
+    expect(response.cookies.has(QUICK_SIGN_IN_COOKIE)).toBe(false);
+    expect(response.cookies.has(QUICK_SIGN_IN_DEFERRED_COOKIE)).toBe(false);
+  }
+  const value = signQuickSignInPreference("deferred", firstUser);
+  expect(await (await signIn(firstUser, value)).json()).toMatchObject({ offerPasskey: false });
+  expect(await (await signIn(secondUser, value)).json()).toMatchObject({ offerPasskey: true });
 });
