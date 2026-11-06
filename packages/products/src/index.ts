@@ -24,6 +24,7 @@ import {
 } from "@khidi/db";
 import { type DomainActor, withDomainTransaction } from "@khidi/domain";
 import { lockIdentityCatalog, recomputeSkuIdentity, UNIVERSAL_EVIDENCE_FIELDS, withDefaultObservableAttributes } from "@khidi/evidence";
+export * from "./content.ts";
 import { queueMediaJob } from "@khidi/media";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import {

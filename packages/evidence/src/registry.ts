@@ -6,6 +6,7 @@ import {
 } from "@khidi/db";
 import { withDomainTransaction, type DomainActor, type DomainTransactionContext } from "@khidi/domain";
 import { AppError, createUuidV7 } from "@khidi/shared";
+import { refreshSkuContentReview } from "./content-review.ts";
 import {
   allowsEvidencePdf, computeIdentity, evidenceSensitivity, evidenceStrength, evidenceValuesDiffer, EVIDENCE_TYPES, hasVerifiedDifference,
   IDENTITY_KINDS, isDocumentAnchor, resolveEvidenceField, type IdentityKind, type ResolvedField
@@ -192,11 +193,11 @@ async function projectSkuIdentity(ctx: DomainTransactionContext, skuId: string) 
       .onConflictDoUpdate({ target: [skuFieldProvenance.skuId, skuFieldProvenance.fieldName], set: nowVerified
         ? { ...projection, notDeterminableReason: null, decidedBy: null, decidedAt: null } : projection });
   }
-  return { sku, productType, items, photos, decisions, distinguishingAttributes, fields };
+  return { sku, productType, items, photos, decisions, distinguishingAttributes, fields, previousFields: new Map(priorFields.map((field) => [field.fieldName, field])) };
 }
 
 async function saveSkuIdentity(ctx: DomainTransactionContext, projection: Awaited<ReturnType<typeof projectSkuIdentity>>) {
-  const { sku, productType, items, photos, decisions, distinguishingAttributes, fields } = projection;
+  const { sku, productType, items, photos, decisions, distinguishingAttributes, fields, previousFields } = projection;
   const skuId = sku.id;
   const duplicates = await findIndistinguishable(ctx.tx, sku, productType, fields);
   const result = computeIdentity({
@@ -218,6 +219,7 @@ async function saveSkuIdentity(ctx: DomainTransactionContext, projection: Awaite
         ...(reverificationRequired ? { severity: "ACTION_REQUIRED", reason: "IDENTITY_REVERIFICATION" } : {}) },
       consumers: reverificationRequired ? ["notifications"] : [] });
   }
+  await refreshSkuContentReview(ctx, skuId, previousFields);
   return { ...result, fields, decisions, productType, duplicates, reverificationRequired };
 }
 

@@ -401,6 +401,7 @@ export const skus = pgTable("skus", {
   identityRuleVersion: text("identity_rule_version").notNull().default("identity-rule-v1"),
   identityEvidenceIds: uuid("identity_evidence_ids").array().notNull().default([]),
   reverificationRequired: boolean("reverification_required").notNull().default(false),
+  contentReviewRequired: boolean("content_review_required").notNull().default(false),
   isComposedBundle: boolean("is_composed_bundle").notNull().default(false),
   isKit: boolean("is_kit").notNull().default(false),
   kitComponentsJson: jsonb("kit_components_json").$type<KitComponentInfo[] | null>(),
@@ -657,6 +658,31 @@ export const productImages = pgTable("product_images", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 });
 export type EvidenceValue = string | number | boolean;
+export type CanonicalContentOrigin = "MANUAL" | "DETERMINISTIC" | "AI_PROPOSAL";
+
+export const skuContentVersions = pgTable("sku_content_versions", {
+  id: uuid("id").primaryKey(),
+  skuId: uuid("sku_id").notNull().references(() => skus.id, { onDelete: "restrict" }),
+  locale: text("locale").notNull(),
+  origin: text("origin").$type<CanonicalContentOrigin>().notNull(),
+  authorId: uuid("author_id").references(() => users.id, { onDelete: "restrict" }),
+  aiJobId: uuid("ai_job_id").references((): AnyPgColumn => aiJobs.id, { onDelete: "restrict" }),
+  imported: boolean("imported").notNull().default(false),
+  displayName: text("display_name").notNull(),
+  shortDescription: text("short_description").notNull(),
+  fullDescription: text("full_description").notNull(),
+  searchAliases: text("search_aliases").array().notNull().default([]),
+  verifiedFacts: jsonb("verified_facts").$type<Record<string, EvidenceValue>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const skuContentApprovals = pgTable("sku_content_approvals", {
+  skuId: uuid("sku_id").notNull().references(() => skus.id, { onDelete: "restrict" }),
+  locale: text("locale").notNull(),
+  versionId: uuid("version_id").notNull().references(() => skuContentVersions.id, { onDelete: "restrict" }),
+  approvedBy: uuid("approved_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  approvedAt: timestamp("approved_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [primaryKey({ columns: [table.skuId, table.locale] })]);
 export type EvidenceClaimSource =
   | { origin: "HUMAN"; userId?: string }
   | { origin: "AI"; jobId: string; confirmedBy?: string };
