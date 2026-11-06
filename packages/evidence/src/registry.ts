@@ -45,8 +45,9 @@ const evidenceInput = z.object({
   documentNumber: z.string().trim().min(1).max(200).optional(), lineText: notesSchema.optional(),
   quantity: z.number().int().min(1).max(2147483647).optional(), notes: notesSchema.optional(),
   measurementUnit: z.string().trim().min(1).max(40).optional(), measurementMethod: notesSchema.optional(),
-  comparisonSkuId: uuid.optional(), claims: claimsSchema.default({})
-}).strict();
+  comparisonSkuId: uuid.optional(), claims: claimsSchema.default({}),
+  supersedesEvidenceId: uuid.optional(), supersessionReason: notesSchema.optional()
+}).strict().refine((input) => !!input.supersedesEvidenceId === !!input.supersessionReason);
 
 type CatalogSku = typeof skus.$inferSelect;
 type CatalogType = typeof productTypes.$inferSelect;
@@ -173,12 +174,32 @@ export async function recomputeSkuIdentity(ctx: DomainTransactionContext, skuId:
   return { ...result, fields, decisions, productType, duplicates, reverificationRequired };
 }
 
-async function evidenceChanged(ctx: DomainTransactionContext, item: EvidenceRow, action: string, reason?: string) {
+function evidenceReading(item: EvidenceRow) {
+  return { id: item.id, status: item.status, claims: item.claims, claimSources: item.claimSources };
+}
+
+async function evidenceChanged(ctx: DomainTransactionContext, item: EvidenceRow, action: string, reason?: string, previous?: EvidenceRow) {
   await ctx.recordAudit({ action, entityType: "evidence", entityId: item.id,
-    after: { skuId: item.skuId, type: item.type, sensitivity: item.sensitivity, status: item.status }, reason });
+    before: previous ? evidenceReading(previous) : undefined,
+    after: { skuId: item.skuId, type: item.type, sensitivity: item.sensitivity, status: item.status,
+      ...(previous ? evidenceReading(item) : {}) }, reason });
   await ctx.emitOutboxEvent({ eventType: "EVIDENCE_UPDATED", aggregateType: "evidence", aggregateId: item.id,
     payload: { skuId: item.skuId, evidenceId: item.id, status: item.status },
     consumers: action === "EVIDENCE_SUBMITTED" && item.imageId && item.sensitivity === "AI_ALLOWED" ? ["ai-discovery"] : [] });
+}
+
+async function rejectEvidence(ctx: DomainTransactionContext, item: EvidenceRow, adminId: string, reason: string) {
+  const [rejected] = await ctx.tx.update(evidence).set({ status: "REJECTED", decidedBy: adminId, decidedAt: new Date(), decisionReason: reason })
+    .where(eq(evidence.id, item.id)).returning();
+  const revoked = await ctx.tx.update(skuFieldProvenance).set({ confirmedEvidenceId: null, decidedBy: null, decidedAt: null })
+    .where(eq(skuFieldProvenance.confirmedEvidenceId, item.id))
+    .returning({ skuId: skuFieldProvenance.skuId, fieldName: skuFieldProvenance.fieldName });
+  for (const { skuId, fieldName } of revoked) {
+    await ctx.recordAudit({ action: "EVIDENCE_FIELD_CONFIRMATION_REVOKED", entityType: "sku", entityId: skuId,
+      before: { field: fieldName, evidenceId: item.id }, reason });
+  }
+  await evidenceChanged(ctx, rejected!, "EVIDENCE_REJECTED", reason, item);
+  return rejected!;
 }
 
 export async function applyAiEvidenceCandidates(ctx: DomainTransactionContext, evidenceId: string, jobId: string, raw: Record<string, EvidenceValue>) {
@@ -204,7 +225,7 @@ export async function submitSkuEvidence(
 ) {
   const parsed = evidenceInput.safeParse(raw);
   if (!parsed.success) throw new AppError("VALIDATION_ERROR", "Invalid evidence submission.");
-  const input = parsed.data;
+  const { supersessionReason, ...input } = parsed.data;
   if (attachment?.mimeType === "application/pdf" && (!allowsEvidencePdf(input.type) || input.imageId)) {
     throw new AppError("VALIDATION_ERROR", "PDF evidence must be a private document without a linked photo.");
   }
@@ -225,8 +246,13 @@ export async function submitSkuEvidence(
       if (!evidenceCaptureTypes.has(input.type)) throw new AppError("VALIDATION_ERROR", "Evidence type unavailable for capture.");
     }
     if (author.role !== "ADMIN" && (!task || author.role !== "WAREHOUSE"
-      || input.documentNumber || input.lineText || input.quantity || input.supplierName)) {
+      || input.documentNumber || input.lineText || input.quantity || input.supplierName || input.supersedesEvidenceId)) {
       throw new AppError("FORBIDDEN", "Evidence registry and document line entry require ADMIN.");
+    }
+    const [superseded] = input.supersedesEvidenceId ? await ctx.tx.select().from(evidence)
+      .where(and(eq(evidence.id, input.supersedesEvidenceId), eq(evidence.skuId, sku.id), eq(evidence.status, "ACCEPTED"))) : [];
+    if (input.supersedesEvidenceId && !superseded) {
+      throw new AppError("PRECONDITION_FAILED", "A replacement requires accepted evidence for the same SKU.");
     }
     if (input.imageId) {
       const [image] = await ctx.tx.select({ id: productImages.id }).from(productImages)
@@ -257,6 +283,12 @@ export async function submitSkuEvidence(
       sensitivity: evidenceSensitivity(input.type, !!input.imageId, !!attachment),
       privateStorageKey: attachment?.key, privateSha256: attachment?.sha256, privateMimeType: attachment?.mimeType
     }).returning();
+    if (superseded && supersessionReason) {
+      const rejected = await rejectEvidence(ctx, superseded, author.id, supersessionReason);
+      await ctx.recordAudit({ action: "EVIDENCE_SUPERSEDED", entityType: "evidence", entityId: item!.id,
+        before: evidenceReading(superseded), after: { ...evidenceReading(item!), supersedesEvidenceId: rejected.id,
+          supersededStatus: rejected.status }, reason: supersessionReason });
+    }
     if (task) {
       const completedCount = task.completedCount + 1;
       const done = completedCount >= (task.targetCount ?? 1);
@@ -287,61 +319,57 @@ export async function reviewSkuEvidence(db: DbExecutor, actor: DomainActor, raw:
     const adminId = await requireEvidenceAdmin(ctx.tx, actor);
     const [item] = await ctx.tx.select().from(evidence).where(eq(evidence.id, input.evidenceId));
     if (!item) throw new AppError("NOT_FOUND", "Evidence not found.");
+    if (item.status === "REJECTED" || (item.status === "ACCEPTED" && input.status === "ACCEPTED")) {
+      throw new AppError("PRECONDITION_FAILED", "Evidence decision is final. Submit a replacement to correct accepted evidence.");
+    }
+    if (input.status === "REJECTED") {
+      const rejected = await rejectEvidence(ctx, item, adminId, input.reason);
+      await recomputeSkuIdentity(ctx, item.skuId);
+      return rejected;
+    }
     const sku = await loadSku(ctx.tx, item.skuId);
     const productType = await loadType(ctx.tx, sku);
-    let claims = item.claims, claimSources = item.claimSources;
-    if (input.status === "ACCEPTED") {
-      claims = { ...input.claims! };
-      claimSources = {};
-      const confirmedAiFields = new Set(input.confirmedAiFields);
-      const confirmed: { field: string; jobId: string; value: EvidenceValue }[] = [];
-      for (const field of confirmedAiFields) {
-        const source = item.claimSources[field];
-        if (source?.origin !== "AI" || !Object.hasOwn(claims, field) || claims[field] !== item.claims[field]) {
-          throw new AppError("VALIDATION_ERROR", "Confirm the exact AI reading shown for each selected field.");
+    const claims = { ...input.claims! };
+    const claimSources: Record<string, EvidenceClaimSource> = {};
+    const confirmedAiFields = new Set(input.confirmedAiFields);
+    const confirmed: { field: string; jobId: string; value: EvidenceValue }[] = [];
+    for (const field of confirmedAiFields) {
+      const source = item.claimSources[field];
+      if (source?.origin !== "AI" || !Object.hasOwn(claims, field) || claims[field] !== item.claims[field]) {
+        throw new AppError("VALIDATION_ERROR", "Confirm the exact AI reading shown for each selected field.");
+      }
+      confirmed.push({ field, jobId: source.jobId, value: claims[field]! });
+    }
+    for (const [field, value] of Object.entries(claims)) {
+      const source = item.claimSources[field];
+      if (source?.origin === "AI") {
+        if (!confirmedAiFields.has(field)) {
+          delete claims[field];
+          continue;
         }
-        confirmed.push({ field, jobId: source.jobId, value: claims[field]! });
+        claimSources[field] = { ...source, confirmedBy: adminId };
+      } else {
+        claimSources[field] = source && value === item.claims[field] ? source : { origin: "HUMAN", userId: adminId };
       }
-      for (const [field, value] of Object.entries(claims)) {
-        const source = item.claimSources[field];
-        if (source?.origin === "AI") {
-          if (!confirmedAiFields.has(field)) {
-            delete claims[field];
-            continue;
-          }
-          claimSources[field] = { ...source, confirmedBy: adminId };
-        } else {
-          claimSources[field] = source && value === item.claims[field] ? source : { origin: "HUMAN", userId: adminId };
-        }
-      }
-      validateClaims(claims, productType, item.type);
-      const [fieldName] = Object.keys(claims);
-      if (item.type === "MEASUREMENT" && (Object.keys(claims).length !== 1 || !fieldName || !Object.hasOwn(item.claims, fieldName)
-        || typeof claims[fieldName] !== "number" || !item.measurementUnit
-        || evidenceFieldOptions(productType).find((field) => field.key === fieldName)?.unit !== item.measurementUnit)) {
-        throw new AppError("VALIDATION_ERROR", "Confirm the measured value in its recorded field and unit.");
-      }
-      if (confirmed.length) {
-        await ctx.recordAudit({ action: "EVIDENCE_AI_CLAIMS_CONFIRMED", entityType: "evidence", entityId: item.id,
-          after: { confirmed }, reason: input.reason });
-      }
+    }
+    validateClaims(claims, productType, item.type);
+    const [fieldName] = Object.keys(claims);
+    if (item.type === "MEASUREMENT" && (Object.keys(claims).length !== 1 || !fieldName || !Object.hasOwn(item.claims, fieldName)
+      || typeof claims[fieldName] !== "number" || !item.measurementUnit
+      || evidenceFieldOptions(productType).find((field) => field.key === fieldName)?.unit !== item.measurementUnit)) {
+      throw new AppError("VALIDATION_ERROR", "Confirm the measured value in its recorded field and unit.");
+    }
+    if (confirmed.length) {
+      await ctx.recordAudit({ action: "EVIDENCE_AI_CLAIMS_CONFIRMED", entityType: "evidence", entityId: item.id,
+        after: { confirmed }, reason: input.reason });
     }
     const documentNumber = input.documentNumber ?? item.documentNumber, lineText = input.lineText ?? item.lineText;
-    if (input.status === "ACCEPTED" && item.type === "SUPPLIER_DOCUMENT" && (!documentNumber || !lineText)) {
+    if (item.type === "SUPPLIER_DOCUMENT" && (!documentNumber || !lineText)) {
       throw new AppError("VALIDATION_ERROR", "Accepting a supplier document requires its number and the relevant line extract.");
-    }
-    const confirmations = await ctx.tx.select({ fieldName: skuFieldProvenance.fieldName }).from(skuFieldProvenance)
-      .where(eq(skuFieldProvenance.confirmedEvidenceId, item.id));
-    for (const { fieldName } of confirmations) {
-      if (input.status !== "REJECTED" && claims[fieldName] === item.claims[fieldName]) continue;
-      await ctx.tx.update(skuFieldProvenance).set({ confirmedEvidenceId: null, decidedBy: null, decidedAt: null })
-        .where(and(eq(skuFieldProvenance.skuId, sku.id), eq(skuFieldProvenance.fieldName, fieldName)));
-      await ctx.recordAudit({ action: "EVIDENCE_FIELD_CONFIRMATION_REVOKED", entityType: "sku", entityId: sku.id,
-        before: { field: fieldName, evidenceId: item.id }, reason: input.reason });
     }
     const [updated] = await ctx.tx.update(evidence).set({ claims, claimSources, status: input.status, decidedBy: adminId, decidedAt: new Date(),
       decisionReason: input.reason, documentNumber, lineText, quantity: input.quantity ?? item.quantity }).where(eq(evidence.id, item.id)).returning();
-    await evidenceChanged(ctx, updated!, input.status === "ACCEPTED" ? "EVIDENCE_ACCEPTED" : "EVIDENCE_REJECTED", input.reason);
+    await evidenceChanged(ctx, updated!, "EVIDENCE_ACCEPTED", input.reason, item);
     await recomputeSkuIdentity(ctx, item.skuId);
     return updated!;
   });

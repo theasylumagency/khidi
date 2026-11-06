@@ -11,13 +11,15 @@ const taskTypes = ["PACKAGING_PHOTO", "PRODUCT_MARKING_PHOTO", "SUPPLIER_DOCUMEN
 const adminTypes = [...taskTypes, "PRODUCT_PLATE_PHOTO", "PASSPORT_MANUAL", "FACTORY_SPEC_SHEET", "ADMIN_PHYSICAL_INSPECTION",
   "CUSTOMS_DECLARATION", "SUPPLIER_CORRESPONDENCE", "SUPPLIER_CATALOG", "STAFF_STATEMENT", "PUBLIC_WEB"];
 
-export function EvidenceCapture({ skuId, taskId, fields, images = [], comparisons = [] }: {
+export function EvidenceCapture({ skuId, taskId, fields, images = [], comparisons = [], replaceable = [] }: {
   skuId: string; taskId?: string; fields: EvidenceFieldOption[];
   images?: { id: string; label: string }[]; comparisons?: { id: string; internalSku: string }[];
+  replaceable?: { id: string; label: string }[];
 }) {
   const router = useRouter();
   const [kind, setKind] = useState(taskTypes[0]!), [chosen, setChosen] = useState<string[]>([""]);
   const [busy, setBusy] = useState(false), [message, setMessage] = useState("");
+  const [supersedesEvidenceId, setSupersedesEvidenceId] = useState("");
   const key = useRef(createUuidV7());
   const options = kind === "MEASUREMENT" ? fields.filter((field) => field.dataType === "number" && field.unit) : fields;
   const usesFile = taskId && kind !== "MEASUREMENT";
@@ -38,7 +40,8 @@ export function EvidenceCapture({ skuId, taskId, fields, images = [], comparison
       imageId: hasAttachment ? undefined : read("imageId"), comparisonSkuId: read("comparisonSkuId"), supplierName: read("supplierName"),
       documentNumber: read("documentNumber"), lineText: read("lineText"), quantity: read("quantity") ? Number(read("quantity")) : undefined,
       measurementUnit: kind === "MEASUREMENT" ? options.find((field) => field.key === chosen[0])?.unit : undefined,
-      measurementMethod: read("measurementMethod") };
+      measurementMethod: read("measurementMethod"), supersedesEvidenceId: supersedesEvidenceId || undefined,
+      supersessionReason: supersedesEvidenceId ? read("supersessionReason") : undefined };
     const body = new FormData();
     body.set("evidence", JSON.stringify(payload));
     if (hasAttachment) body.set("photo", attachment);
@@ -46,12 +49,18 @@ export function EvidenceCapture({ skuId, taskId, fields, images = [], comparison
     try {
       const response = await fetch("/api/evidence", { method: "POST", headers: { "Idempotency-Key": key.current }, body });
       if (!response.ok) throw new Error();
-      key.current = createUuidV7(); form.reset(); setChosen([""]); setMessage(t("evidence.saved")); router.refresh();
+      key.current = createUuidV7(); form.reset(); setChosen([""]); setSupersedesEvidenceId(""); setMessage(t("evidence.saved")); router.refresh();
     } catch { setMessage(t("evidence.error")); }
     finally { setBusy(false); }
   }
   return <form className="office-login" onSubmit={(event) => void submit(event)}>
     <fieldset disabled={busy}>
+      {replaceable.length ? <>
+        <label>{t("evidence.replaces")} <select value={supersedesEvidenceId} onChange={(event) => setSupersedesEvidenceId(event.target.value)}>
+          <option value="">—</option>{replaceable.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+        </select></label>
+        {supersedesEvidenceId ? <label>{t("evidence.replacement_reason")} <input name="supersessionReason" required maxLength={4000} /></label> : null}
+      </> : null}
       <label>{t("evidence.type")}<select value={kind} onChange={(event) => { setKind(event.target.value); setChosen([""]); }}>
         {(taskId ? taskTypes : adminTypes).map((type) => <option key={type} value={type}>{t(`evidence.type.${type}` as TranslationKey)}</option>)}
       </select></label>

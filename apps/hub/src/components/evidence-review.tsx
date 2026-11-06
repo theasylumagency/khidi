@@ -13,6 +13,7 @@ interface Item {
   supplierName: string | null; documentNumber: string | null; lineText: string | null; quantity: number | null;
   claims: Record<string, FactValue>; claimSources: Record<string, EvidenceClaimSource>;
   attachmentUrl: string | null; privateMimeType: string | null; imageId: string | null;
+  supersedesEvidenceId: string | null;
 }
 interface Field {
   fieldName: string; status: string; value: FactValue | null; notDeterminableReason: string | null; evidenceIds: string[];
@@ -98,9 +99,10 @@ export function EvidenceReview({ skuId, kind, items, fields, distinguishing, pho
       })}</tbody>
     </table>
     <h3>{t("evidence.items")}</h3>
-    {items.map((item) => <details key={item.id}>
+    {items.map((item) => <details key={item.id} id={`evidence-${item.id}`}>
       <summary>{t(`evidence.type.${item.type}` as TranslationKey)} · {t(`evidence.status.${item.status}` as TranslationKey)}</summary>
       <p>{[item.notes, item.supplierName, item.documentNumber, item.lineText, item.quantity].filter((value) => value !== null).join(" · ")}</p>
+      {item.supersedesEvidenceId ? <a href={`#evidence-${item.supersedesEvidenceId}`}>{t("evidence.previous_evidence")}</a> : null}
       <ul>{Object.entries(item.claims).filter(([key]) => item.claimSources[key]?.origin !== "AI")
         .map(([key, value]) => <li key={key}>{key} · {String(value)}</li>)}</ul>
       {item.attachmentUrl ? <a href={item.attachmentUrl}>{t(item.privateMimeType === "application/pdf" ? "evidence.open_pdf" : "evidence.photo")}</a>
@@ -115,21 +117,23 @@ export function EvidenceReview({ skuId, kind, items, fields, distinguishing, pho
             </div>
           )}
         </fieldset> : null}
-        {item.status !== "ACCEPTED" && item.type !== "MEASUREMENT" ? <>
+        {item.status === "PENDING" && item.type !== "MEASUREMENT" ? <>
           <label>{t("evidence.reading_field")} <select name="manualField">
             <option value="">—</option>{fieldOptions.filter((field) => item.claimSources[field.key]?.origin !== "AI")
               .map((field) => <option key={field.key} value={field.key}>{field.label}</option>)}
           </select></label>
           <label>{t("evidence.reading_value")} <input name="manualValue" maxLength={400} /></label>
         </> : null}
-        {item.type === "SUPPLIER_DOCUMENT" ? <>
+        {item.status === "PENDING" && item.type === "SUPPLIER_DOCUMENT" ? <>
           <label>{t("evidence.document_number")} <input name="documentNumber" defaultValue={item.documentNumber ?? ""} maxLength={200} /></label>
           <label>{t("evidence.line_text")} <input name="lineText" defaultValue={item.lineText ?? ""} maxLength={4000} /></label>
           <label>{t("evidence.quantity")} <input name="quantity" defaultValue={item.quantity ?? ""} type="number" min={1} step={1} /></label>
         </> : null}
-        <label>{t("evidence.reason")} <input name="reason" required maxLength={4000} /></label>
-        <button disabled={busy || item.status === "ACCEPTED"} value="ACCEPTED">{t("evidence.accept_reading")}</button>
-        <button disabled={busy || item.status === "REJECTED"} value="REJECTED">{t("evidence.reject")}</button>
+        {item.status !== "REJECTED" ? <>
+          <label>{t("evidence.reason")} <input name="reason" required maxLength={4000} /></label>
+          {item.status === "PENDING" ? <button disabled={busy} value="ACCEPTED">{t("evidence.accept_reading")}</button> : null}
+          <button disabled={busy} value="REJECTED">{t("evidence.reject")}</button>
+        </> : null}
       </form>
     </details>)}
     <p role="status">{message}</p>

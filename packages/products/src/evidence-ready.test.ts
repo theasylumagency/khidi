@@ -1,9 +1,52 @@
 import { and, eq } from "drizzle-orm";
 import { expect, it } from "vitest";
-import { getDb, legalEntities, outboxEvents, productImages, skus, users } from "@khidi/db";
+import { auditLogs, evidence, getDb, legalEntities, outboxEvents, productImages, skus, users } from "@khidi/db";
 import { decideSkuEvidenceField, getStorefrontIdentityFacts, reviewSkuEvidence, submitSkuEvidence } from "@khidi/evidence";
 import { createUuidV7 } from "@khidi/shared";
 import { createSkuDraft, getProductTypeByKey, transitionSkuLifecycle, transitionSkuToReady, upsertAccountingMapping, upsertProductType } from "./index.ts";
+
+it("retains the original reading, freezes decisions in PostgreSQL and supersedes evidence atomically", async () => {
+  const db = getDb();
+  const [admin] = await db.select().from(users).where(eq(users.role, "ADMIN")).limit(1);
+  const actor = { userId: admin!.id };
+  const productType = await getProductTypeByKey(db, "MOTOBLOCK");
+  const sku = await createSkuDraft(db, actor, { productTypeId: productType.id });
+  const input = { skuId: sku.id, type: "FACTORY_SPEC_SHEET", claims: { power_kw: 5 } };
+  const pending = await submitSkuEvidence(db, actor, input);
+  const accept = { evidenceId: pending.id, status: "ACCEPTED", reason: "Corrected the pending reading", claims: { power_kw: 6 } };
+  const accepted = await reviewSkuEvidence(db, actor, accept);
+  const sources = { power_kw: { origin: "HUMAN", userId: actor.userId } };
+  const [acceptance] = await db.select().from(auditLogs)
+    .where(and(eq(auditLogs.entityId, pending.id), eq(auditLogs.action, "EVIDENCE_ACCEPTED")));
+  expect(acceptance).toMatchObject({
+    beforeJson: { claims: { power_kw: 5 }, claimSources: sources }, afterJson: { claims: { power_kw: 6 }, claimSources: sources }
+  });
+  await expect(reviewSkuEvidence(db, actor, { ...accept, claims: { power_kw: 7 } })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+  await expect(db.update(evidence).set({ claims: { power_kw: 7 } }).where(eq(evidence.id, pending.id))).rejects.toThrow(/Invalid evidence transition/);
+  await expect(db.update(evidence).set({ status: "REJECTED", documentNumber: "changed", decisionReason: "Test" })
+    .where(eq(evidence.id, pending.id))).rejects.toThrow(/must preserve evidence content/);
+  await expect(db.update(evidence).set({ status: "REJECTED", decisionReason: " " })
+    .where(eq(evidence.id, pending.id))).rejects.toThrow(/requires a reason/);
+  await expect(db.insert(evidence).values({ ...input, id: createUuidV7(), supersedesEvidenceId: pending.id, authorId: actor.userId,
+    authorRole: "ADMIN", sensitivity: "AI_ALLOWED", capturedAt: new Date() })).rejects.toThrow(/same transaction/);
+
+  const replacement = await submitSkuEvidence(db, actor, { ...input, supersedesEvidenceId: pending.id,
+    supersessionReason: "New supplier revision", claims: { power_kw: 7 } });
+  const [retained] = await db.select().from(evidence).where(eq(evidence.id, pending.id));
+  expect(retained).toMatchObject({ status: "REJECTED", claims: accepted.claims, claimSources: accepted.claimSources });
+  expect(replacement).toMatchObject({ status: "PENDING", supersedesEvidenceId: pending.id });
+  expect((await getStorefrontIdentityFacts(db, sku.id)).fields).toEqual({});
+  await expect(reviewSkuEvidence(db, actor, accept)).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+  await expect(db.update(evidence).set({ status: "ACCEPTED" }).where(eq(evidence.id, pending.id))).rejects.toThrow(/Invalid evidence transition/);
+  const [supersession] = await db.select().from(auditLogs)
+    .where(and(eq(auditLogs.entityId, replacement.id), eq(auditLogs.action, "EVIDENCE_SUPERSEDED")));
+  expect(supersession).toMatchObject({
+    beforeJson: { id: pending.id, status: "ACCEPTED", claims: { power_kw: 6 }, claimSources: sources },
+    afterJson: { id: replacement.id, status: "PENDING", supersededStatus: "REJECTED", claims: { power_kw: 7 }, claimSources: sources }
+  });
+  await reviewSkuEvidence(db, actor, { ...accept, evidenceId: replacement.id, claims: replacement.claims });
+  expect((await getStorefrontIdentityFacts(db, sku.id)).fields).toEqual({ power_kw: 7 });
+});
 
 it("promotes a document-free SKU with explicit MEDIUM confirmation and flags a later conflict without changing READY or slug", async () => {
   const db = getDb();

@@ -663,6 +663,7 @@ export type EvidenceClaimSource =
 export const evidence = pgTable("evidence", {
   id: uuid("id").primaryKey(),
   skuId: uuid("sku_id").notNull().references(() => skus.id),
+  supersedesEvidenceId: uuid("supersedes_evidence_id").references((): AnyPgColumn => evidence.id, { onDelete: "restrict" }),
   taskId: uuid("task_id").references(() => scanTasks.id),
   type: text("type").notNull(),
   sensitivity: text("sensitivity").notNull(),

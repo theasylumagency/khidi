@@ -251,6 +251,8 @@ export default async function SkuDetailPage({
         {sku.reverificationRequired ? <p role="status">{t("evidence.reverification")}</p> : null}
         {evidenceView.comparisons.length ? <p>{t("evidence.duplicate_warning")} {evidenceView.comparisons.map((item) => item.internalSku).join(", ")}</p> : null}
         <EvidenceCapture skuId={sku.id} fields={evidenceFieldOptions(productType)} comparisons={evidenceView.comparisons}
+          replaceable={evidenceView.items.filter((item) => item.status === "ACCEPTED").map((item) => ({ id: item.id,
+            label: `${t(`evidence.type.${item.type}` as TranslationKey)} · ${item.documentNumber ?? item.id.slice(-8)}` }))}
           images={images.map((image) => ({ id: image.id, label: `${t(`media.slot.${image.slot}` as TranslationKey)} · ${image.sortOrder + 1}` }))} />
         <EvidenceReview skuId={sku.id} kind={sku.identityKind} productTypes={typeOptions} productTypeId={sku.productTypeId}
           editableType={!["READY", "ARCHIVED"].includes(sku.lifecycleState)} fields={evidenceView.fields}

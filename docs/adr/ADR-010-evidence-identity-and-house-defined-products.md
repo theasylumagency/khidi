@@ -78,6 +78,10 @@ Each claim records whether it came from a person or from an AI job, with the job
 AI readings. At acceptance, the admin explicitly confirms each AI reading to keep it.
 The system audits the confirmed fields and drops unchecked AI readings.
 
+An admin can correct a pending reading. Acceptance records the original and accepted claims
+with their sources. Accepted content is immutable. A correction is a new pending item linked to
+the accepted original, which is rejected with a reason in the same transaction. Rejection is final.
+
 A factual field becomes `VERIFIED` only when one of these holds and no contradicting evidence is
 unresolved:
 
