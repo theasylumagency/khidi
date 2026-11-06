@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@khidi/db";
 import { listLegalEntities, listStorefronts } from "@khidi/entities";
-import { getSkuWithDetails, listProductTypes, ALLOWED_LIFECYCLE_TRANSITIONS, type SkuLifecycleState } from "@khidi/products";
+import { getCanonicalContentReview, getSkuWithDetails, listProductTypes, ALLOWED_LIFECYCLE_TRANSITIONS, type SkuLifecycleState } from "@khidi/products";
 import { evidenceFieldOptions, evidenceStrength, listSkuEvidence } from "@khidi/evidence";
 import { AppError } from "@khidi/shared";
 import { requirePageAuth } from "../../../lib/session.ts";
@@ -16,6 +16,7 @@ import { EvidenceCapture } from "../../../components/evidence-capture.tsx";
 import { EvidenceReview } from "../../../components/evidence-review.tsx";
 import { EvidenceRequestForm } from "../../../components/evidence-request-form.tsx";
 import { AiJobAction } from "../../../components/ai-job-action.tsx";
+import { CanonicalContentEditor } from "../../../components/canonical-content-editor.tsx";
 
 export const dynamic = "force-dynamic";
 
@@ -69,8 +70,9 @@ export default async function SkuDetailPage({
       enabled: Boolean(found?.enabled)
     };
   });
-  const images = principal.role === "ADMIN" ? await listMediaImageViews(db, principal, { skuId }) : [];
-  const evidenceView = principal.role === "ADMIN" ? await listSkuEvidence(db, { userId: principal.userId }, skuId) : null;
+  const [images, evidenceView, contentReview] = principal.role === "ADMIN" ? await Promise.all([
+    listMediaImageViews(db, principal, { skuId }), listSkuEvidence(db, { userId: principal.userId }, skuId), getCanonicalContentReview(db, skuId)
+  ]) : [[] as Awaited<ReturnType<typeof listMediaImageViews>>, null, null] as const;
   const typeOptions = evidenceView ? (await listProductTypes(db)).filter((type) => type.active).map((type) => ({ id: type.id, nameKa: type.nameKa })) : [];
 
   return (
@@ -246,6 +248,7 @@ export default async function SkuDetailPage({
           />
         </section>
       )}
+      {contentReview ? <CanonicalContentEditor skuId={skuId} review={contentReview} archived={sku.lifecycleState === "ARCHIVED"} /> : null}
       {evidenceView ? <section className="office-login">
         <h2>{t("evidence.items")}</h2>
         {sku.reverificationRequired ? <p role="status">{t("evidence.reverification")}</p> : null}

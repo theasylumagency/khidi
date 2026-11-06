@@ -61,13 +61,14 @@ export async function getCanonicalContentContext(db: DbExecutor, skuId: string):
 
 export async function recordCanonicalVersion(ctx: DomainTransactionContext, input: {
   skuId: string; locale: string; origin: CanonicalContentOrigin; draft: CanonicalDraft; authorId?: string; aiJobId?: string;
+  proposalContext?: CanonicalContentContext;
 }) {
   await lockIdentityCatalog(ctx.tx);
   const parsed = contentDraft.safeParse(input.draft);
   if (!contentLocale.safeParse(input.locale).success || !parsed.success) throw new AppError("VALIDATION_ERROR", "Invalid canonical content.");
   const [sku] = await ctx.tx.select({ state: skus.lifecycleState }).from(skus).where(eq(skus.id, input.skuId));
   if (!sku || sku.state === "ARCHIVED") throw new AppError("PRECONDITION_FAILED", "Only active SKUs can have new content.");
-  const context = await getCanonicalContentContext(ctx.tx, input.skuId);
+  const context = input.proposalContext ?? await getCanonicalContentContext(ctx.tx, input.skuId);
   const { issues, facts } = validateCanonicalDraft(parsed.data, context, input.locale);
   const [version] = await ctx.tx.insert(skuContentVersions).values({
     ...parsed.data, id: createUuidV7(), skuId: input.skuId, locale: input.locale,

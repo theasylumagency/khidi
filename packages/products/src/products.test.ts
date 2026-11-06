@@ -17,6 +17,7 @@ import {
 import { AppError, createUuidV7 } from "@khidi/shared";
 import {
   attachSkuIdentifier,
+  approveCanonicalVersion,
   buildThermalLabelSpec,
   computeGs1CheckDigit,
   createProductFamily,
@@ -33,6 +34,7 @@ import {
   normalizePowerToKw,
   normalizeUniversalUnits,
   registerLegacyUrl,
+  saveCanonicalVersion,
   removeSkuIdentifier,
   resolveSkuByScannedIdentifier,
   seedTaxonomyAndProductTypes,
@@ -298,7 +300,7 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
 
     // 5. ADR-010: only accepted evidence plus an explicit field decision yields MEDIUM.
     const actor = { userId: adminUserId };
-    const claims = { brand: "HIROMIKI", model_code: uniqueModel };
+    const claims = { brand: "HIROMIKI", model_code: uniqueModel, power_kw: 6.62 };
     const carton = await submitSkuEvidence(db, actor, { skuId: draft.id, type: "PACKAGING_PHOTO", claims });
     await expect(reviewSkuEvidence(db, { userId: operatorUserId }, {
       evidenceId: carton.id, status: "ACCEPTED", reason: "Attempted operator acceptance", claims
@@ -335,6 +337,10 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
       }
     );
 
+    await expect(transitionSkuToReady(db, actor, draft.id, { humanConfirmedMediumConfidence: true }))
+      .rejects.toThrow(/Approved KA canonical content is required/);
+    const { version } = await saveCanonicalVersion(db, actor, { skuId: draft.id, locale: "ka" });
+    await approveCanonicalVersion(db, actor, { skuId: draft.id, versionId: version.id });
     const readySku = await transitionSkuToReady(db, { userId: adminUserId }, draft.id, {
       humanConfirmedMediumConfidence: true
     });
@@ -443,6 +449,8 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
     }
 
     const actor = { userId: adminUserId };
+    const ironContent = await saveCanonicalVersion(db, actor, { skuId: ironSku.id, locale: "ka" });
+    await approveCanonicalVersion(db, actor, { skuId: ironSku.id, versionId: ironContent.version.id });
     const readyIron = await transitionSkuToReady(db, actor, ironSku.id);
     const rubberClaims = { wheel_type: "RUBBER" };
     const wheelEvidence = await submitSkuEvidence(db, actor, { skuId: rubberSku.id, type: "ADMIN_PHYSICAL_INSPECTION",
@@ -451,6 +459,8 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
     expect(blocked?.identityConfidence).toBe("LOW");
     await expect(transitionSkuToReady(db, actor, rubberSku.id)).rejects.toMatchObject({ code: "CONFLICT" });
     await reviewSkuEvidence(db, actor, { evidenceId: wheelEvidence.id, status: "ACCEPTED", reason: "Verified wheel material", claims: rubberClaims });
+    const rubberContent = await saveCanonicalVersion(db, actor, { skuId: rubberSku.id, locale: "ka" });
+    await approveCanonicalVersion(db, actor, { skuId: rubberSku.id, versionId: rubberContent.version.id });
     const readyRubber = await transitionSkuToReady(db, actor, rubberSku.id);
     expect(readyRubber.identityConfidence).toBe("HIGH");
 

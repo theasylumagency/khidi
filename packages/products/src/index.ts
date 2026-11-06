@@ -24,7 +24,6 @@ import {
 } from "@khidi/db";
 import { type DomainActor, withDomainTransaction } from "@khidi/domain";
 import { lockIdentityCatalog, recomputeSkuIdentity, UNIVERSAL_EVIDENCE_FIELDS, withDefaultObservableAttributes } from "@khidi/evidence";
-export * from "./content.ts";
 import { queueMediaJob } from "@khidi/media";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import {
@@ -39,6 +38,7 @@ import {
   normalizeLegacyUrlPath
 } from "./naming.ts";
 import { buildThermalLabelSpec } from "./labels.ts";
+import { requireCurrentValidCanonicalContent } from "./content.ts";
 import {
   buildCandidateLookupValues,
   normalizeIdentifierOnWrite
@@ -49,6 +49,7 @@ export * from "./units.ts";
 export * from "./naming.ts";
 export * from "./labels.ts";
 export * from "./identifiers.ts";
+export * from "./content.ts";
 
 export const SKU_LIFECYCLE_STATES = [
   "INTAKE",
@@ -871,6 +872,8 @@ export async function transitionSkuToReady(
       );
     }
 
+    await requireCurrentValidCanonicalContent(ctx.tx, sku.id, "ka");
+
     // Check if this SKU is part of a multi-SKU Product Family or shares (brand, model_code) with another SKU
     let shouldIncludeDifferentiator = false;
     if (!houseDefined && sku.productFamilyId) {
@@ -935,25 +938,6 @@ export async function transitionSkuToReady(
       });
     }
 
-    const names = houseDefined ? {
-      displayNameKa: [[brand, productType.nameKa].filter(Boolean).join(" "), ...verifiedAttributes].join(", "),
-      displayNameEn: [[brand, productType.nameEn].filter(Boolean).join(" "), ...verifiedAttributes].join(", ")
-    } : generateDeterministicDisplayNames({
-      brand,
-      modelCode,
-      productTypeNameKa: productType.nameKa,
-      productTypeNameEn: productType.nameEn,
-      keyDifferentiatorKa: sku.keyDifferentiatorKa,
-      keyDifferentiatorEn: sku.keyDifferentiatorEn
-    });
-
-    if (!names.displayNameKa || !names.displayNameEn) {
-      throw new AppError(
-        "PRECONDITION_FAILED",
-        "Deterministic KA and EN display names are required before transitioning to READY (§5.10)."
-      );
-    }
-
     const [updated] = await ctx.tx
       .update(skus)
       .set({
@@ -962,8 +946,6 @@ export async function transitionSkuToReady(
         modelCode: houseDefined ? null : modelCode,
         reverificationRequired: false,
         canonicalSlug: finalSlug,
-        displayNameKa: names.displayNameKa,
-        displayNameEn: names.displayNameEn,
         approvedBy: actor.userId,
         approvedAt: new Date(),
         updatedAt: new Date()
