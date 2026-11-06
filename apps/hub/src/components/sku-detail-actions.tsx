@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { t, type TranslationKey } from "@khidi/i18n";
+import { createUuidV7 } from "@khidi/shared/uuid";
 
 interface LegalEntityOption {
   id: string;
@@ -20,6 +22,8 @@ export function SkuDetailActions({
   skuId,
   lifecycleState,
   identityConfidence,
+  identityKind,
+  nextStates,
   canonicalSlug,
   entities,
   storefronts
@@ -27,6 +31,8 @@ export function SkuDetailActions({
   skuId: string;
   lifecycleState: string;
   identityConfidence: string;
+  identityKind: string;
+  nextStates: string[];
   canonicalSlug: string | null;
   entities: LegalEntityOption[];
   storefronts: StorefrontOption[];
@@ -37,47 +43,12 @@ export function SkuDetailActions({
   const [accountingName, setAccountingName] = useState("");
   const [legacyCode, setLegacyCode] = useState("");
   const [slugInput, setSlugInput] = useState(canonicalSlug ?? "");
-  const [confidenceLevel, setConfidenceLevel] = useState(identityConfidence);
-  const [confidenceReason, setConfidenceReason] = useState("");
+  const [confirmMedium, setConfirmMedium] = useState(false);
+  const [allowSuffix, setAllowSuffix] = useState(false);
+  const [nextState, setNextState] = useState("");
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  const handleSetConfidenceManually = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!confidenceReason.trim()) {
-      setErrorMsg("Confidence-ის ხელით დადგენისთვის მიზეზი სავალდებულოა");
-      return;
-    }
-    setLoading(true);
-    setErrorMsg(null);
-    setStatusMsg(null);
-    try {
-      const res = await fetch("/api/products/confidence", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          skuId,
-          level: confidenceLevel,
-          reason: confidenceReason.trim()
-        })
-      });
-      const data = (await res.json()) as { error?: string };
-      if (!res.ok) {
-        setErrorMsg(data.error ?? "Confidence-ის განახლება ვერ მოხერხდა");
-      } else {
-        setConfidenceReason("");
-        setStatusMsg(
-          `✓ იდენტობის სანდოობა ხელით განისაზღვრა: ${confidenceLevel} (ჩაიწერა audit_logs-ში: IDENTITY_CONFIDENCE_SET_MANUALLY)`
-        );
-        router.refresh();
-      }
-    } catch {
-      setErrorMsg("ქსელური შეცდომა");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleAddMapping = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -120,10 +91,13 @@ export function SkuDetailActions({
     try {
       const res = await fetch("/api/products/ready", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": createUuidV7() },
         body: JSON.stringify({
           skuId,
-          action: "TRANSITION_READY"
+          action: "TRANSITION_READY",
+          humanConfirmedMediumConfidence: confirmMedium,
+          customCanonicalSlug: !canonicalSlug ? slugInput.trim() || undefined : undefined,
+          allowHouseSlugSuffix: allowSuffix
         })
       });
       const data = (await res.json()) as { error?: string; sku?: { canonicalSlug: string } };
@@ -141,6 +115,20 @@ export function SkuDetailActions({
     }
   };
 
+  const moveLifecycle = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (loading || !nextState) return;
+    const reason = new FormData(event.currentTarget as HTMLFormElement).get("reason");
+    setLoading(true); setErrorMsg(null); setStatusMsg(null);
+    try {
+      const response = await fetch("/api/products/ready", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": createUuidV7() },
+        body: JSON.stringify({ skuId, action: "TRANSITION_LIFECYCLE", targetState: nextState, reason }) });
+      if (!response.ok) throw new Error();
+      setNextState(""); setStatusMsg(t("evidence.saved")); router.refresh();
+    } catch { setErrorMsg(t("evidence.error")); }
+    finally { setLoading(false); }
+  };
+
   const handleUpdateSlug = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!slugInput.trim()) return;
@@ -150,7 +138,7 @@ export function SkuDetailActions({
     try {
       const res = await fetch("/api/products/ready", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": createUuidV7() },
         body: JSON.stringify({
           skuId,
           action: "UPDATE_SLUG",
@@ -259,10 +247,17 @@ export function SkuDetailActions({
         </div>
 
         <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
-          {lifecycleState !== "READY" && (
+          {lifecycleState === "CONTENT_REVIEW" && identityConfidence === "MEDIUM" && <label>
+            <input type="checkbox" checked={confirmMedium} onChange={(event) => setConfirmMedium(event.target.checked)} /> {t("evidence.confirm_medium")}
+          </label>}
+          {lifecycleState === "CONTENT_REVIEW" && identityKind === "HOUSE_DEFINED" && !canonicalSlug && <>
+            <label>{t("evidence.slug_term")} <input value={slugInput} onChange={(event) => setSlugInput(event.target.value)} maxLength={48} /></label>
+            <label><input type="checkbox" checked={allowSuffix} onChange={(event) => setAllowSuffix(event.target.checked)} /> {t("evidence.slug_suffix")}</label>
+          </>}
+          {lifecycleState === "CONTENT_REVIEW" && (
             <button
               type="button"
-              disabled={loading}
+              disabled={loading || (identityConfidence === "MEDIUM" && !confirmMedium)}
               onClick={handleTransitionReady}
               style={{
                 padding: "0.5rem 0.9rem",
@@ -314,74 +309,13 @@ export function SkuDetailActions({
         </div>
       </div>
 
-      {/* 1b. Manual Identity Confidence Override (Pre-M5, G1 / E2) */}
-      {lifecycleState !== "ARCHIVED" && (
-        <form
-          onSubmit={handleSetConfidenceManually}
-          style={{
-            padding: "1rem",
-            background: "#f8fafc",
-            border: "1px solid #cbd5e1",
-            borderRadius: "10px",
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-            gap: "0.75rem",
-            alignItems: "end"
-          }}
-        >
-          <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.8rem", fontWeight: 600 }}>
-            Confidence-ის ხელით დადგენა (Pre-M5, G1)
-            <select
-              value={confidenceLevel}
-              onChange={(e) => setConfidenceLevel(e.target.value)}
-              style={{
-                padding: "0.45rem",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                fontSize: "0.85rem"
-              }}
-            >
-              <option value="LOW">LOW</option>
-              <option value="MEDIUM">MEDIUM</option>
-              <option value="HIGH">HIGH</option>
-              <option value="CONFLICT">CONFLICT</option>
-            </select>
-          </label>
-
-          <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.8rem", fontWeight: 600 }}>
-            სავალდებულო მიზეზი (`reason`, აისახება აუდიტში)
-            <input
-              required
-              value={confidenceReason}
-              onChange={(e) => setConfidenceReason(e.target.value)}
-              placeholder="მაგ. დადასტურებულია მწარმოებლის ფირფიტითა და შეფუთვით"
-              style={{
-                padding: "0.45rem",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                fontSize: "0.85rem"
-              }}
-            />
-          </label>
-
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              padding: "0.5rem 0.9rem",
-              background: "#0369a1",
-              color: "#ffffff",
-              border: "none",
-              borderRadius: "6px",
-              fontWeight: 700,
-              cursor: "pointer",
-              fontSize: "0.85rem"
-            }}
-          >
-            Confidence-ის შენახვა (Audit)
-          </button>
-        </form>
-      )}
+      {nextStates.length ? <form className="office-login" onSubmit={(event) => void moveLifecycle(event)}>
+        <label>{t("evidence.next_state")}<select value={nextState} onChange={(event) => setNextState(event.target.value)} required>
+          <option value="">—</option>{nextStates.map((state) => <option key={state} value={state}>{t(`evidence.lifecycle.${state}` as TranslationKey)}</option>)}
+        </select></label>
+        <label>{t("evidence.reason")}<input name="reason" required maxLength={4000} /></label>
+        <button disabled={loading}>{t("evidence.save")}</button>
+      </form> : null}
 
       {/* 2. Accounting Mapping Form [C9] */}
       <form

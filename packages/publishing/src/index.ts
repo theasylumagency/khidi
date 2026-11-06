@@ -1,5 +1,6 @@
 import type { SkuLifecycleState } from "@khidi/products";
 import { hasVerifiedPublicMainImage } from "@khidi/media";
+import { getStorefrontIdentityFacts } from "@khidi/evidence";
 
 /**
  * [C5, C8, C9, C18] Storefront Sellability Evaluator contract (§15.2).
@@ -15,6 +16,7 @@ export interface SellabilityEvaluationInput {
   hasCurrentBasePrice: boolean;
   hasVerifiedPublicMainImage: boolean;
   isStorefrontListingEnabled: boolean; // §4.5
+  identityConflict?: boolean;
 }
 
 export interface SellabilityEvaluationResult {
@@ -30,6 +32,7 @@ export function evaluateStorefrontSellability(
   if (input.lifecycleState !== "READY") {
     blockingReasons.push("SKU_NOT_READY");
   }
+  if (input.identityConflict) blockingReasons.push("IDENTITY_CONFLICT");
   if (!input.canonicalSlug) {
     blockingReasons.push("MISSING_CANONICAL_SLUG");
   }
@@ -56,5 +59,10 @@ export function evaluateStorefrontSellability(
 }
 /** Server-side media fact: callers cannot substitute a client-supplied image flag. */
 export async function evaluateSkuMediaSellability(db: Parameters<typeof hasVerifiedPublicMainImage>[0], skuId: string, input: Omit<SellabilityEvaluationInput, "hasVerifiedPublicMainImage">) {
-  return evaluateStorefrontSellability({ ...input, hasVerifiedPublicMainImage: await hasVerifiedPublicMainImage(db, skuId) });
+  const [identity, hasVerifiedPublicMainImageForSku] = await Promise.all([
+    getStorefrontIdentityFacts(db, skuId), hasVerifiedPublicMainImage(db, skuId)
+  ]);
+  return evaluateStorefrontSellability({ ...input, identityConflict: identity.identityConflict, hasVerifiedPublicMainImage: hasVerifiedPublicMainImageForSku });
 }
+
+export { getStorefrontIdentityFacts };

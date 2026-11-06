@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
 import { type DbExecutor, imageMasterVersions, productImages } from "@khidi/db";
 import { executeIdempotent, withDomainTransaction } from "@khidi/domain";
+import { lockIdentityCatalog, recomputeSkuIdentity } from "@khidi/evidence";
 import { AppError, sha256Hex } from "@khidi/shared";
 import { uuidV7 } from "./contracts.ts";
 import { assertMediaPrincipal } from "./principal.ts";
@@ -41,6 +42,7 @@ export async function manageImage(db: DbExecutor, principal: AuthenticatedPrinci
   const parsed = actionSchema.safeParse(raw); if (!parsed.success) throw new AppError("VALIDATION_ERROR", "Invalid image action.");
   const input = parsed.data, hash = sha256Hex(JSON.stringify(input));
   return executeIdempotent(db, { scope: "media:manage", idempotencyKey: input.idempotencyKey, payload: { ...input, userId: principal.userId } }, (tx) => withDomainTransaction(tx, { userId: principal.userId }, async (ctx) => {
+    if (input.action === "VERIFY" || input.action === "REJECT") await lockIdentityCatalog(ctx.tx);
     const receipt = await mediaReceipt(ctx.tx, input.idempotencyKey, principal.userId, hash, "MANAGE_IMAGE"); if (receipt) return { status: 200, body: receipt };
     const [image] = await ctx.tx.select().from(productImages).where(eq(productImages.id, input.imageId)).for("update");
     if (!image) throw new AppError("NOT_FOUND", "Image not found.");
@@ -56,6 +58,7 @@ export async function manageImage(db: DbExecutor, principal: AuthenticatedPrinci
       await queueMediaJob(ctx, "process-image", { imageId: image.id, imageVersion: changes.requestedVersion }, `process-image:${image.id}:${changes.requestedVersion}`);
     }
     await ctx.tx.update(productImages).set(changes).where(eq(productImages.id, image.id));
+    if (image.skuId && (input.action === "VERIFY" || input.action === "REJECT")) await recomputeSkuIdentity(ctx, image.skuId);
     if (image.intakeId && ["VERIFY", "REJECT"].includes(input.action)) await refreshIntakePhotoStatus(ctx, image.intakeId);
     if (image.skuId) await queueMediaJob(ctx, "publish-sku-media", { skuId: image.skuId });
     const body = { id: image.id, status: changes.status ?? image.status, requestedVersion: changes.requestedVersion ?? image.requestedVersion };

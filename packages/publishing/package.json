@@ -12,6 +12,7 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@khidi/evidence": "workspace:*",
     "@khidi/entities": "workspace:*",
     "@khidi/inventory": "workspace:*",
     "@khidi/media": "workspace:*",

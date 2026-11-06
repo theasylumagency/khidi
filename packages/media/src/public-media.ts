@@ -94,6 +94,7 @@ export async function listStorefrontMedia(db: DbExecutor, skuId: string, storefr
   const [storefront] = await db.select({ baseUrl: storefronts.mediaBaseUrl }).from(storefronts).where(eq(storefronts.id, storefrontId)).limit(1);
   if (!storefront) throw new AppError("NOT_FOUND", "Storefront not found.");
   const rows = await db.select({ publication: imagePublications, image: productImages, sku: skus }).from(imagePublications).innerJoin(productImages, eq(productImages.id, imagePublications.imageId)).innerJoin(skus, eq(skus.id, imagePublications.skuId))
-    .where(and(eq(skus.id, skuId), eq(skus.lifecycleState, "READY"), eq(productImages.status, "VERIFIED"), eq(productImages.usage, "PUBLIC"), eq(imagePublications.status, "PUBLISHED"))).orderBy(asc(productImages.sortOrder), asc(imagePublications.width), asc(imagePublications.format));
+    .where(and(eq(skus.id, skuId), eq(skus.lifecycleState, "READY"), ne(skus.identityConfidence, "CONFLICT"),
+      eq(productImages.status, "VERIFIED"), eq(productImages.usage, "PUBLIC"), eq(imagePublications.status, "PUBLISHED"))).orderBy(asc(productImages.sortOrder), asc(imagePublications.width), asc(imagePublications.format));
   return rows.filter(({ publication: row, image, sku }) => row.masterVersion === image.masterVersion && sku.canonicalSlug && row.objectKey.startsWith(`${sku.canonicalSlug}-`)).map(({ publication: row, image }) => ({ url: buildPublicMediaUrl(storefront.baseUrl, row.objectKey), width: row.width, format: row.format, role: image.role }));
 }

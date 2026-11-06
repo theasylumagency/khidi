@@ -364,6 +364,7 @@ export const productTypes = pgTable("product_types", {
   aiResearchContractJson: jsonb("ai_research_contract_json")
     .$type<ProductTypeAiResearchContract>()
     .notNull(),
+  distinguishingAttributes: text("distinguishing_attributes").array().notNull().default([]),
   searchAliasesKa: text("search_aliases_ka").array().notNull().default([]),
   searchAliasesEn: text("search_aliases_en").array().notNull().default([]),
   active: boolean("active").notNull().default(true),
@@ -395,6 +396,10 @@ export const skus = pgTable("skus", {
   canonicalSlug: text("canonical_slug"), // [C8] NULL at INTAKE, required at READY
   lifecycleState: text("lifecycle_state").notNull().default("INTAKE"),
   identityConfidence: text("identity_confidence").notNull().default("LOW"),
+  identityKind: text("identity_kind").notNull().default("HOUSE_DEFINED"),
+  identityRuleVersion: text("identity_rule_version").notNull().default("identity-rule-v1"),
+  identityEvidenceIds: uuid("identity_evidence_ids").array().notNull().default([]),
+  reverificationRequired: boolean("reverification_required").notNull().default(false),
   isComposedBundle: boolean("is_composed_bundle").notNull().default(false),
   isKit: boolean("is_kit").notNull().default(false),
   kitComponentsJson: jsonb("kit_components_json").$type<KitComponentInfo[] | null>(),
@@ -650,6 +655,82 @@ export const productImages = pgTable("product_images", {
   verifiedBy: uuid("verified_by").references(() => users.id, { onDelete: "restrict" }), verifiedAt: timestamp("verified_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 });
+export type EvidenceValue = string | number | boolean;
+
+export const evidence = pgTable("evidence", {
+  id: uuid("id").primaryKey(),
+  skuId: uuid("sku_id").notNull().references(() => skus.id),
+  taskId: uuid("task_id").references(() => scanTasks.id),
+  type: text("type").notNull(),
+  sensitivity: text("sensitivity").notNull(),
+  status: text("status").notNull().default("PENDING"),
+  authorId: uuid("author_id").notNull().references(() => users.id),
+  authorRole: text("author_role").notNull(),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
+  imageId: uuid("image_id").references(() => productImages.id),
+  privateStorageKey: text("private_storage_key"),
+  privateSha256: text("private_sha256"),
+  privateMimeType: text("private_mime_type"),
+  supplierName: text("supplier_name"),
+  documentNumber: text("document_number"),
+  lineText: text("line_text"),
+  quantity: integer("quantity"),
+  measurementUnit: text("measurement_unit"),
+  measurementMethod: text("measurement_method"),
+  notes: text("notes"),
+  comparisonSkuId: uuid("comparison_sku_id").references(() => skus.id),
+  claims: jsonb("claims_json").$type<Record<string, EvidenceValue>>().notNull().default({}),
+  decidedBy: uuid("decided_by").references(() => users.id),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  decisionReason: text("decision_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const skuFieldProvenance = pgTable("sku_field_provenance", {
+  skuId: uuid("sku_id").notNull().references(() => skus.id),
+  fieldName: text("field_name").notNull(),
+  value: jsonb("value_json").$type<EvidenceValue>(),
+  status: text("status").notNull(),
+  evidenceIds: uuid("evidence_ids").array().notNull().default([]),
+  confirmedEvidenceId: uuid("confirmed_evidence_id").references(() => evidence.id),
+  notDeterminableReason: text("not_determinable_reason"),
+  decidedBy: uuid("decided_by").references(() => users.id),
+  decidedAt: timestamp("decided_at", { withTimezone: true })
+}, (table) => [primaryKey({ columns: [table.skuId, table.fieldName] })]);
+
+export const aiJobs = pgTable("ai_jobs", {
+  id: uuid("id").primaryKey(),
+  jobName: text("job_name").notNull(),
+  skuId: uuid("sku_id").notNull().references(() => skus.id),
+  evidenceId: uuid("evidence_id").references(() => evidence.id),
+  imageId: uuid("image_id").references(() => productImages.id),
+  imageVersion: integer("image_version"),
+  dedupeKey: text("dedupe_key").notNull().unique(),
+  generation: integer("generation").notNull().default(0),
+  status: text("status").notNull().default("PENDING"),
+  result: jsonb("result_json").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const aiJobLogs = pgTable("ai_job_logs", {
+  id: uuid("id").primaryKey(),
+  jobId: uuid("job_id").notNull().references(() => aiJobs.id),
+  generation: integer("generation").notNull(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  promptVersion: text("prompt_version").notNull(),
+  budgetDay: text("budget_day").notNull(),
+  reservedUsdMicros: bigint("reserved_usd_micros", { mode: "number" }).notNull(),
+  costUsdMicros: bigint("cost_usd_micros", { mode: "number" }),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  status: text("status").notNull(),
+  errorCode: text("error_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true })
+});
+
 export const imageMasterVersions = pgTable("image_master_versions", {
   id: uuid("id").primaryKey(), imageId: uuid("image_id").notNull().references(() => productImages.id, { onDelete: "restrict" }),
   version: integer("version").notNull(), storageKey: text("storage_key").notNull().unique(), sha256: text("sha256").notNull(),

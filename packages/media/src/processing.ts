@@ -9,6 +9,13 @@ import { queueMediaJob } from "./transactions.ts";
 
 const BACKGROUND = "#f5f5f4";
 export const DERIVATIVE_WIDTHS = [400, 800, 1600] as const;
+export async function assertProcessedAiImage(bytes: Uint8Array, mimeType: "image/jpeg" | "image/webp") {
+  const metadata = await sharp(bytes, { limitInputPixels: 64_000_000, failOn: "error" }).metadata();
+  if (metadata.format !== (mimeType === "image/jpeg" ? "jpeg" : "webp")
+    || metadata.exif || metadata.xmp || metadata.iptc || metadata.orientation || (metadata.pages ?? 1) > 1) {
+    throw new AppError("PRECONDITION_FAILED", "Provider photos must be processed and metadata-free.");
+  }
+}
 export async function putRetained(storage: MediaStorage, key: string, bytes: Uint8Array, contentType: string) {
   try { return await storage.putPrivate(key, bytes, contentType); }
   catch (error) {
@@ -52,7 +59,8 @@ export async function processImage(ctx: DomainTransactionContext, storage: Media
   if (version >= image.masterVersion) await ctx.tx.update(productImages).set({ masterVersion: version, masterStorageKey: master.key, masterSha256: master.sha256,
     derivativesJson: derivatives, processingStatus: version === image.requestedVersion ? "COMPLETED" : "PENDING", tier2QualityJson: null, perceptualHash: null, updatedAt: new Date() }).where(eq(productImages.id, imageId));
   await ctx.recordAudit({ action: "IMAGE_PROCESSED", entityType: "product_image", entityId: imageId, after: { version, masterSha256: master.sha256, derivatives: Object.keys(derivatives) } });
-  await ctx.emitOutboxEvent({ eventType: "IMAGE_PROCESSED", aggregateType: "product_image", aggregateId: imageId, payload: { version }, consumers: [] });
+  await ctx.emitOutboxEvent({ eventType: "IMAGE_PROCESSED", aggregateType: "product_image", aggregateId: imageId,
+    payload: { imageId, skuId: image.skuId, version }, consumers: image.skuId ? ["ai-discovery"] : [] });
   await queueMediaJob(ctx, "tier2-image-check", { imageId, imageVersion: version }, `tier2:${imageId}:${version}`);
   if (image.skuId) await queueMediaJob(ctx, "publish-sku-media", { skuId: image.skuId });
 }
