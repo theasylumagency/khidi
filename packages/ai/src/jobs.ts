@@ -54,13 +54,16 @@ async function prepareInput(db: DbExecutor, storage: MediaStorage, job: Job): Pr
   const fieldNames = [...new Set([...(type?.contract.requiredIdentityFields ?? []), ...(type?.contract.targetSpecificationFields ?? [])])]
     .filter((field) => !forbiddenField.test(field));
   const input: ProviderInput = { task: job.jobName as ProviderInput["task"], promptVersion, fieldNames };
+  let requiresDetail = readingJobs.has(job.jobName as AiJobName);
   if (job.evidenceId) {
-    const [item] = await db.select({ id: evidence.id }).from(evidence)
+    const [item] = await db.select({ type: evidence.type }).from(evidence)
       .where(and(eq(evidence.id, job.evidenceId), eq(evidence.skuId, job.skuId), eq(evidence.sensitivity, "AI_ALLOWED"), eq(evidence.status, "PENDING")));
     if (!item) throw new AppError("PRECONDITION_FAILED", "Evidence no longer eligible for provider processing.");
+    requiresDetail ||= item.type === "PRODUCT_PLATE_PHOTO" || item.type === "PRODUCT_MARKING_PHOTO";
   }
   if (job.imageId && job.imageVersion) {
-    const [image] = await db.select({ skuId: productImages.skuId, status: productImages.status }).from(productImages).where(eq(productImages.id, job.imageId));
+    const [image] = await db.select({ skuId: productImages.skuId, status: productImages.status, slot: productImages.slot })
+      .from(productImages).where(eq(productImages.id, job.imageId));
     const [restricted] = await db.select({ id: evidence.id }).from(evidence)
       .where(and(eq(evidence.imageId, job.imageId), eq(evidence.sensitivity, "INTERNAL_ONLY"))).limit(1);
     if (image?.skuId !== job.skuId || image.status === "REJECTED" || restricted) {
@@ -70,7 +73,7 @@ async function prepareInput(db: DbExecutor, storage: MediaStorage, job: Job): Pr
       .where(and(eq(imageMasterVersions.imageId, job.imageId), eq(imageMasterVersions.version, job.imageVersion)));
     const prefix = `master/${job.imageId}/v${job.imageVersion}/`;
     if (!master || master.storageKey !== `${prefix}master.jpg`) throw new AppError("PRECONDITION_FAILED", "A processed master is required.");
-    const derivative = master.derivativesJson["800.webp"];
+    const derivative = requiresDetail || image.slot === "IDENTIFICATION" ? undefined : master.derivativesJson["800.webp"];
     const selected = derivative?.key === `${prefix}800.webp` && derivative.contentType === "image/webp" ? derivative : null;
     const mimeType = selected ? "image/webp" : "image/jpeg";
     const bytes = selected ? await storage.readPrivate(selected.key, selected.sha256, selected.versionId)

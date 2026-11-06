@@ -14,7 +14,7 @@
 
 `media:jobs:deploy` registers the evidence AI queues alongside the existing media queues. The Jobs page shows job status, attempts, provider, model, prompt version, token usage and cost. The daily limit uses integer USD micros and Tbilisi calendar days. An attempt that may have reached a provider but lacks usage information retains its reservation. An admin can retry a deferred or failed job.
 
-The configured modes are `disabled` and the local `synthetic` adapter. Fixture tests supply deterministic provider responses, including quality checks and candidate readings. Operator work proceeds when AI is disabled. The provider input uses hash-checked processed masters or derivatives with metadata removed. Supplier documents, original photos, `INTERNAL_ONLY` evidence and commercial fields stay internal. Before enabling an external adapter, verify that image pixels sent to it also exclude printed prices and commercial material. See [shared server setup](../ops/server-setup.md).
+The configured modes are `disabled` and the local `synthetic` adapter. Fixture tests supply deterministic provider responses, including quality checks and candidate readings. Operator work proceeds when AI is disabled. The provider input uses hash-checked processed masters or derivatives with metadata removed. OCR, plate, marking and identification-photo jobs use the master to keep small text readable. Supplier documents, original photos, `INTERNAL_ONLY` evidence and commercial fields stay internal. Before enabling an external adapter, verify that image pixels sent to it also exclude printed prices and commercial material. See [shared server setup](../ops/server-setup.md).
 
 ## Pilot review
 

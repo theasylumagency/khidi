@@ -26,7 +26,7 @@ function storageWith(readPrivate = vi.fn<MediaStorage["readPrivate"]>()) {
   return { readPrivate, putPrivate: vi.fn(), putPublic: vi.fn(), removePublic: vi.fn() } satisfies MediaStorage;
 }
 
-it("only sends a verified processed master and records the exact job cost", async () => {
+it("uses the processed master for label jobs even when an 800 px derivative exists", async () => {
   const { db, sku, actor, create } = await fixture();
   const imageId = createUuidV7(), bytes = await fixturePhoto(1920, 1920);
   const masterKey = `master/${imageId}/v1/master.jpg`, hash = createHash("sha256").update(bytes).digest("hex");
@@ -35,7 +35,9 @@ it("only sends a verified processed master and records the exact job cost", asyn
     deviceId: createUuidV7(), idempotencyKey: imageId, requestHash: "b".repeat(64), masterStorageKey: masterKey, masterSha256: hash,
     masterVersion: 1, processingStatus: "COMPLETED", tier1QualityJson: { passed: true }, createdBy: actor.userId });
   await db.insert(imageMasterVersions).values({ id: createUuidV7(), imageId, version: 1, storageKey: masterKey, sha256: hash,
-    bytes: bytes.byteLength, width: 1920, height: 1920, derivativesJson: {} });
+    bytes: bytes.byteLength, width: 1920, height: 1920, derivativesJson: {
+      "800.webp": { key: `master/${imageId}/v1/800.webp`, sha256: "d".repeat(64), bytes: 4096, width: 800, format: "webp", contentType: "image/webp" }
+    } });
   const target = { imageId, imageVersion: 1 };
   const item = await submitSkuEvidence(db, actor, { skuId: sku.id, imageId, type: "PRODUCT_MARKING_PHOTO", claims: { brand: "TEST-BRAND" } });
   const job = await create("ocr-label", { ...target, evidenceId: item.id });
@@ -46,6 +48,7 @@ it("only sends a verified processed master and records the exact job cost", asyn
   await executeAiJob(db, storage, provider, job, 0, 0);
   expect(storage.readPrivate).toHaveBeenCalledExactlyOnceWith(masterKey, hash, undefined);
   expect(provider.run).toHaveBeenCalledOnce();
+  expect(provider.run).toHaveBeenCalledWith(expect.objectContaining({ photo: { bytes, mimeType: "image/jpeg" } }));
   const [attempt] = await db.select().from(aiJobLogs).where(eq(aiJobLogs.jobId, job));
   expect(attempt).toMatchObject({ provider: "synthetic", model: "fixture", promptVersion: "evidence-v1", costUsdMicros: 0, status: "SUCCEEDED" });
   const [stored] = await db.select().from(aiJobs).where(eq(aiJobs.id, job));
