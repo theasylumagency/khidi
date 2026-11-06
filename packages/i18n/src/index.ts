@@ -225,6 +225,7 @@ const SCANNING_LABELS = {
   "publishing.blocker.STOREFRONT_LISTING_DISABLED": "ამ მაღაზიაში გამოქვეყნება გამორთულია.",
   "publishing.blocker.MISSING_APPROVED_LOCALE_CONTENT": "ამ ენაზე დამტკიცებული ტექსტი აკლია.",
   "publishing.blocker.LOCALE_CONTENT_FACT_CONFLICT": "დამტკიცებული ტექსტი შეიცავს წინააღმდეგობრივ ფაქტს.",
+  "publishing.blocker.LOCALE_CONTENT_FACT_CHANGED": "დამტკიცებულ ტექსტში გამოყენებული ფაქტი შეიცვალა ან დადასტურება გაუქმდა.",
   "publishing.blocker.LOCALE_CONTENT_CONFIDENTIAL": "დამტკიცებული ტექსტი შეიცავს შიდა მონაცემებს.",
   "content.suspended": "ამ ენაზე გამოქვეყნება შეჩერებულია.",
   "content.verified_facts": "დადასტურებული ფაქტები",

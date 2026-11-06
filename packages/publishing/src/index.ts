@@ -20,6 +20,7 @@ export interface SellabilityEvaluationInput {
   isStorefrontListingEnabled: boolean; // §4.5
   identityConflict?: boolean;
   hasApprovedLocaleContent: boolean;
+  hasReferencedContentChange?: boolean;
   hasReferencedContentConflict?: boolean;
   hasConfidentialLocaleContent?: boolean;
 }
@@ -69,6 +70,7 @@ export function evaluateStorefrontSellability(
   }
   if (!input.hasApprovedLocaleContent) blockPublication("MISSING_APPROVED_LOCALE_CONTENT");
   if (input.hasReferencedContentConflict) blockPublication("LOCALE_CONTENT_FACT_CONFLICT");
+  else if (input.hasReferencedContentChange) blockPublication("LOCALE_CONTENT_FACT_CHANGED");
   if (input.hasConfidentialLocaleContent) blockPublication("LOCALE_CONTENT_CONFIDENTIAL");
 
   return {
@@ -108,7 +110,7 @@ function evaluateLocale(input: Awaited<ReturnType<typeof loadPublicationInputs>>
   store: Awaited<ReturnType<typeof listStorefronts>>[number], locale: string, commerce: StorefrontCommerceFacts = {}) {
   const { details, approvals, fields, hasVerifiedPublicMainImageForSku } = input;
   const version = approvals.find(({ version }) => version.locale === locale)?.version;
-  const conflicts = version ? compareApprovedContentFacts(version.verifiedFacts, fields).conflictingFields : [];
+  const factComparison = version && compareApprovedContentFacts(version.verifiedFacts, fields);
   const owners = commerce.allocatedOwnerEntityIds?.filter((id) => id !== store.sellerEntityId);
   const mappings = new Set(details.accountingMappings.filter((mapping) => mapping.active).map((mapping) => mapping.legalEntityId));
   const slug = details.sku.canonicalSlug;
@@ -123,7 +125,8 @@ function evaluateLocale(input: Awaited<ReturnType<typeof loadPublicationInputs>>
     hasVerifiedPublicMainImage: hasVerifiedPublicMainImageForSku,
     isStorefrontListingEnabled: store.active && details.storefrontListings.some((listing) => listing.storefrontId === store.id && listing.enabled),
     hasApprovedLocaleContent: !!version,
-    hasReferencedContentConflict: conflicts.length > 0,
+    hasReferencedContentChange: !!factComparison?.changedFields.length,
+    hasReferencedContentConflict: !!factComparison?.conflictingFields.length,
     hasConfidentialLocaleContent: !!version && [version.displayName, version.shortDescription, version.fullDescription]
       .some((text) => findConfidentialPhrase(text, input.confidentialTerms) !== null)
   });

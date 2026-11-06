@@ -51,8 +51,7 @@ export function CanonicalContentEditor({ skuId, review, archived }: { skuId: str
       {locales.map((code) => <option value={code} key={code}>{code.toUpperCase()}</option>)}
     </select></label>
     <p>{t(approved ? "content.approved" : versions.length ? "content.pending" : "content.missing")}</p>
-    {approved?.changedFields.length ? <p>{t("content.review_required")} {approved.changedFields.join(", ")}</p> : null}
-    {approved?.conflictingFields.length ? <p>{t("content.suspended")} {approved.conflictingFields.join(", ")}</p> : null}
+    {approved?.changedFields.length ? <p>{t("content.suspended")} {t("content.review_required")} {approved.changedFields.join(", ")}</p> : null}
     <details><summary>{t("content.verified_facts")}</summary>
       <ul>{Object.entries(review.facts).map(([field, fact]) => <li key={field}>{locale === "ka" ? fact.labelKa : fact.labelEn} · {String(fact.value)} {fact.unit}</li>)}</ul>
     </details>
