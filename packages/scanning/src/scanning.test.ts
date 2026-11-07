@@ -8,6 +8,7 @@ import { getStorefrontIdentityFacts, reviewSkuEvidence, submitSkuEvidence } from
 import { createUuidV7 } from "@khidi/shared";
 import { receiveIntake } from "./index.ts";
 import type { IntakeInput } from "./contracts.ts";
+import { makeSamenessFixture } from "../../products/src/sameness.test-fixture.ts";
 
 describe("M3 S2 intake transactions", () => {
   const db = getDb();
@@ -123,7 +124,10 @@ describe("M3 S2 intake transactions", () => {
     const store = (await db.query.storefronts.findFirst())!;
     await setStorefrontListing(db, actor, { skuId: source.id, storefrontId: store.id, enabled: true });
     await setStorefrontListing(db, actor, { skuId: middle.id, storefrontId: store.id, enabled: false });
-    const firstMerge = { sourceSkuId: source.id, targetSkuId: middle.id, identityConfirmed: true,
+    const sameness=await makeSamenessFixture(db,actor,source.id,middle.id);
+    const [classified]=await db.select().from(skus).where(eq(skus.id,source.id));
+    await db.update(skus).set({productTypeId:classified!.productTypeId}).where(eq(skus.id,draft.id));
+    const firstMerge = { sourceSkuId: source.id, targetSkuId: middle.id, identityConfirmed: true,samenessEvidenceId:sameness.id,
       reason: "Compared the fixture labels and verified matching build and markings." };
     await expect(mergeSkus(db, actor, { ...firstMerge, identityConfirmed: undefined })).rejects.toThrow(/same physical variant/);
     await expect(mergeSkus(db, actor, { ...firstMerge, targetSkuId: draft.id })).rejects.toThrow(/only merge into a READY SKU/);
@@ -149,7 +153,8 @@ describe("M3 S2 intake transactions", () => {
     await reviewSkuEvidence(db, actor, { evidenceId: pending.id, status: "REJECTED", reason: "Compared both fixture sheets" });
 
     await mergeSkus(db, actor, { ...firstMerge, listingChoices: { [store.id]: "SOURCE" } });
-    await mergeSkus(db, actor, { ...firstMerge, sourceSkuId: middle.id, targetSkuId: survivor.id });
+    const nextSameness=await makeSamenessFixture(db,actor,middle.id,survivor.id);
+    await mergeSkus(db, actor, { ...firstMerge, sourceSkuId: middle.id, targetSkuId: survivor.id,samenessEvidenceId:nextSameness.id });
     expect(await db.select().from(auditLogs).where(and(eq(auditLogs.entityId, source.id), eq(auditLogs.action, "SKU_MERGED"))))
       .toEqual([expect.objectContaining({ reason: firstMerge.reason, afterJson: expect.objectContaining({ identityConfirmed: true }) })]);
     const result = await receiveIntake(db, admin, input({ scannedValue: source.internalSku }));

@@ -180,6 +180,41 @@ async function findIndistinguishable(tx: DbExecutor, sku: CatalogSku, productTyp
       .map((field) => [field.fieldName, field]))));
 }
 
+/** Recheck an immutable inspection against current photos and field verification at merge time. */
+export async function requireMergeSameness(tx: DbExecutor, sourceSkuId: string, targetSkuId: string, evidenceId: string,
+  sourceFacts: ReadonlyMap<string, {status:string;value:EvidenceValue|null}>,
+  targetFacts: ReadonlyMap<string, {status:string;value:EvidenceValue|null}>) {
+  const [item] = await tx.select().from(evidence).where(eq(evidence.id,evidenceId));
+  if (!item || item.status !== "ACCEPTED" || item.type !== "ADMIN_PHYSICAL_INSPECTION"
+    || item.comparisonRelation !== "MATCHES"
+    || !((item.skuId === sourceSkuId && item.comparisonSkuId === targetSkuId)
+      || (item.skuId === targetSkuId && item.comparisonSkuId === sourceSkuId))) {
+    throw new AppError("PRECONDITION_FAILED","Merge requires an accepted sameness inspection of these two SKUs.");
+  }
+  const subject = await loadSku(tx,item.skuId);
+  const [type] = subject.productTypeId ? await tx.select().from(productTypes).where(eq(productTypes.id,subject.productTypeId)) : [];
+  await validateComparison(tx,subject,type,item);
+  const acknowledgements = [];
+  for (const key of type!.distinguishingAttributes) {
+    const left=sourceFacts.get(key),right=targetFacts.get(key);
+    if (left?.status==="CONFLICT" || right?.status==="CONFLICT") {
+      throw new AppError("CONFLICT","Resolve conflicting distinguishing facts before merging.");
+    }
+    if (type!.attributeSchemaJson.some((field)=>field.key===key && field.observable)
+      && !UNIVERSAL_EVIDENCE_FIELDS.some((field)=>field===key)) continue;
+    const sourceUnknown=left?.status!=="VERIFIED",targetUnknown=right?.status!=="VERIFIED";
+    if (!sourceUnknown && !targetUnknown) {
+      if (evidenceValuesDiffer(left!.value!,right!.value!)) throw new AppError("CONFLICT","Verified distinguishing values differ.");
+      continue;
+    }
+    const reason=item.acknowledgedUnknowns[key]?.trim();
+    if (!reason) throw new AppError("PRECONDITION_FAILED","Explicitly acknowledge each undetermined distinguishing field.",{field:key});
+    acknowledgements.push({fieldName:key,reason,sourceUnknown,targetUnknown,
+      expectedValue:!sourceUnknown?left!.value:!targetUnknown?right!.value:null});
+  }
+  return {item,acknowledgements};
+}
+
 export async function loadSkuEvidenceSources(tx: DbExecutor, ids: string[]) {
   const lineage = new Set(ids);
   const attributed = await tx.select().from(evidenceAttributions).where(inArray(evidenceAttributions.targetSkuId,ids));

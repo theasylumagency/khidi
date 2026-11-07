@@ -13,6 +13,7 @@ import { manageImage } from "./management.ts";
 import { buildPublicMediaUrl, listStorefrontMedia, publicMediaKey, synchronizePublicMedia } from "./public-media.ts";
 import { FilesystemMediaStorage, type MediaStorage } from "./storage.ts";
 import { fixturePhoto } from "./test-fixtures.ts";
+import { makeSamenessFixture } from "../../products/src/sameness.test-fixture.ts";
 describe("P9 eligible public copies and recoverable transfer intents", () => {
   const db = getDb(); let admin: AuthenticatedPrincipal, storage: FilesystemMediaStorage, root: string, bytes: Buffer;
   beforeAll(async () => {
@@ -78,7 +79,8 @@ describe("P9 eligible public copies and recoverable transfer intents", () => {
     const { version } = await saveCanonicalVersion(db, actor, { skuId: target.skuId, locale: "ka",
       draft: { displayName: title, shortDescription: title, fullDescription: title, searchAliases: [] } });
     await approveCanonicalVersion(db, actor, { skuId: target.skuId, versionId: version.id });
-    await mergeSkus(db, actor, { sourceSkuId: source.skuId, targetSkuId: target.skuId,
+    const sameness=await makeSamenessFixture(db,actor,source.skuId,target.skuId);
+    await mergeSkus(db, actor, { sourceSkuId: source.skuId, targetSkuId: target.skuId,samenessEvidenceId:sameness.id,
       identityConfirmed: true, reason: "Compared the physical markings and configuration of both fixtures" });
     await synchronizePublicMedia(db, storage, source.skuId);
     await synchronizePublicMedia(db, storage, target.skuId);

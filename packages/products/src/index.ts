@@ -24,13 +24,14 @@ import {
   skuContentApprovals,
   skuContentVersions,
   skuSplitTargets,
+  skuMergeAcknowledgements,
   skus,
   storefrontListings,
   storefronts,
   users
 } from "@khidi/db";
 import { type DomainActor, withDomainTransaction } from "@khidi/domain";
-import { compareApprovedContentFacts, getContentFactFields, hasVerifiedDifference, lockIdentityCatalog, recomputeSkuIdentity, UNIVERSAL_EVIDENCE_FIELDS, withDefaultObservableAttributes } from "@khidi/evidence";
+import { compareApprovedContentFacts, getContentFactFields, hasVerifiedDifference, lockIdentityCatalog, recomputeSkuIdentity, requireMergeSameness, UNIVERSAL_EVIDENCE_FIELDS, withDefaultObservableAttributes } from "@khidi/evidence";
 import { queueMediaJob } from "@khidi/media";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import {
@@ -1685,6 +1686,7 @@ export async function listStorefrontListingsForSku(
 
 const mergeSkuInput = z.object({
   sourceSkuId: z.string().uuid(), targetSkuId: z.string().uuid(),
+  samenessEvidenceId: z.string().uuid().optional(),
   identityConfirmed: z.boolean().default(false),
   reason: z.string().trim().min(1).max(4000),
   listingChoices: z.record(z.string().uuid(), z.enum(["SOURCE", "TARGET"])).default({})
@@ -1695,13 +1697,14 @@ export async function mergeSkus(db: DbExecutor, actor: DomainActor, raw: unknown
   if (!parsed.success || parsed.data.sourceSkuId === parsed.data.targetSkuId) {
     throw new AppError("VALIDATION_ERROR", "Choose two different SKUs and give a reason.");
   }
-  const { sourceSkuId, targetSkuId, identityConfirmed, reason, listingChoices } = parsed.data;
+  const { sourceSkuId, targetSkuId, samenessEvidenceId, identityConfirmed, reason, listingChoices } = parsed.data;
   return withDomainTransaction(db, actor, async (ctx) => {
     await lockIdentityCatalog(ctx.tx);
     const [admin] = actor.userId ? await ctx.tx.select({ id: users.id }).from(users)
       .where(and(eq(users.id, actor.userId), eq(users.role, "ADMIN"), eq(users.active, true))) : [];
     if (!admin) throw new AppError("FORBIDDEN", "SKU merge requires an active admin.");
     if (!identityConfirmed) throw new AppError("PRECONDITION_FAILED", "Confirm that both SKUs represent the same physical variant.");
+    if (!samenessEvidenceId) throw new AppError("PRECONDITION_FAILED","An accepted sameness inspection is required.");
     const pair = await ctx.tx.select().from(skus).where(inArray(skus.id, [sourceSkuId, targetSkuId]));
     const source = pair.find((sku) => sku.id === sourceSkuId), target = pair.find((sku) => sku.id === targetSkuId);
     if (!source || !target) throw new AppError("NOT_FOUND", "Both SKUs must exist.");
@@ -1720,6 +1723,12 @@ export async function mergeSkus(db: DbExecutor, actor: DomainActor, raw: unknown
     if (pair.some((sku) => sku.identityConfidence === "CONFLICT") || hasVerifiedDifference(sourceFacts, targetFacts)) {
       throw new AppError("CONFLICT", "Resolve identity conflicts and verified differences before merging.");
     }
+    const sameness = await requireMergeSameness(ctx.tx,sourceSkuId,targetSkuId,samenessEvidenceId,sourceFacts,targetFacts);
+    const targetLineage = await getSkuLineageIds(ctx.tx,targetSkuId);
+    for (const acknowledgement of sameness.acknowledgements) await ctx.tx.insert(skuMergeAcknowledgements).values({
+      ...acknowledgement,id:createUuidV7(),sourceSkuId,targetSkuId,evidenceId:samenessEvidenceId,
+      sourceLineageIds:sourceLineage,targetLineageIds:targetLineage,acknowledgedBy:admin.id
+    });
     const targetContent = needsApprovedTarget ? await requireCurrentValidCanonicalContent(ctx.tx, targetSkuId, "ka") : null;
     const decisions = [];
     for (const listing of listings.filter((row) => row.skuId === sourceSkuId)) {
@@ -1751,7 +1760,8 @@ export async function mergeSkus(db: DbExecutor, actor: DomainActor, raw: unknown
     await queueMediaJob(ctx, "publish-sku-media", { skuId: targetSkuId });
     await ctx.recordAudit({ action: "SKU_MERGED", entityType: "sku", entityId: sourceSkuId,
       before: { sourceState: source.lifecycleState, targetState: target.lifecycleState, sourceSlug: source.canonicalSlug },
-      after: { mergedIntoSkuId: targetSkuId, identityConfirmed, sourceLineage, decisions }, reason });
+      after: { mergedIntoSkuId: targetSkuId, identityConfirmed, samenessEvidenceId,
+        acknowledgedUnknowns:sameness.acknowledgements,sourceLineage,targetLineage,decisions }, reason });
     await ctx.emitOutboxEvent({ eventType: "PRODUCT_UPDATED", aggregateType: "sku", aggregateId: targetSkuId,
       payload: { skuId: targetSkuId, mergedSkuId: sourceSkuId }, consumers: [] });
     return { sourceSkuId, targetSkuId };

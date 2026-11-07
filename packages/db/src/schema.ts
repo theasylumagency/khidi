@@ -393,6 +393,7 @@ export const skus = pgTable("skus", {
   productTypeId: uuid("product_type_id").references(() => productTypes.id),
   mergedIntoSkuId: uuid("merged_into_sku_id").references((): AnyPgColumn => skus.id, { onDelete: "restrict" }),
   mergedUndeterminedFields: text("merged_undetermined_fields").array().notNull().default([]),
+  mergeConflictFields: text("merge_conflict_fields").array().notNull().default([]),
   splitBasisUnverified: boolean("split_basis_unverified").notNull().default(false),
   categoryId: uuid("category_id")
     .notNull()
@@ -781,6 +782,7 @@ export const skuMergeAcknowledgements = pgTable("sku_merge_acknowledgements", {
   reason: text("reason").notNull(),
   sourceUnknown: boolean("source_unknown").notNull(),
   targetUnknown: boolean("target_unknown").notNull(),
+  expectedValue: jsonb("expected_value_json").$type<EvidenceValue>(),
   sourceLineageIds: uuid("source_lineage_ids").array().notNull(),
   targetLineageIds: uuid("target_lineage_ids").array().notNull(),
   acknowledgedBy: uuid("acknowledged_by").notNull().references(() => users.id),
