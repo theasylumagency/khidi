@@ -83,13 +83,25 @@ allow the competing price commit to finish, then withdraw its price without a de
 The direct INSERT trigger has the same test. Real allocations, zero pool rows and drained
 ledger histories all refuse split under ADR-011 Part A; Part B is unchanged.
 
-## Review question for the next phase
+## Merge/archive rule — resolved by the owner during Phase 2
 
-The task specifies split refusal but does not define how an existing SKU merge should
-handle inventory or open held lines. No stock is moved or rewritten by catalog merge in
-this phase. Before stock administration is exposed in Phase 2, the owner should decide
-whether merges involving inventory must be refused or handled by a separately approved
-ledger workflow. This PR does not invent a stock reassignment policy.
+History alone never blocks a merge or archive. The source must have zero shelf, staging,
+allocated, reserved and committed quantities everywhere, and no open fulfillment. The
+survivor may hold stock; a merge never moves stock or changes the survivor's availability.
+Ledger history stays on the archived source and remains traceable through merge lineage.
+Migration 0037 enforces the drained condition in the database as well as the domain.
+
+Manual procedure:
+
+1. Set the source's free-to-sell availability to zero on every storefront.
+2. Let open orders complete or cancel. A cancellation may release units back to free stock:
+   set availability to zero again if necessary. Remove any unallocated advanced-operation
+   buffer too; every source balance must be zero before continuing.
+3. Merge into the survivor. Its existing stock is left unchanged.
+4. Declare the survivor's availability explicitly under ADR-013.
+
+Archiving uses the same drained-source rule. ADR-011's stricter pre-inventory split rule
+is unchanged; Part B remains Proposed.
 
 ## Final Phase 1 verification
 
@@ -111,9 +123,57 @@ ledger workflow. This PR does not invent a stock reassignment policy.
 - `inventory:verify` returned `ok: true` and exit 0 on the newly migrated/seeded database.
   Focused tests also verified drift, missing rows and unchanged data after verification.
 
-## Phase boundary
+## Phase 1 review stop
 
-I1–I4 are ready for Draft PR review. I5–I9, count and replenishment screens, relationship
-mode changes, sellability integration and M9 engines are not started. No new ADR was needed
-for the specified Phase 1 decisions; ADR-011 Part B stays Proposed. No deployment or shared
-database access occurred. The next phase requires explicit owner approval.
+I1–I4 were delivered for Draft PR review. Phase 2 began only after the owner's explicit
+authorization below. No deployment or shared database access occurred.
+
+## Phase 2 — owner approval and ADR-013 gap inventory
+
+The owner authorized Phase 2 in this chat under Accepted ADR-013, which replaces the
+physical-warehouse operating model. Work continues on `m8-inventory-core`, PR #15 stays draft.
+
+| Requirement | Existing base | Phase 2 extension |
+| --- | --- | --- |
+| Declared availability | Ledger and canonical locks; no configured pool or stock screen | Configured storefront pool with drained reconfiguration, idempotent absolute free-to-sell targets, locked derived movements, multi-pool refusal and Georgian confirmation table. |
+| Advanced operations | Tested primitives | ADMIN-only operations/Rule B transfers, pool setup and enforced C17 mode guard. |
+| Counts | PHYSICAL_COUNT disabled; future proof hooks exist | Keep disabled; no counts, count proposals or marked-shelf requirements under ADR-013. |
+| Alerts/replenishment | Event names and allocation minimum exist | Stock-status transitions and owner-manager notifications; request lifecycle without movements; availability can fulfill a referenced request. |
+| Publishing | M8 owner blocker and caller-supplied commerce placeholder | Actual allocations, owner mappings and separate availability, including zero stock. |
+| Settings | Physical warehouse wording | Declared limits and the accepted risk of declaring more units than physically exist. |
+
+## I5 — Declared availability and advanced operations
+
+The primary domain entry requires an idempotency key and computes the delta only after
+locking the configured allocation and every relevant pool. It writes the exact ADR-013
+pairs, preserves reserved/committed units and returns the original result on replay, even
+after an intervening reservation. Other storefronts' balances are not updated.
+
+Migrations 0035–0038 add configuration and notification/request storage, compatible SKU
+lock strength, the drained-source guard, and the owner's amended pool/binding guards.
+SKU locks use `FOR NO KEY UPDATE`, so allocation-only reservations can insert their
+ledger FK references without forming a SKU→allocation→SKU cycle. A forced overlap test
+reproduced that cycle before the fix and now passes.
+
+The owner amended ADR-013 §6 during implementation: configuration can move only when
+the storefront's allocations in the old pool are drained. Existing stock in a destination
+must also be drained so its new declared availability starts at zero. No stock is moved
+by configuration. Shared pools may retain another storefront's stock. A mode change away
+from CONSIGNMENT is refused until every affected storefront binding has moved.
+The branch copy of ADR-013 records this amendment; older migrations remain frozen.
+
+Availability/advanced operations hold a shared configuration advisory lock; configuration
+and mode changes hold it exclusively, before the remaining sorted keys and balance rows.
+This keeps a pool selection stable while an availability target is calculated and applied.
+
+The Georgian desktop table shows free, reserved and committed units, a target, a change
+summary and confirmation. ADMIN has a separate advanced section with current per-pool
+balances, receive/remove/write-off, allocation, Rule B transfers, pool configuration and
+relationship changes. The API authenticates roles, origins and request keys; domain checks
+remain authoritative. WAREHOUSE cannot read balances. STOCK_MANAGER stays within its entity;
+cross-entity actions and the advanced section require ADMIN.
+
+Focused availability, configuration, source-drain, API and confirmation tests passed.
+Desktop smoke: a real local login, preview `7 → 10 (+3)`, commit and reload retained three
+reserved units and showed ten free units. A duplicate-name React key was corrected and the
+reloaded screen emitted no new warnings/errors.

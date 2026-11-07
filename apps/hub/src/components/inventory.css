@@ -1,0 +1,11 @@
+.inventory-workspace { display:grid; gap:1rem; }
+.inventory-risk { padding:1rem; border-left:4px solid #b45309; background:#fffbeb; line-height:1.6; }
+.inventory-scroll { overflow:auto; }
+.inventory-workspace table { width:100%; border-collapse:collapse; background:white; }
+.inventory-workspace th,.inventory-workspace td { padding:.65rem; border-bottom:1px solid #cbd5e1; text-align:left; vertical-align:top; }
+.inventory-workspace input[type=number] { width:6rem; }
+.inventory-workspace input,.inventory-workspace select,.inventory-workspace button,.inventory-advanced input,.inventory-advanced select,.inventory-advanced button { min-height:2.6rem; padding:.4rem; font:inherit; }
+.inventory-confirm { background:#ecfdf5; border:1px solid #16a34a; padding:1rem; }
+.inventory-advanced { margin-top:2rem; padding:1rem; border:1px solid #94a3b8; background:white; }
+.inventory-advanced form { display:flex; flex-wrap:wrap; align-items:end; gap:.7rem; margin:1rem 0; }
+.inventory-advanced label { display:grid; gap:.3rem; }

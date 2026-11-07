@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, lte } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   allocationBalances, allocations, entityRelationships, poolLocations, poolSkuBalances, stockLedger, stockPools,
@@ -9,6 +9,7 @@ import { acquireDomainLocks } from "@khidi/domain/locking";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import { MOVEMENT_MATRIX, type MatrixRow } from "./matrix.ts";
 import { LEDGER_MOVEMENT_TYPES, type StockMovement } from "./types.ts";
+import { refreshAllocationStockStatus } from "./replenishment.ts";
 
 const movementSchema = z.object({
   type: z.enum(LEDGER_MOVEMENT_TYPES), poolId: z.string().uuid(), skuId: z.string().uuid(),
@@ -49,7 +50,7 @@ export function negativeAdjustmentPlan(quantity: number, pool: PoolBalance, cand
 
 async function relationship(db: DbExecutor, ownerId: string, receivingId: string): Promise<"CONSIGNMENT" | "PURCHASE" | null> {
   const [row] = await db.select().from(entityRelationships)
-    .where(and(eq(entityRelationships.fromEntityId, ownerId), eq(entityRelationships.toEntityId, receivingId), lte(entityRelationships.effectiveFrom, new Date())))
+    .where(and(eq(entityRelationships.fromEntityId, ownerId), eq(entityRelationships.toEntityId, receivingId), sql`${entityRelationships.effectiveFrom} <= clock_timestamp()`))
     .orderBy(desc(entityRelationships.effectiveFrom), desc(entityRelationships.id)).limit(1);
   return row?.mode === "CONSIGNMENT" || row?.mode === "PURCHASE" ? row.mode : null;
 }
@@ -248,8 +249,9 @@ export async function applyStockMovements(db: DbExecutor, actor: DomainActor, ra
       const [poolId,skuId]=key.split(":");
       await ctx.tx.update(poolSkuBalances).set({...p,updatedAt:new Date()}).where(and(eq(poolSkuBalances.poolId,poolId!),eq(poolSkuBalances.skuId,skuId!)));
     }
-    for (const [allocationId,b] of ab) if (!commitmentOnly || allocationIds.includes(allocationId)) {
+    for (const [allocationId,b] of ab) if (allocationIds.includes(allocationId)) {
       await ctx.tx.update(allocationBalances).set({...b,updatedAt:new Date()}).where(eq(allocationBalances.allocationId,allocationId));
+      await refreshAllocationStockStatus(ctx,allocationId);
     }
     return {status:"APPLIED" as const,rows};
   });

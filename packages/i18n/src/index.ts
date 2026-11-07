@@ -27,7 +27,7 @@ export const NAVIGATION_ITEMS: readonly NavItem[] = [
     href: "/inventory",
     labelKa: "მარაგი",
     labelEn: "Inventory",
-    allowedRoles: ["ADMIN", "OPERATOR", "STOCK_MANAGER", "WAREHOUSE"]
+    allowedRoles: ["ADMIN", "STOCK_MANAGER"]
   },
   {
     key: "prices",
@@ -248,8 +248,8 @@ const SCANNING_LABELS = {
   "publishing.blocker.IDENTITY_CONFLICT": "პროდუქტის იდენტობაში წინააღმდეგობაა.",
   "publishing.blocker.MISSING_CANONICAL_SLUG": "საჯარო მისამართი აკლია ან შესასწორებელია.",
   "publishing.blocker.MISSING_SELLER_ACCOUNTING_MAPPING": "გამყიდველის ბუღალტრული მიბმა აკლია.",
-  "publishing.blocker.ALLOCATION_OWNERS_UNAVAILABLE_M8": "გამოყოფილი მარაგის მფლობელი ხელმისაწვდომი იქნება M8-ში.",
   "publishing.blocker.MISSING_OWNER_ACCOUNTING_MAPPING": "მარაგის მფლობელის ბუღალტრული მიბმა აკლია.",
+  "publishing.blocker.ALLOCATION_OWNERS_UNAVAILABLE_M8": "გამოყოფილი მარაგის მფლობელი ხელმისაწვდომი იქნება M8-ში.",
   "publishing.blocker.MISSING_STOREFRONT_BASE_PRICE": "მაღაზიას მოქმედი საბაზო ფასი არ აქვს.",
   "publishing.blocker.MISSING_VERIFIED_PUBLIC_MAIN_IMAGE": "დამტკიცებული საჯარო მთავარი ფოტო აკლია.",
   "publishing.blocker.STOREFRONT_LISTING_DISABLED": "ამ მაღაზიაში გამოქვეყნება გამორთულია.",
@@ -773,8 +773,39 @@ const PRICING_LABELS = {
   "pricing.state.CONTENT_REVIEW": "აღწერის განხილვა", "pricing.state.READY": "მზადაა", "pricing.state.ARCHIVED": "არქივშია"
 } as const;
 
+const INVENTORY_LABELS = {
+  "inventory.title":"ონლაინ ხელმისაწვდომობა", "inventory.store":"მაღაზია", "inventory.product":"პროდუქტი", "inventory.free":"თავისუფლად გასაყიდი",
+  "inventory.reserved":"რეზერვირებული", "inventory.committed":"ვალდებულება", "inventory.target":"ახალი თავისუფლად გასაყიდი რაოდენობა", "inventory.minimum":"მინიმუმი",
+  "inventory.preview":"ცვლილების ნახვა", "inventory.confirm":"დადასტურება", "inventory.cancel":"გაუქმება", "inventory.saved":"შენახულია", "inventory.loading":"მუშავდება…",
+  "inventory.risk":"მითითებული რაოდენობა თქვენი დადასტურებული ლიმიტია. თუ ფიზიკურად ნაკლები საქონელია, შესაძლებელია არარსებული ერთეულის გაყიდვა. მიუთითეთ კონსერვატიული რაოდენობა და განაახლეთ ოფლაინ გაყიდვების შემდეგ.",
+  "inventory.protected":"რეზერვირებული და ვალდებულების ერთეულები უცვლელი რჩება.", "inventory.pool_prompt":"ამ მაღაზიისთვის ადმინისტრატორმა ერთხელ უნდა აირჩიოს ხელმისაწვდომობის პული.",
+  "inventory.pool":"ხელმისაწვდომობის პული", "inventory.configure":"პულის მიბმა ან შეცვლა", "inventory.pool_once":"პულის შეცვლამდე ამ მაღაზიის ძველ და ახალ პულებში ყველა გამოყოფა უნდა იყოს დაცლილი; ახალი პულის ხელმისაწვდომობა ნულიდან იწყება.",
+  "inventory.advanced":"დამატებითი ოპერაციები — მხოლოდ ადმინისტრატორისთვის", "inventory.operation":"ოპერაცია", "inventory.quantity":"რაოდენობა", "inventory.reason":"მიზეზი",
+  "inventory.document":"გარე დოკუმენტის ნომერი", "inventory.source_pool":"გამცემი პული", "inventory.target_pool":"მიმღები პული", "inventory.target_store":"მიმღები მაღაზია",
+  "inventory.cross_entity":"პულებს შორის PURCHASE გადატანა ცვლის მფლობელ იურიდიულ პირს. ორივე ჩანაწერისთვის აუცილებელია დოკუმენტის ნომერი.",
+  "inventory.operation.STOCK_IN":"დამატება", "inventory.operation.STOCK_OUT":"ამოღება", "inventory.operation.WRITE_OFF":"ჩამოწერა",
+  "inventory.operation.ALLOCATE":"მაღაზიისთვის გამოყოფა", "inventory.operation.DEALLOCATE":"გამოყოფის შემცირება", "inventory.operation.TRANSFER_SAME_POOL":"მაღაზიებს შორის გადანაწილება",
+  "inventory.operation.TRANSFER_PURCHASE":"PURCHASE — პულებს შორის გადატანა", "inventory.create_pool":"ახალი პული", "inventory.pool_name":"პულის სახელი", "inventory.owner":"მფლობელი იურიდიული პირი",
+  "inventory.relationship":"იურიდიული პირების ურთიერთობა", "inventory.mode":"რეჟიმი", "inventory.from_entity":"გამცემი იურიდიული პირი", "inventory.to_entity":"მიმღები იურიდიული პირი",
+  "inventory.mode.CONSIGNMENT":"კონსიგნაცია", "inventory.mode.PURCHASE":"შესყიდვა", "inventory.replenishment":"შევსების მოთხოვნები", "inventory.request":"შევსების მოთხოვნა",
+  "inventory.request_only":"მოთხოვნა მარაგს არ ცვლის. რაოდენობა შეიცვლება მხოლოდ ხელმისაწვდომობის დაყენებით.", "inventory.request_link":"მოთხოვნის შესრულება ამ ცვლილებით", "inventory.none":"არჩევის გარეშე",
+  "inventory.status.NORMAL":"ნორმალური", "inventory.status.LOW_STOCK":"დაბალი მარაგი", "inventory.status.OUT_OF_STOCK":"ამოწურულია", "inventory.status.OPEN":"ღია",
+  "inventory.status.ACKNOWLEDGED":"მიღებულია", "inventory.status.FULFILLED":"შესრულებულია", "inventory.status.DECLINED":"უარყოფილია", "inventory.acknowledge":"მოთხოვნის მიღება", "inventory.decline":"უარყოფა",
+  "inventory.notifications":"მარაგის შეტყობინებები", "inventory.search":"პროდუქტის ძებნა", "inventory.no_rows":"ჩანაწერი არ არის.", "inventory.save_minimum":"მინიმუმის შენახვა",
+  "inventory.shelf":"მოუმზადებელი", "inventory.staging":"გატანისთვის მომზადებული", "inventory.unallocated":"გამოუყოფელი", "inventory.undeclared":"ლიმიტი ჯერ არ არის მითითებული",
+  "inventory.error.AVAILABILITY_POOL_REQUIRED":"ჯერ აირჩიეთ მაღაზიის ხელმისაწვდომობის პული.", "inventory.error.AVAILABILITY_POOL_INACTIVE":"ხელმისაწვდომობის პული არააქტიურია.",
+  "inventory.error.AVAILABILITY_CONSIGNMENT_REQUIRED":"სხვისი პულის გამოყენებას აქტიური CONSIGNMENT ურთიერთობა სჭირდება.", "inventory.error.AVAILABILITY_POOL_NOT_DRAINED":"ჯერ ამ მაღაზიის ძველ და ახალ პულებში გაანულეთ გამოყოფილი რაოდენობა და დაასრულეთ ღია შეკვეთები.",
+  "inventory.error.RELATIONSHIP_POOL_BINDING":"რეჟიმის შეცვლამდე მიმღები იურიდიული პირის მაღაზიების ხელმისაწვდომობა სხვა პულზე გადაიყვანეთ.",
+  "inventory.error.AVAILABILITY_MULTIPLE_POOLS":"ამ მაღაზიას ამ SKU-ის თავისუფალი ერთეულები სხვა პულშიც აქვს. ჯერ გაასწორეთ განაწილება დამატებით ოპერაციებში.",
+  "inventory.error.AVAILABILITY_SKU_ARCHIVED":"დაარქივებული ან უცნობი SKU-ის ხელმისაწვდომობა ვერ შეიცვლება.", "inventory.error.AVAILABILITY_TOO_LARGE":"რაოდენობა რეზერვირებულ და ვალდებულების ერთეულებთან ერთად დაშვებულ ზღვარს სცდება.",
+  "inventory.error.REPLENISHMENT_NOT_OPEN":"მოთხოვნა აღარ არის ღია ან სხვა გამოყოფას ეკუთვნის.", "inventory.error.RELATIONSHIP_HELD_UNITS":"რეჟიმის შეცვლამდე დაასრულეთ დარჩენილი რეზერვაციები და ვალდებულებები.",
+  "publishing.blocker.MISSING_STOREFRONT_ALLOCATION":"მაღაზიისთვის მარაგის გამოყოფა არ არსებობს.",
+  "inventory.error.SKU_INVENTORY_NOT_DRAINED":"გაერთიანებამდე ან დაარქივებამდე წყაროს ხელმისაწვდომობა ყველა მაღაზიაში გაანულეთ და დაასრულეთ ან გააუქმეთ ღია შეკვეთები."
+} as const;
+
 export const DICTIONARY = {
   ka: {
+    ...INVENTORY_LABELS,
     ...PRICING_LABELS,
     ...SCANNING_LABELS,
     "app.title": "Khidi — სასაწყობო და კატალოგის ჰაბი",
@@ -786,12 +817,13 @@ export const DICTIONARY = {
     "warehouse.next_scan": "შემდეგი პროდუქტის სკანირება",
     "warehouse.photo_blurry": "⚠ ფოტო ბუნდოვანია, გადაიღეთ თავიდან",
     "warehouse.offline_pending": "ოფლაინ რიგშია სინქრონიზაციისთვის",
-    "settings.operating_model_title": "ონლაინ საწყობის ოპერაციული მოდელი (§10.1, C1, C13)",
-    "settings.operating_model_rule1": "1. ბუღალტერიაში იქმნება გამოყოფილი ონლაინ საწყობი/ლოკაცია, სადაც შიდა გადაადგილებით გადადის ონლაინ გასაყიდი მარაგი.",
-    "settings.operating_model_rule2": "2. თითოეული პულის SHELF (თარო) და STAGING (აგროვებული შეკვეთების ზონა) ფიზიკურად მარკირებულია, რათა პერსონალმა მკაფიოდ გაარჩიოს მფლობელი იურიდიული პირები (PURCHASE რეჟიმში) [C13].",
-    "settings.operating_model_rule3": "3. გადაცემის (HANDED_OVER) შემდეგ დაბრუნებული პროდუქცია მიდის მხოლოდ მთავარ საწყობში და არასდროს ბრუნდება პირდაპირ ონლაინ თაროზე. ხელახალი ონლაინ გაყიდვისთვის საჭიროა ახალი STOCK_IN დოკუმენტის ნომრით [C1]."
+    "settings.operating_model_title": "დეკლარირებული ონლაინ ლიმიტი",
+    "settings.operating_model_rule1": "უფლებამოსილი მომხმარებელი თითოეულ პროდუქტსა და მაღაზიაზე ადგენს თავისუფლად გასაყიდ ერთეულებს. რეზერვირებული და ვალდებულების ერთეულები ამ ცვლილებით არ იცვლება.",
+    "settings.operating_model_rule2": "Khidi არ ამოწმებს ფიზიკურ მარაგს და არ უკავშირდება ბუღალტერიას. თუ მითითებული რაოდენობა რეალურს აღემატება, შესაძლებელია არარსებული ერთეულის გაყიდვა. ეს რისკი მიღებულია: მიუთითეთ კონსერვატიული რაოდენობა და განაახლეთ ოფლაინ გაყიდვების შემდეგ.",
+    "settings.operating_model_rule3": "გადაცემის შემდეგ დაბრუნებასა და თანხის დაბრუნებას სხვა სისტემა მართავს. ონლაინ ხელახალი გაყიდვისთვის მომხმარებელი ახალ ხელმისაწვდომობას ადასტურებს. შევსების მოთხოვნა რაოდენობას ავტომატურად არ ცვლის."
   },
   en: {
+    ...INVENTORY_LABELS,
     ...PRICING_LABELS,
     ...SCANNING_LABELS,
     "app.title": "Khidi — Online Warehouse & Catalog Hub",
@@ -803,10 +835,10 @@ export const DICTIONARY = {
     "warehouse.next_scan": "შემდეგი პროდუქტის სკანირება",
     "warehouse.photo_blurry": "⚠ ფოტო ბუნდოვანია, გადაიღეთ თავიდან",
     "warehouse.offline_pending": "Pending offline sync",
-    "settings.operating_model_title": "Online Warehouse Operating Model (§10.1, C1, C13)",
-    "settings.operating_model_rule1": "1. A dedicated online warehouse is maintained in accounting and online units are transferred there.",
-    "settings.operating_model_rule2": "2. Each pool's SHELF and STAGING zones are physically marked so staff can distinguish legal entity owners [C13].",
-    "settings.operating_model_rule3": "3. Returned goods after HANDED_OVER go to the main warehouse, never directly back to the online shelf without a new STOCK_IN document reference [C1]."
+    "settings.operating_model_title": "Declared online availability",
+    "settings.operating_model_rule1": "Authorized staff declare free-to-sell units per SKU and storefront. Reserved and committed units remain unchanged.",
+    "settings.operating_model_rule2": "Khidi does not verify physical stock or access accounting. Declaring more than exists can sell a missing unit. This risk is accepted: declare conservative numbers and update after offline sales.",
+    "settings.operating_model_rule3": "Returns and refunds after handover stay outside Khidi. Online re-entry requires a new availability declaration. Replenishment requests never change quantities automatically."
   }
 } as const;
 

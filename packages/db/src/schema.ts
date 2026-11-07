@@ -75,6 +75,7 @@ export const storefronts = pgTable("storefronts", {
   sellerEntityId: uuid("seller_entity_id")
     .notNull()
     .references(() => legalEntities.id),
+  availabilityPoolId: uuid("availability_pool_id").references((): AnyPgColumn => stockPools.id, { onDelete: "restrict" }),
   mediaBaseUrl: text("media_base_url").notNull(),
   webhookUrl: text("webhook_url"),
   webhookSecretEncrypted: text("webhook_secret_encrypted"),
@@ -889,6 +890,7 @@ export const allocations = pgTable("allocations", {
   id: uuid("id").primaryKey(), poolId: uuid("pool_id").notNull().references(() => stockPools.id, { onDelete: "restrict" }),
   storefrontId: uuid("storefront_id").notNull().references(() => storefronts.id, { onDelete: "restrict" }),
   skuId: uuid("sku_id").notNull().references(() => skus.id, { onDelete: "restrict" }), minimumStock: integer("minimum_stock").notNull().default(0),
+  alertState: text("alert_state").notNull().default("NORMAL"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (t) => [unique().on(t.poolId, t.storefrontId, t.skuId)]);
 export const poolSkuBalances = pgTable("pool_sku_balances", {
@@ -918,4 +920,16 @@ export const stockLedger = pgTable("stock_ledger", {
   countLineId: uuid("count_line_id"), scanConfirmed: boolean("scan_confirmed").notNull().default(false),
   sellerAccountingItemId: text("seller_accounting_item_id"), sellerAccountingName: text("seller_accounting_name"), ownerAccountingItemId: text("owner_accounting_item_id"), ownerAccountingName: text("owner_accounting_name"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const replenishmentRequests = pgTable("replenishment_requests", {
+  id: uuid("id").primaryKey(), allocationId: uuid("allocation_id").notNull().references(() => allocations.id, { onDelete: "restrict" }),
+  status: text("status").$type<"OPEN" | "ACKNOWLEDGED" | "FULFILLED" | "DECLINED">().notNull(), requestedQuantity: integer("requested_quantity").notNull(),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "restrict" }), updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "restrict" }), note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});
+export const inventoryNotifications = pgTable("inventory_notifications", {
+  id: uuid("id").primaryKey(), allocationId: uuid("allocation_id").notNull().references(() => allocations.id, { onDelete: "restrict" }),
+  status: text("status").notNull(), availableToSell: integer("available_to_sell").notNull(), ownerEntityId: uuid("owner_entity_id").notNull().references(() => legalEntities.id, { onDelete: "restrict" }),
+  recipientUserIds: uuid("recipient_user_ids").array().notNull().default([]), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
 });

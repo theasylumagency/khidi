@@ -34,6 +34,7 @@ import {
 import { type DomainActor, withDomainTransaction } from "@khidi/domain";
 import { withdrawArchivedSkuPrices } from "@khidi/domain/price-effects";
 import { acquireDomainLocks, priceLockKey } from "@khidi/domain/locking";
+import { assertSkuInventoryDrained } from "@khidi/domain/inventory-effects";
 import { compareApprovedContentFacts, getContentFactFields, hasVerifiedDifference, lockIdentityCatalog, recomputeSkuIdentity, requireMergeSameness, UNIVERSAL_EVIDENCE_FIELDS, withDefaultObservableAttributes } from "@khidi/evidence";
 import { queueMediaJob } from "@khidi/media";
 import { AppError, createUuidV7 } from "@khidi/shared";
@@ -661,6 +662,8 @@ export async function transitionSkuLifecycle(
 ) {
   return withDomainTransaction(db, actor, async (ctx) => {
     await lockIdentityCatalog(ctx.tx);
+    await acquireDomainLocks(ctx.tx,{skuIds:[skuId]});
+    if(targetState==="ARCHIVED") await assertSkuInventoryDrained(ctx.tx,skuId);
     const [sku] = await ctx.tx.select().from(skus).where(eq(skus.id, skuId)).limit(1);
     if (!sku) {
       throw new AppError("NOT_FOUND", `SKU ${skuId} not found.`);
@@ -1719,6 +1722,7 @@ export async function mergeSkus(db: DbExecutor, actor: DomainActor, raw: unknown
     const pair = await ctx.tx.select().from(skus).where(inArray(skus.id, [sourceSkuId, targetSkuId]));
     const source = pair.find((sku) => sku.id === sourceSkuId), target = pair.find((sku) => sku.id === targetSkuId);
     if (!source || !target) throw new AppError("NOT_FOUND", "Both SKUs must exist.");
+    await assertSkuInventoryDrained(ctx.tx,sourceSkuId);
     if (pair.some((sku) => sku.lifecycleState === "ARCHIVED" || sku.mergedIntoSkuId) || source.productTypeId !== target.productTypeId) {
       throw new AppError("PRECONDITION_FAILED", "Only active SKUs of the same Product Type can be merged.");
     }
