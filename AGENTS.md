@@ -10,10 +10,14 @@ accounting mappings, media, storefront base prices, online stock, reservations a
 fulfillment work. Two future public storefronts, run by **two legal entities**, will consume
 it through a server-to-server API. Phase 1 builds only the Hub.
 
-**Confidentiality rule.** The Hub must not reveal that both storefronts share one system.
-Never put a client or company name in anything a user, customer or outsider can see:
-UI strings, manifest, TOTP issuer, email sender, print labels, internal SKU prefixes,
-public URLs, image URLs. Use the neutral name "Khidi".
+**Confidentiality rule.** The Hub must not reveal to customers, the public or outsiders
+that both storefronts share one system. Never put a client or company name in customer-
+or public-facing UI, the manifest, TOTP issuer, email sender, printed labels, internal SKU
+prefixes, public or image URLs, or anything a storefront receives. Use the neutral name
+"Khidi". Private internal admin screens and exports used by each entity's own authorized
+staff are outside this concealment rule; they may use the stored storefront key. Do not
+add an alias layer to internal price CSVs. Storefront keys are immutable after creation;
+choose neutral keys because they appear in internal files and may later appear on labels.
 
 ## 2. Sources of truth (in order of precedence)
 
@@ -40,10 +44,11 @@ If two sources conflict and this list does not resolve it, stop and ask. Do not 
 | M4 Photo capture and media pipeline | Merged to `main`. Human deployment checks below pending |
 | M5 Evidence and AI identity | Merged to `main` (PR #10). Local synthetic provider |
 | M6 Review, canonical content and publishing | Merged to `main` (PR #11) |
-| ADR-011 Part A / ADR-012 | Implemented on `feat/sku-split-merge-evidence` for draft PR review; Part B remains Proposed |
-| M7–M11 | Not started |
+| ADR-011 Part A / ADR-012 | Merged to `main` (PR #12); Part B remains Proposed |
+| M7 Pricing | Implemented on `m7-pricing` for Draft PR review |
+| M8–M11 | Not started |
 
-Current task: ADR-011 Part A and ADR-012; see [the task record](docs/milestones/sku-split-merge-evidence.md).
+Current task: M7 pricing; see [the task record](docs/milestones/m7-pricing.md).
 
 Human checks still pending (the owner updates these lines):
 

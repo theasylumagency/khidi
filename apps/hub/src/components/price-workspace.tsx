@@ -7,6 +7,7 @@ import { formatPrice, parsePriceInput, priceInputValue } from "@khidi/pricing/fo
 import { createUuidV7 } from "@khidi/shared/uuid";
 import { PricePreview, previewChanges, type PricePreviewRow } from "./price-preview.tsx";
 import "./pricing.css";
+import { PriceCsv } from "./price-csv.tsx";
 
 interface WorkspaceRow { skuId: string; code: string; name: string; amount: number | null; vatIncluded: boolean | null; expectedPriceId: string | null; setAt: string | null; author: string }
 interface Edit { input: string; kind: "SET" | "WITHDRAWN"; vat: string }
@@ -72,7 +73,7 @@ export function PriceWorkspace({ storefrontId, stores, rows, canEdit, admin, def
           <input aria-label={t("pricing.new") + " " + row.code} inputMode="decimal" value={edit.input} disabled={edit.kind === "WITHDRAWN"} onChange={(event) => update(row, { input: event.target.value })} /></td>
           <td>{edit.kind === "SET" && delta !== null ? `${formatPrice(delta)} (${(delta / row.amount! * 100).toLocaleString("ka-GE", { maximumFractionDigits: 2 })}%)` : "—"}</td></> : null}
         <td>{row.amount === null ? "—" : t(row.vatIncluded ? "pricing.yes" : "pricing.no")}{admin && canEdit ? <select aria-label={t("pricing.vat") + " " + row.code} value={edit.vat} onChange={(event) => update(row, { vat: event.target.value })}><option value="">{t("pricing.default_vat")} ({t(defaultVat ? "pricing.yes" : "pricing.no")})</option><option value="true">{t("pricing.yes")}</option><option value="false">{t("pricing.no")}</option></select> : null}</td>
-        <td>{row.setAt ? new Date(row.setAt).toLocaleString("ka-GE", { timeZone: "Asia/Tbilisi" }) : "—"}</td><td>{row.author || "—"}</td>
+        <td>{row.setAt ? new Date(row.setAt).toLocaleString("en-GB", { timeZone: "Asia/Tbilisi", hour12: false }) : "—"}</td><td>{row.author || "—"}</td>
       </tr>; })}</tbody></table></div>
       {canEdit ? <div className="price-actions"><button type="button" onClick={() => void prepare()}>{t("pricing.preview")}</button>
         <label>{t("pricing.copy_from")} <select value={copyFrom} onChange={(event) => setCopyFrom(event.target.value)}>{stores.filter((row) => row.id !== storefrontId).map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}</select></label>
@@ -80,5 +81,6 @@ export function PriceWorkspace({ storefrontId, stores, rows, canEdit, admin, def
       </fieldset>
     </>}
     <p role="status">{busy ? t("pricing.loading") : message}</p>
+    {!preview ? <><a href={`/api/prices/csv?storefrontId=${storefrontId}`}>{t("pricing.export")}</a>{canEdit ? <PriceCsv storefrontId={storefrontId} /> : null}</> : null}
   </>;
 }

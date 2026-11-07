@@ -1,5 +1,7 @@
 import { getDb } from "@khidi/db";
-import { listStorefronts } from "@khidi/entities";
+import { listLegalEntities, listStorefronts } from "@khidi/entities";
+import { StorefrontCreateForm } from "../../components/storefront-create-form.tsx";
+import "../../components/pricing.css";
 import { requirePageAuth } from "../../lib/session.ts";
 
 export const dynamic = "force-dynamic";
@@ -7,10 +9,11 @@ export const dynamic = "force-dynamic";
 export default async function StorefrontsPage() {
   await requirePageAuth({ allowedRoles: ["ADMIN"] });
   const db = getDb();
-  const storefronts = await listStorefronts(db);
+  const [storefronts, sellers] = await Promise.all([listStorefronts(db), listLegalEntities(db)]);
 
   return (
     <div style={{ display: "grid", gap: "1.5rem" }}>
+      <StorefrontCreateForm sellers={sellers.filter((row) => row.active).map((row) => ({ id: row.id, name: row.legalName }))} />
       <section
         style={{
           background: "#ffffff",

@@ -39,8 +39,57 @@ P3 adds the Georgian `/prices` workspace, storefront/type/lifecycle/missing-pric
 inline GEL editing, selected-row withdrawals, previews and one atomic commit. Copying
 selected base amounts uses the destination seller VAT default and the same batch preview.
 The product page shows immutable per-storefront history. Staff names are formatted and
-storefronts use neutral numbered labels. Navigation honors granular price grants, including
+authorized staff see the stored storefront names. Navigation honors granular price grants, including
 the permanent WAREHOUSE exclusion. API reads/writes are authenticated; commits require
 an idempotency key and the current-row IDs from a preview. Money formatting is browser-safe.
 
-P3: focused pricing/API checks and Hub typecheck passed. P4 and final verification remain pending.
+P3: focused pricing/API checks and Hub typecheck passed.
+
+P4 adds BOM-prefixed UTF-8 export and strict CSV import with comma or semicolon separators,
+quoted decimal commas, row errors, explicit exclusions, unchanged rows and large-change
+previews. The server reparses the original file on commit, checks expected row IDs under
+the same pair locks, and commits one idempotent `CSV_IMPORT` batch. Display names and
+export timestamps are ignored on import. Formula-like display names are escaped on export.
+Imports target the selected storefront and accept up to 1,000 records / 2 MB per file;
+larger imports must be split. Bulk commits accept up to 1,000 selected price rows.
+
+## Owner clarification during M7
+
+- Private price CSVs retain the actual stored `storefront_key`; no alias layer is added.
+  `AGENTS.md` now limits concealment to customer/public/outsider-facing material and anything
+  storefronts receive. Authorized internal staff screens and exports are outside that scope.
+- Development/test seed storefront keys are `store-a` and `store-b`. Seed references and
+  assertions were updated. Existing/shared keys are not rewritten. Recreate old fixture
+  databases to pick up the new seed keys.
+- `0031_storefront_key_immutable.sql` prevents any change to a storefront key after creation;
+  it performs no data rename. The new ADMIN creation form explains neutrality and permanence.
+  Creation is authenticated, idempotent, audited and emits `STOREFRONT_CREATED` transactionally.
+- A narrow `.gitattributes` rule retains LF for `next.config.ts`: the existing CSP source-text
+  assertion otherwise fails on a Windows CRLF checkout. The test and production CSP are preserved.
+
+## Verification
+
+- 17 focused pricing, CSV/API and storefront-immutability tests passed before final checks.
+- Repository typecheck, lint and dependency boundaries passed.
+- One full run on fresh `khidi_m7_final_test`: 402 passed, one pre-existing CRLF-sensitive CSP
+  assertion failed, and one optional S3 integration test was skipped because MinIO was unavailable.
+  After normalizing that checkout and retaining LF through `.gitattributes`, all five architecture
+  tests and all five CSV tests passed in a focused retry (10 passed). The full suite was not repeated.
+- Desktop browser smoke check: Georgian price table, comma-decimal entry, 30% delta preview,
+  disabled confirmation until reason and checkbox are supplied, and storefront key guidance.
+- Production build passed, including the Hub's TypeScript and route generation.
+
+## Gaps and business decisions
+
+The M8 allocation-owner blocker remains deliberately unmet. Promotions, VAT calculation,
+scheduled prices, public storefront transport and deployment remain outside M7. No business
+decision is awaiting approval and no Proposed ADR was needed for the explicitly approved scope.
+
+## Review checklist
+
+- On an isolated database, preview a first price and a 30% change; verify that cancel writes
+  nothing and confirmation creates history with the author and a shared batch reason.
+- Copy selected prices between storefronts and check the destination seller VAT default.
+- Open a BOM export in Excel, import comma/point decimals, fix or exclude invalid rows,
+  confirm an atomic batch, then replay the same request key.
+- Verify warehouse denial, per-SKU withdrawal history, and the retained M8 sale blocker.

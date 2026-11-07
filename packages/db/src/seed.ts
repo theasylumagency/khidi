@@ -226,7 +226,7 @@ export async function runSeed() {
   await db.insert(storefronts).values([
     {
       id: createUuidV7(),
-      key: "agrotrade-ge",
+      key: "store-a",
       name: "AgroTrade Main Storefront",
       domain: "agro-trade.ge",
       sellerEntityId: agroEntityId,
@@ -235,7 +235,7 @@ export async function runSeed() {
     },
     {
       id: createUuidV7(),
-      key: "newbrand-ge",
+      key: "store-b",
       name: "NewBrand Storefront",
       domain: "newbrand-agro.ge",
       sellerEntityId: newBrandEntityId,
@@ -283,7 +283,7 @@ export async function runSeed() {
     entityId: "milestone-1-seed",
     afterJson: {
       entities: ["AGROTRADE", "NEWBRAND"],
-      storefronts: ["agrotrade-ge", "newbrand-ge"]
+      storefronts: ["store-a", "store-b"]
     },
     correlationId: "cor_seed_m1"
   });

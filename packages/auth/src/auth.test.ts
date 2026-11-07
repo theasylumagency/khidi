@@ -237,7 +237,7 @@ describe("@khidi/auth — AES-256-GCM TOTP, Atomic Lockouts, Warehouse PIN, RBAC
     const [agroStore] = await db
       .select()
       .from(storefronts)
-      .where(eq(storefronts.key, "agrotrade-ge"))
+      .where(eq(storefronts.key, "store-a"))
       .limit(1);
 
     const issued = await issueStorefrontApiKey(db, adminPrincipal, {
@@ -247,17 +247,17 @@ describe("@khidi/auth — AES-256-GCM TOTP, Atomic Lockouts, Warehouse PIN, RBAC
 
     // Accessing own storefront succeeds
     const verified = await verifyStorefrontServiceCredential(db, {
-      requestedStorefrontKey: "agrotrade-ge",
+      requestedStorefrontKey: "store-a",
       rawApiKey: issued.rawApiKey
     });
-    expect(verified.storefrontKey).toBe("agrotrade-ge");
+    expect(verified.storefrontKey).toBe("store-a");
 
     // Accessing another storefront with Storefront A's key is strictly forbidden
     await expect(
       verifyStorefrontServiceCredential(db, {
-        requestedStorefrontKey: "newbrand-ge",
+        requestedStorefrontKey: "store-b",
         rawApiKey: issued.rawApiKey
       })
-    ).rejects.toThrow(/cannot access "newbrand-ge"/);
+    ).rejects.toThrow(/cannot access "store-b"/);
   });
 });

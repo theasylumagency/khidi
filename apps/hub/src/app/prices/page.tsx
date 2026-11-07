@@ -31,7 +31,7 @@ export default async function PricesPage({ searchParams }: { searchParams: Promi
     const ready = new Set(checks.filter(({ review }) => review.some((row) => row.storefrontId === store.id && row.locale === "ka" && row.publishReady)).map(({ id }) => id));
     visible = visible.filter((row) => ready.has(row.id));
   }
-  const storeOptions = stores.map((row, index) => ({ id: row.id, label: `${t("pricing.store")} ${index + 1}` }));
+  const storeOptions = stores.map((row) => ({ id: row.id, label: row.name }));
   return <section className="pricing">
     <h1>{t("pricing.title")}</h1>
     <form action="/prices">

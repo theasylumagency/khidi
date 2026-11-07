@@ -63,7 +63,7 @@ export async function runProductsSeed() {
   const [agroStorefront] = await db
     .select()
     .from(storefronts)
-    .where(eq(storefronts.key, "agrotrade-ge"))
+    .where(eq(storefronts.key, "store-a"))
     .limit(1);
 
   if (!adminUser || !agroEntity || !newBrandEntity || !agroStorefront) {
@@ -174,7 +174,7 @@ export async function runProductsSeed() {
   }
   await transitionSkuToReady(db, actor, skuRubber.id);
 
-  // Enable Storefront Listing on agrotrade-ge (§4.5)
+  // Enable Storefront Listing on store-a (§4.5)
   await setStorefrontListing(db, actor, {
     storefrontId: agroStorefront.id,
     skuId: skuRubber.id,

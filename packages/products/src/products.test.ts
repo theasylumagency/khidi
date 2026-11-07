@@ -74,7 +74,7 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
     const [sf] = await db
       .select()
       .from(storefronts)
-      .where(eq(storefronts.key, "agrotrade-ge"))
+      .where(eq(storefronts.key, "store-a"))
       .limit(1);
 
     adminUserId = admin!.id;

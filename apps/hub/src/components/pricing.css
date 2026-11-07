@@ -4,6 +4,7 @@
 .pricing th, .pricing td { text-align: left; padding: .5rem; border-bottom: 1px solid #cbd5e1; vertical-align: top; }
 .pricing th { background: #f1f5f9; }
 .pricing label { display: grid; gap: .3rem; }
+.pricing label:has(> input[type="checkbox"]) { display: flex; align-items: center; gap: .5rem; }
 .pricing input, .pricing select, .pricing button, .pricing textarea { font: inherit; padding: .45rem; border: 1px solid #94a3b8; border-radius: .25rem; }
 .pricing input[inputmode="decimal"] { width: 11ch; display: block; margin-top: .3rem; }
 .pricing fieldset { border: 0; padding: 0; min-width: 0; }

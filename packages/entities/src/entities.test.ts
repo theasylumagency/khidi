@@ -23,8 +23,8 @@ describe("@khidi/entities — VAT Defaults [C11] & Relationship Mode Guard [C17]
     expect(newBrand?.pricesIncludeVat).toBe(false);
 
     const stores = await listStorefronts(db);
-    const agroStore = stores.find((s) => s.key === "agrotrade-ge");
-    const newBrandStore = stores.find((s) => s.key === "newbrand-ge");
+    const agroStore = stores.find((s) => s.key === "store-a");
+    const newBrandStore = stores.find((s) => s.key === "store-b");
 
     expect(agroStore?.sellerPricesIncludeVat).toBe(true);
     expect(newBrandStore?.sellerPricesIncludeVat).toBe(false);
