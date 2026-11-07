@@ -70,6 +70,7 @@ export async function previewCsvImport(db: DbExecutor, actor: DomainActor, raw: 
   const codes = document.records.slice(1).map((row) => row[1]?.trim() ?? "");
   const products = codes.length ? await db.select({ id: skus.id, code: skus.internalSku }).from(skus).where(inArray(skus.internalSku, codes)) : [];
   const byCode = new Map(products.map((row) => [row.code, row.id]));
+  const latest = new Map((await listLatestPrices(db, { storefrontId: input.storefrontId })).map((row) => [row.skuId, row]));
   const counts = new Map<string, number>();
   codes.forEach((code, index) => { if (!excluded.has(index + 2)) counts.set(code, (counts.get(code) ?? 0) + 1); });
   const rows = document.records.slice(1).map((record, index) => {
@@ -81,7 +82,8 @@ export async function previewCsvImport(db: DbExecutor, actor: DomainActor, raw: 
     if (!byCode.has(internalSku)) errors.push("UNKNOWN_SKU");
     if (amount === null) errors.push("INVALID_AMOUNT");
     if (vat !== "true" && vat !== "false") errors.push("INVALID_VAT");
-    if (user.role !== "ADMIN" && (vat === "true" || vat === "false") && (vat === "true") !== target.vat) errors.push("VAT_OVERRIDE_FORBIDDEN");
+    const defaultVat = latest.get(byCode.get(internalSku) ?? "")?.vatIncluded ?? target.vat;
+    if (user.role !== "ADMIN" && (vat === "true" || vat === "false") && (vat === "true") !== defaultVat) errors.push("VAT_OVERRIDE_FORBIDDEN");
     if ((counts.get(internalSku) ?? 0) > 1) errors.push("DUPLICATE_ROW");
     return { rowNumber, internalSku, errors, excluded: excluded.has(rowNumber), change: errors.length ? null : {
       skuId: byCode.get(internalSku)!, storefrontId: input.storefrontId, basePriceMinor: amount!, vatIncluded: vat === "true"

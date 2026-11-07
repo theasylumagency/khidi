@@ -14,7 +14,7 @@
 
 One immediate GEL base price per SKU/storefront; integer positive tetri. No scheduled
 prices, VAT calculation or storefront promotion logic. Withdrawals append a reasoned
-tombstone. Seller VAT is the row default; only admins override it. ADMIN and granted
+tombstone. The first price uses seller VAT; later rows retain the latest row's VAT flag unless ADMIN changes it. ADMIN and granted
 `price.edit` users edit; WAREHOUSE cannot read or write prices. First prices are not large
 changes; changes of 30% or more require explicit confirmation and a batch reason.
 
@@ -37,7 +37,7 @@ restores `MISSING_STOREFRONT_BASE_PRICE`. A fully publish-ready priced SKU still
 M8 allocation-owner blocker. Four focused publishing tests and its typecheck passed.
 P3 adds the Georgian `/prices` workspace, storefront/type/lifecycle/missing-price filters,
 inline GEL editing, selected-row withdrawals, previews and one atomic commit. Copying
-selected base amounts uses the destination seller VAT default and the same batch preview.
+selected base amounts retains destination VAT, using seller VAT only for its first price and the same batch preview.
 The product page shows immutable per-storefront history. Staff names are formatted and
 authorized staff see the stored storefront names. Navigation honors granular price grants, including
 the permanent WAREHOUSE exclusion. API reads/writes are authenticated; commits require
@@ -89,7 +89,7 @@ decision is awaiting approval and no Proposed ADR was needed for the explicitly 
 
 - On an isolated database, preview a first price and a 30% change; verify that cancel writes
   nothing and confirmation creates history with the author and a shared batch reason.
-- Copy selected prices between storefronts and check the destination seller VAT default.
+- Copy selected prices between storefronts and check destination VAT preservation and the first-price seller default.
 - Open a BOM export in Excel, import comma/point decimals, fix or exclude invalid rows,
   confirm an atomic batch, then replay the same request key.
 - Verify warehouse denial, per-SKU withdrawal history, and the retained M8 sale blocker.

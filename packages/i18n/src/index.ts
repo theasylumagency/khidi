@@ -747,7 +747,7 @@ const PRICING_LABELS = {
   "pricing.product": "პროდუქტი", "pricing.current": "მოქმედი ფასი", "pricing.new": "ახალი ფასი (₾)",
   "pricing.difference": "სხვაობა", "pricing.changed": "ბოლო ცვლილება", "pricing.author": "ავტორი",
   "pricing.select": "არჩევა", "pricing.withdraw": "ფასის მოხსნა", "pricing.set": "ფასის დაყენება",
-  "pricing.vat": "დღგ შედის", "pricing.yes": "კი", "pricing.no": "არა", "pricing.default_vat": "გამყიდველის წესით",
+  "pricing.vat": "დღგ შედის", "pricing.yes": "კი", "pricing.no": "არა", "pricing.default_vat": "გამყიდველის წესით", "pricing.keep_vat": "მიმდინარე მნიშვნელობის შენარჩუნება",
   "pricing.preview": "ცვლილებების გადახედვა", "pricing.copy": "არჩეულებზე ფასების გადმოტანა",
   "pricing.copy_from": "გადმოტანა მაღაზიიდან", "pricing.confirm": "ყველა ცვლილების შენახვა",
   "pricing.cancel": "უკან დაბრუნება", "pricing.reason": "მიზეზი (აუცილებელია დიდი ცვლილებისას ან მოხსნისას)",

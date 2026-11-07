@@ -112,6 +112,19 @@ it("rejects stale previews and serializes concurrent first prices", async () => 
   expect(await getCurrentPrice(db, f.sku.id, f.store.id)).toEqual(before);
 });
 
+it("preserves an admin's VAT exception across omitted/explicit operator VAT and rejects changes", async () => {
+  const f = await fixture();
+  const [operator] = await db.insert(users).values({ id: createUuidV7(), role: "OPERATOR", fullName: "VAT exception fixture" }).returning();
+  await db.insert(userPermissions).values({ userId: operator!.id, permissionKey: "price.edit", grantedBy: f.actor.userId });
+  const actor = { userId: operator!.id };
+  await setPrice(db, f.actor, { ...f.change, vatIncluded: false });
+  expect((await setPrice(db, actor, { ...f.change, basePriceMinor: 10500 })).rows[0]?.vatIncluded).toBe(false);
+  expect((await setPrice(db, actor, { ...f.change, basePriceMinor: 11000, vatIncluded: false })).rows[0]?.vatIncluded).toBe(false);
+  await expect(setPrice(db, actor, { ...f.change, basePriceMinor: 11500, vatIncluded: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  await withdrawPrice(db, actor, f.change, "Temporary withdrawal");
+  expect((await setPrice(db, actor, { ...f.change, basePriceMinor: 11000 })).rows[0]?.vatIncluded).toBe(false);
+});
+
 it("copies selected base amounts through a large-change preview and uses the destination seller VAT default", async () => {
   const f = await fixture();
   const target = (await db.query.storefronts.findMany()).find((row) => row.id !== f.store.id)!;

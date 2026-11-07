@@ -90,8 +90,9 @@ async function prepare(db: DbExecutor, actor: DomainActor, input: ReturnType<typ
     if (!target || !existingSkus.has(change.skuId)) throw new AppError("NOT_FOUND", "SKU or storefront not found.");
     const previous = byPair.get(`${change.storefrontId}:${change.skuId}`) ?? null;
     if (change.expectedPriceId !== undefined && change.expectedPriceId !== (previous?.id ?? null)) throw new AppError("CONFLICT", "Price changed after preview. Refresh the preview.");
-    const vatIncluded = change.vatIncluded ?? target.seller.pricesIncludeVat;
-    if (user.role !== "ADMIN" && vatIncluded !== target.seller.pricesIncludeVat) throw new AppError("FORBIDDEN", "Only admins may override seller VAT.");
+    const defaultVat = previous?.vatIncluded ?? target.seller.pricesIncludeVat;
+    const vatIncluded = change.vatIncluded ?? defaultVat;
+    if (user.role !== "ADMIN" && vatIncluded !== defaultVat) throw new AppError("FORBIDDEN", "Only admins may change the existing VAT flag or override first-price seller VAT.");
     const current = previous?.kind === "SET" ? previous : null;
     const deltaMinor = current && change.kind === "SET" ? change.basePriceMinor! - current.basePriceMinor! : null;
     const differenceRatio = deltaMinor !== null ? deltaMinor / current!.basePriceMinor! : null;
