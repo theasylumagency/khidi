@@ -11,9 +11,11 @@ export async function createScanTask(db: DbExecutor, principal: AuthenticatedPri
   const parsed = createScanTaskSchema.safeParse(raw);
   if (!parsed.success) throw new AppError("VALIDATION_ERROR", "Invalid task.");
   const input = parsed.data;
-  if (input.taskType === "PHYSICAL_COUNT" || input.taskType === "PICK") {
-    const milestone = { PHYSICAL_COUNT: 8, PICK: 9 }[input.taskType];
-    throw new AppError("PRECONDITION_FAILED", `Task type is available from milestone ${milestone}.`, { milestone });
+  if (input.taskType === "PHYSICAL_COUNT") {
+    throw new AppError("PRECONDITION_FAILED", "Physical counts are disabled under ADR-013.", { blockedReason: "PHYSICAL_COUNT_DISABLED_ADR013" });
+  }
+  if (input.taskType === "PICK") {
+    throw new AppError("PRECONDITION_FAILED", "Task type is available from milestone 9.", { milestone: 9 });
   }
   return executeIdempotent(db, { scope: "scanning:tasks:create", idempotencyKey: input.idempotencyKey, payload: { ...input, userId: principal.userId } }, (tx) =>
     withDomainTransaction(tx, { userId: principal.userId }, async (ctx) => {

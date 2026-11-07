@@ -43,8 +43,9 @@ ownership/relationship checks and purchase documents on both legs.
 Reservation quantities and per-request staged quantities come from ledger history.
 COD/pickup COMMIT must immediately precede its matching HANDOVER in the same batch.
 Count approval, scan verification and fulfillment cancellation are trusted, transactional
-workflow adapters: an input flag alone cannot authorize these primitives. Phase 2 supplies
-the count adapter; M9 supplies return/cancellation adapters and full lifecycle services.
+workflow adapters: an input flag alone cannot authorize these primitives. The originally
+planned Phase 2 count adapter was removed by ADR-013; M9 supplies return/cancellation
+adapters and full lifecycle services.
 No inventory API or UI exposes these assertions in Phase 1. Nullable future reservation,
 fulfillment and count IDs have no foreign keys until their owning tables exist.
 
@@ -202,3 +203,45 @@ owner identifiers. Zero availability does not remove sellability.
 Focused publishing tests cover a real CONSIGNMENT allocation, missing/active/inactive owner
 mapping, a forged caller override, and a fully drained allocation that remains sellable
 with availability zero. Existing locale, content and media eligibility coverage remains.
+
+## I9 — Declared-limit settings; I6 remains disabled
+
+Settings and the availability screen explain that the entered number is a declared online
+limit, and that offline sales or an excessive declaration can result in selling a unit that
+does not physically exist. Staff should declare conservative quantities and update them
+after offline sales. Settings link to availability and explain that physical counts remain
+disabled; task creation reports that policy instead of promising counts in M8. PICK stays
+unavailable until M9. No physical zones, count workflow or Rule A count proposals were added.
+
+## Phase 2 document changes and review stop
+
+- Added Accepted ADR-013, including the owner's amended drained pool reconfiguration rule
+  and CONSIGNMENT binding guard. No new Proposed ADR was needed for these approved decisions.
+- Updated this milestone record with Phase 2 scope, the owner-resolved merge/archive rule,
+  manual correction procedure, implementation and validation.
+- Updated `docs/architecture/locking.md` for compatible SKU lock strength, configuration
+  locks and source-drain enforcement. The original task specification remains unchanged;
+  ADR-013 explicitly replaces its I5/I6/I9 physical-warehouse model.
+- Updated `AGENTS.md` status and future-count note. ADR-011 Part B remains Proposed.
+
+No business questions remain open from this implementation. Keep PR #15 in draft for the
+required owner inventory review. No shared database, deployment or M9 work is included.
+
+## Final Phase 2 verification
+
+- Focused availability/configuration, merge/archive, replenishment, entities, publishing,
+  API and confirmation checks passed during implementation. The final count-disabled task
+  run passed all seven tests.
+- Repository typecheck, lint, dependency boundaries (998 modules, no violations) and
+  production build passed. The build includes `/inventory` and `/api/inventory`.
+- The full suite ran once on fresh local `khidi_m8_phase2_final_test`: **480 passed,
+  1 skipped**, across 84 passing files and one skipped file. The only skip is optional S3
+  integration without MinIO. No failures; no second full run was needed.
+- Desktop confirmation/reload verified ten free units with three reserved units unchanged.
+  The local screenshot is retained as review evidence. No real stock or shared data changed.
+- `inventory:verify` returned agreement and exit 0 on separately migrated/seeded local
+  `khidi_m8_phase2_verify_test`. On the completed suite's database it correctly returned
+  exit 1 for the schema test's manually inserted balances (shelf 7, staging 1, allocated 5,
+  no ledger rows); those eight field differences were confined to that known fixture.
+  The verifier and test data were left unchanged. Engine/reconstruction/property tests
+  separately prove agreement for actual ledger movements.

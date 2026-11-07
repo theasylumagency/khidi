@@ -26,8 +26,11 @@ describe("M3 S4 task administration and Quick Scan", () => {
     await expect(createScanTask(db, admin, { ...taskInput(), assigneeUserId: warehouse.userId })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     await expect(createScanTask(db, admin, { ...taskInput(), targetCount: -1 })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
-  it.each([["PHYSICAL_COUNT", 8], ["PICK", 9]])("reports %s as available from M%s", async (taskType, milestone) => {
-    await expect(createScanTask(db, admin, { ...taskInput(), taskType })).rejects.toMatchObject({ code: "PRECONDITION_FAILED", details: { milestone } });
+  it("keeps physical counts disabled under ADR-013", async () => {
+    await expect(createScanTask(db, admin, { ...taskInput(), taskType: "PHYSICAL_COUNT" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED", details: { blockedReason: "PHYSICAL_COUNT_DISABLED_ADR013" } });
+  });
+  it("reports picking as available from M9", async () => {
+    await expect(createScanTask(db, admin, { ...taskInput(), taskType: "PICK" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED", details: { milestone: 9 } });
   });
   it("assigns and completes an evidence capture task without accepting its evidence", async () => {
     const [sku] = await db.select({ id: skus.id }).from(skus).where(eq(skus.internalSku, "KH-000001"));
