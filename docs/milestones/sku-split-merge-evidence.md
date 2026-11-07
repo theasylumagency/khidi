@@ -14,6 +14,9 @@ Specifications are ADR-011 Part A and ADR-012. ADR-011 Part B remains Proposed.
    for each original side and keep them unpublished until the unknown side is verified.
 4. Add the admin actions and regression tests listed in both ADRs. Run focused package checks
    during work and one full suite on a fresh local test database at completion.
+5. Stabilize acceptance fixtures exposed by the final suite, separately from domain changes:
+   integration expiry uses the application clock with an expired margin (exact boundary unit
+   tests remain); the locale-projection fixture uses a unique decimal model suffix.
 
 ## Operations
 
@@ -58,13 +61,14 @@ exist. M8 must use the same catalog locking and archived-SKU checks for its writ
 - packages/scanning/src/split-labels.test.ts: split labels, replacement resolution,
   original intake retention, merge-chain terminal splits, counters and resolution audit.
 - packages/media/src/public-media.test.ts: real derivative publication for an attributed
-  split image, exclusion of other source images, original ownership and withdrawal.
+  split image, exclusion of other source images, original ownership and withdrawal, including
+  invalidation through a merge followed by a split.
 - packages/evidence/src/comparison.test.ts: one shared structure; missing/differing
   observable MATCHES readings refused.
 - packages/products/src/merge-evidence.test.ts: mandatory accepted inspection, barcode/
   staff insufficiency, missing acknowledgement, hidden known-side values, both unknown
   orientations, original evidence and old-label proofs, flag clearing/audit, differing
-  brand/model and later contradictory evidence with notification.
+  brand/model, explicit Medium field confirmation and later contradictory evidence with notification.
 - apps/hub/src/app/api/products/corrections/corrections.test.ts: authentication, role,
   origin, split/attribution replay and changed-payload rejection.
 - Existing M6 scanning, approved-content and image-lineage regressions now supply accepted
@@ -72,8 +76,22 @@ exist. M8 must use the same catalog locking and archived-SKU checks for its writ
 
 ## Verification
 
-Focused checks passed during implementation. Final fresh-database suite, typecheck, lint,
-boundaries and production build results are recorded below after acceptance.
+Focused checks passed during implementation. The final fresh-database run on the local
+PostgreSQL 18.4 database khidi_split_final_test passed 387/387 tests across 65 files, with no
+skips. Real MinIO integration ran against a disposable local instance on port 9550, using
+dedicated khidi-test-* buckets. No shared database or production environment was used.
+
+Final commands passed: pnpm typecheck, pnpm lint (including check:boundaries), and pnpm build.
+The full suite was run through pnpm test --reporter=dot. Node.js was 24.19.0.
+
+The initial acceptance attempts exposed clock-sensitive idle-expiry fixtures and a random
+hex model suffix interpreted as an electrical unit. Assertions were retained; only fixture
+timestamps and the unique suffix representation changed. No authentication runtime or
+content-validation policy changed. These failures required acceptance retries.
+
+Follow-up outside these ADRs: technical-number parsing can treat a digit-plus-A fragment of
+a verified model code as amperage. The locale-suspension test now isolates its own concern
+with a decimal suffix; a separate validator regression should address that model/unit ambiguity.
 
 ## Owner review checklist
 
