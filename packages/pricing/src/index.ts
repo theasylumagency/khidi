@@ -64,8 +64,8 @@ export async function listLatestPrices(db: DbExecutor, filter: { skuId?: string;
 }
 export async function getPriceHistory(db: DbExecutor, actor: DomainActor, skuId: string, storefrontId?: string) {
   await assertPriceAccess(db, actor);
-  return db.select({ price: storefrontPrices, authorName: users.fullName, storefrontName: storefronts.name })
-    .from(storefrontPrices).innerJoin(users, eq(users.id, storefrontPrices.setBy)).innerJoin(storefronts, eq(storefronts.id, storefrontPrices.storefrontId))
+  return db.select({ price: storefrontPrices, authorName: users.fullName })
+    .from(storefrontPrices).innerJoin(users, eq(users.id, storefrontPrices.setBy))
     .where(and(eq(storefrontPrices.skuId, skuId), storefrontId ? eq(storefrontPrices.storefrontId, storefrontId) : undefined))
     .orderBy(desc(storefrontPrices.setAt), desc(storefrontPrices.id));
 }
@@ -136,4 +136,19 @@ export async function setPrice(db: DbExecutor, actor: DomainActor, change: Omit<
 export async function withdrawPrice(db: DbExecutor, actor: DomainActor, change: Pick<PriceChange, "skuId" | "storefrontId" | "expectedPriceId">, reason: string) {
   return commitPriceChanges(db, actor, { changes: [{ skuId: change.skuId, storefrontId: change.storefrontId,
     expectedPriceId: change.expectedPriceId, kind: "WITHDRAWN" }], reason, source: "MANUAL" });
+}
+
+export async function copyPricePreview(db: DbExecutor, actor: DomainActor, sourceStorefrontId: string, targetStorefrontId: string, skuIds: string[]) {
+  await assertPriceAccess(db, actor, true);
+  if (!z.string().uuid().safeParse(sourceStorefrontId).success || !z.string().uuid().safeParse(targetStorefrontId).success
+    || sourceStorefrontId === targetStorefrontId || !z.array(z.string().uuid()).min(1).max(1000).safeParse(skuIds).success) {
+    throw new AppError("VALIDATION_ERROR", "Invalid price copy selection.");
+  }
+  const source = new Map((await listLatestPrices(db, { storefrontId: sourceStorefrontId })).filter((row) => row.kind === "SET").map((row) => [row.skuId, row]));
+  const changes = skuIds.map((skuId) => {
+    const row = source.get(skuId);
+    if (!row) throw new AppError("PRECONDITION_FAILED", "A selected SKU has no source price.");
+    return { skuId, storefrontId: targetStorefrontId, basePriceMinor: row.basePriceMinor! };
+  });
+  return previewPriceChanges(db, actor, { changes, source: "BULK" });
 }

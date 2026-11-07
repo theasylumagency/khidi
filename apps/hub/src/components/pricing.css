@@ -1,0 +1,14 @@
+.pricing { display: grid; gap: 1rem; }
+.pricing form, .pricing .price-actions { display: flex; gap: .8rem; flex-wrap: wrap; align-items: end; }
+.pricing table { width: 100%; border-collapse: collapse; background: white; font-size: .9rem; }
+.pricing th, .pricing td { text-align: left; padding: .5rem; border-bottom: 1px solid #cbd5e1; vertical-align: top; }
+.pricing th { background: #f1f5f9; }
+.pricing label { display: grid; gap: .3rem; }
+.pricing input, .pricing select, .pricing button, .pricing textarea { font: inherit; padding: .45rem; border: 1px solid #94a3b8; border-radius: .25rem; }
+.pricing input[inputmode="decimal"] { width: 11ch; display: block; margin-top: .3rem; }
+.pricing fieldset { border: 0; padding: 0; min-width: 0; }
+.pricing fieldset:disabled { opacity: .65; }
+.pricing .price-actions { margin-top: 1rem; }
+.pricing button { cursor: pointer; }
+.pricing button:disabled { cursor: default; opacity: .5; }
+.pricing :focus-visible { outline: 2px solid #15803d; outline-offset: 2px; }

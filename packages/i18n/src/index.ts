@@ -1,4 +1,4 @@
-import type { SupportedLocale, UserRole } from "@khidi/shared";
+import type { GranularPermission, SupportedLocale, UserRole } from "@khidi/shared";
 
 export interface NavItem {
   key: string;
@@ -115,8 +115,8 @@ export const NAVIGATION_ITEMS: readonly NavItem[] = [
   }
 ] as const;
 
-export function getNavigationForRole(role: UserRole): NavItem[] {
-  return NAVIGATION_ITEMS.filter((item) => item.allowedRoles.includes(role))
+export function getNavigationForRole(role: UserRole, permissions: readonly GranularPermission[] = []): NavItem[] {
+  return NAVIGATION_ITEMS.filter((item) => item.allowedRoles.includes(role) || (item.key === "prices" && role !== "WAREHOUSE" && permissions.includes("price.edit")))
     .map((item) => item.key === "tasks" && role !== "ADMIN" ? { ...item, href: "/warehouse/tasks" } : item);
 }
 
@@ -736,8 +736,36 @@ const SCANNING_LABELS = {
   "scanning.error.INVARIANT_VIOLATION": "მონაცემების შენახვა ვერ მოხერხდა."
 } as const;
 
+const PRICING_LABELS = {
+  "pricing.title": "საბაზო ფასები", "pricing.store": "მაღაზია", "pricing.type": "პროდუქტის ტიპი",
+  "pricing.lifecycle": "მდგომარეობა", "pricing.all": "ყველა", "pricing.no_price": "ფასის გარეშე",
+  "pricing.publish_ready": "გამოსაქვეყნებლად მზად — ფასის გარეშე", "pricing.filter": "გაფილტვრა",
+  "pricing.product": "პროდუქტი", "pricing.current": "მოქმედი ფასი", "pricing.new": "ახალი ფასი (₾)",
+  "pricing.difference": "სხვაობა", "pricing.changed": "ბოლო ცვლილება", "pricing.author": "ავტორი",
+  "pricing.select": "არჩევა", "pricing.withdraw": "ფასის მოხსნა", "pricing.set": "ფასის დაყენება",
+  "pricing.vat": "დღგ შედის", "pricing.yes": "კი", "pricing.no": "არა", "pricing.default_vat": "გამყიდველის წესით",
+  "pricing.preview": "ცვლილებების გადახედვა", "pricing.copy": "არჩეულებზე ფასების გადმოტანა",
+  "pricing.copy_from": "გადმოტანა მაღაზიიდან", "pricing.confirm": "ყველა ცვლილების შენახვა",
+  "pricing.cancel": "უკან დაბრუნება", "pricing.reason": "მიზეზი (აუცილებელია დიდი ცვლილებისას ან მოხსნისას)",
+  "pricing.large": "დიდი ცვლილება", "pricing.confirm_large": "ვადასტურებ ყველა მონიშნულ დიდ ცვლილებას",
+  "pricing.unchanged": "უცვლელია", "pricing.history": "ფასების ისტორია", "pricing.empty": "ჩანაწერები არ არის.",
+  "pricing.saved": "ცვლილებები შენახულია.", "pricing.invalid": "შეამოწმეთ ფასი და აირჩიეთ შესაცვლელი პროდუქტები.",
+  "pricing.loading": "მუშავდება…", "pricing.export": "CSV-ის ჩამოტვირთვა", "pricing.import": "CSV-ის იმპორტი",
+  "pricing.row": "სტრიქონი", "pricing.exclude": "სტრიქონის გამორიცხვა", "pricing.errors": "შეცდომები",
+  "pricing.csv.INVALID_CSV": "CSV-ის სტრუქტურა არასწორია.", "pricing.csv.INVALID_HEADER": "სვეტების სათაურები არასწორია.",
+  "pricing.csv.INVALID_AMOUNT": "ფასი უნდა იყოს დადებითი რიცხვი, მაქსიმუმ ორი ათწილადით, დაჯგუფების გარეშე.",
+  "pricing.csv.INVALID_VAT": "დღგ მიუთითეთ true ან false მნიშვნელობით.", "pricing.csv.UNKNOWN_SKU": "შიდა კოდი ვერ მოიძებნა.",
+  "pricing.csv.UNKNOWN_STOREFRONT": "მაღაზიის კოდი ვერ მოიძებნა ან არჩეულ მაღაზიას არ შეესაბამება.",
+  "pricing.csv.DUPLICATE_ROW": "ეს პროდუქტი ფაილში მეორდება.", "pricing.csv.VAT_OVERRIDE_FORBIDDEN": "დღგ-ის შეცვლა მხოლოდ ადმინისტრატორს შეუძლია.",
+  "pricing.state.INTAKE": "მიღებულია", "pricing.state.IDENTIFYING": "იდენტიფიკაცია მიმდინარეობს",
+  "pricing.state.IDENTIFICATION_REQUIRED": "საჭიროა იდენტიფიკაცია", "pricing.state.IDENTIFIED": "იდენტიფიცირებულია",
+  "pricing.state.ACCOUNTING_MAPPING_REQUIRED": "საჭიროა ბუღალტრული მიბმა", "pricing.state.CONTENT_GENERATING": "აღწერის მომზადება",
+  "pricing.state.CONTENT_REVIEW": "აღწერის განხილვა", "pricing.state.READY": "მზადაა", "pricing.state.ARCHIVED": "არქივშია"
+} as const;
+
 export const DICTIONARY = {
   ka: {
+    ...PRICING_LABELS,
     ...SCANNING_LABELS,
     "app.title": "Khidi — სასაწყობო და კატალოგის ჰაბი",
     "app.subtitle": "კანონიკური პროდუქტების, მარაგების, ფასებისა და შესრულების ცენტრი",
@@ -754,6 +782,7 @@ export const DICTIONARY = {
     "settings.operating_model_rule3": "3. გადაცემის (HANDED_OVER) შემდეგ დაბრუნებული პროდუქცია მიდის მხოლოდ მთავარ საწყობში და არასდროს ბრუნდება პირდაპირ ონლაინ თაროზე. ხელახალი ონლაინ გაყიდვისთვის საჭიროა ახალი STOCK_IN დოკუმენტის ნომრით [C1]."
   },
   en: {
+    ...PRICING_LABELS,
     ...SCANNING_LABELS,
     "app.title": "Khidi — Online Warehouse & Catalog Hub",
     "app.subtitle": "Canonical Product Master, Inventory, Pricing & Fulfillment Hub",

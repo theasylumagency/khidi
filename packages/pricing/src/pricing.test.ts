@@ -4,7 +4,7 @@ import { auditLogs, createMigratorPool, getDb, legalEntities, outboxDeliveries, 
 import { executeIdempotent } from "@khidi/domain";
 import { createSkuDraft } from "@khidi/products";
 import { createUuidV7 } from "@khidi/shared";
-import { commitPriceChanges, getCurrentPrice, getLatestPriceRow, getPriceHistory, previewPriceChanges, setPrice, withdrawPrice, type PriceChange } from "./index.ts";
+import { commitPriceChanges, copyPricePreview, getCurrentPrice, getLatestPriceRow, getPriceHistory, previewPriceChanges, setPrice, withdrawPrice, type PriceChange } from "./index.ts";
 
 const db = getDb();
 async function fixture() {
@@ -110,4 +110,21 @@ it("rejects stale previews and serializes concurrent first prices", async () => 
   const before = await getCurrentPrice(db, f.sku.id, f.store.id);
   await expect(setPrice(db, f.actor, { ...f.change, expectedPriceId: null })).rejects.toMatchObject({ code: "CONFLICT" });
   expect(await getCurrentPrice(db, f.sku.id, f.store.id)).toEqual(before);
+});
+
+it("copies selected base amounts through a large-change preview and uses the destination seller VAT default", async () => {
+  const f = await fixture();
+  const target = (await db.query.storefronts.findMany()).find((row) => row.id !== f.store.id)!;
+  await setPrice(db, f.actor, f.change);
+  await setPrice(db, f.actor, { ...f.change, storefrontId: target.id, basePriceMinor: 1000 });
+  const preview = await copyPricePreview(db, f.actor, f.store.id, target.id, [f.sku.id]);
+  expect(preview[0]).toMatchObject({ basePriceMinor: 10000, largeChange: true, unchanged: false });
+  expect(await getCurrentPrice(db, f.sku.id, target.id)).toMatchObject({ basePriceMinor: 1000 });
+  const changes = preview.map(({ skuId, storefrontId, basePriceMinor, expectedPriceId }) => ({ skuId, storefrontId, basePriceMinor, expectedPriceId }));
+  await expect(commitPriceChanges(db, f.actor, { source: "BULK", changes })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+  const result = await commitPriceChanges(db, f.actor, { source: "BULK", changes, reason: "Copy approved base prices", confirmLargeChanges: true });
+  const seller = (await db.query.legalEntities.findMany()).find((row) => row.id === target.sellerEntityId)!;
+  expect(result.rows[0]).toMatchObject({ source: "BULK", vatIncluded: seller.pricesIncludeVat });
+  expect(result.batchId).toBeTruthy();
+  await expect(copyPricePreview(db, f.actor, f.store.id, target.id, [createUuidV7()])).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
 });

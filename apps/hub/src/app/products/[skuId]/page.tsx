@@ -21,6 +21,9 @@ import { SkuMergeForm } from "../../../components/sku-merge-form.tsx";
 import { getSkuPublicationReview } from "@khidi/publishing";
 import { getSkuCorrectionContext } from "@khidi/products/corrections";
 import { SkuAttributionForm, SkuSplitForm } from "../../../components/sku-correction-forms.tsx";
+import { canViewPrices } from "@khidi/auth";
+import { PriceHistory } from "../../../components/price-history.tsx";
+import "../../../components/pricing.css";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +94,7 @@ export default async function SkuDetailPage({
 
   return (
     <div style={{ display: "grid", gap: "1.5rem" }}>
+      {canViewPrices(principal) ? <PriceHistory skuId={skuId} userId={principal.userId} storefronts={allStorefronts} /> : null}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <Link href="/products" style={{ color: "#15803d", fontWeight: 600, fontSize: "0.9rem" }}>
           ← პროდუქტების ცხრილზე დაბრუნება

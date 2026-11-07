@@ -35,4 +35,12 @@ P2 loads stored current prices for every storefront. The public projection adds 
 `basePrice: { amount, currency, vat_included }` when present. A withdrawal removes it and
 restores `MISSING_STOREFRONT_BASE_PRICE`. A fully publish-ready priced SKU still has the
 M8 allocation-owner blocker. Four focused publishing tests and its typecheck passed.
-P3–P4 and final verification remain pending.
+P3 adds the Georgian `/prices` workspace, storefront/type/lifecycle/missing-price filters,
+inline GEL editing, selected-row withdrawals, previews and one atomic commit. Copying
+selected base amounts uses the destination seller VAT default and the same batch preview.
+The product page shows immutable per-storefront history. Staff names are formatted and
+storefronts use neutral numbered labels. Navigation honors granular price grants, including
+the permanent WAREHOUSE exclusion. API reads/writes are authenticated; commits require
+an idempotency key and the current-row IDs from a preview. Money formatting is browser-safe.
+
+P3: focused pricing/API checks and Hub typecheck passed. P4 and final verification remain pending.
