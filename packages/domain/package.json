@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./price-effects": "./src/price-effects.ts"
+    "./price-effects": "./src/price-effects.ts",
+    "./locking": "./src/locking.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

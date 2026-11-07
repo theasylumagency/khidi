@@ -20,3 +20,36 @@ replenishment, relationship-mode UI and sellability integration wait for Phase 1
 Reservation/fulfillment engines remain M9; this phase supplies their ledger primitives.
 No shared database access or deployment. Integer pieces only; length, weight and volume
 require a later business decision. ADR-011 Part B is not implemented.
+
+## I1 — Schema
+
+`0033_inventory_core.sql` introduces pools, their two location kinds, stable allocation
+identities, C2 balances, generated quantities and the 15-type append-only ledger with all
+six deltas and C18 snapshot fields. Per-row constraints protect quantities; deferred
+constraint triggers enforce pool allocated totals against allocation sums. Cross-entity
+allocation creation requires the latest effective owner→seller CONSIGNMENT relationship.
+The application cannot delete inventory records or update/delete ledger rows.
+One focused schema test and inventory typecheck passed on `khidi_m8_work_test`.
+
+## I2 — Ledger primitives
+
+The engine and matrix tests read one 20-row matrix covering exactly 15 movement types,
+including adjustment and transfer variants. Whole batches are simulated under locks before
+ledger/audit/outbox writes. Rule A returns explicit candidates and required deallocation;
+it never chooses an allocation. Missing held units persist a CRITICAL audited notification
+event and write no stock movements. Rule B requires paired OUT/IN legs, equal quantities,
+ownership/relationship checks and purchase documents on both legs.
+
+Reservation quantities and per-request staged quantities come from ledger history.
+COD/pickup COMMIT must immediately precede its matching HANDOVER in the same batch.
+Count approval, scan verification and fulfillment cancellation are trusted, transactional
+workflow adapters: an input flag alone cannot authorize these primitives. Phase 2 supplies
+the count adapter; M9 supplies return/cancellation adapters and full lifecycle services.
+No inventory API or UI exposes these assertions in Phase 1. Nullable future reservation,
+fulfillment and count IDs have no foreign keys until their owning tables exist.
+
+The shared lock helper is introduced for the engine here; I4 adopts it in existing services.
+`fast-check` is pinned to 4.3.0 (older than two weeks; see its
+[release notes](https://github.com/dubzzz/fast-check/releases/tag/v4.3.0)).
+The bounded property test uses 16 runs with 10–28 random operations and checks invariants,
+independent expected quantities and reconstruction from all six ledger deltas.
