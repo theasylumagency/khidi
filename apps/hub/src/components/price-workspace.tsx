@@ -11,8 +11,9 @@ import { PriceCsv } from "./price-csv.tsx";
 
 interface WorkspaceRow { skuId: string; code: string; name: string; amount: number | null; vatIncluded: boolean | null; expectedPriceId: string | null; setAt: string | null; author: string }
 interface Edit { input: string; kind: "SET" | "WITHDRAWN"; vat: string }
-export function PriceWorkspace({ storefrontId, stores, rows, canEdit, admin, defaultVat }: {
+export function PriceWorkspace({ storefrontId, stores, rows, canEdit, admin, defaultVat, exportLifecycle }: {
   storefrontId: string; stores: { id: string; label: string }[]; rows: WorkspaceRow[]; canEdit: boolean; admin: boolean; defaultVat: boolean;
+  exportLifecycle?: string;
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -81,6 +82,8 @@ export function PriceWorkspace({ storefrontId, stores, rows, canEdit, admin, def
       </fieldset>
     </>}
     <p role="status">{busy ? t("pricing.loading") : message}</p>
-    {!preview ? <><a href={`/api/prices/csv?storefrontId=${storefrontId}`}>{t("pricing.export")}</a>{canEdit ? <PriceCsv storefrontId={storefrontId} /> : null}</> : null}
+    {!preview ? <><a href={`/api/prices/csv?storefrontId=${storefrontId}${exportLifecycle ? "&lifecycle=" + encodeURIComponent(exportLifecycle) : ""}`}>{t("pricing.export")}</a>
+      <a href={`/api/prices/csv?storefrontId=${storefrontId}&mode=template${exportLifecycle ? "&lifecycle=" + encodeURIComponent(exportLifecycle) : ""}`}>{t("pricing.export_template")}</a>
+      {canEdit ? <PriceCsv storefrontId={storefrontId} /> : null}</> : null}
   </>;
 }

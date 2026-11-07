@@ -1,9 +1,10 @@
 import { expect, it } from "vitest";
-import { getDb } from "@khidi/db";
+import { getDb, skus } from "@khidi/db";
+import { eq } from "drizzle-orm";
 import { executeIdempotent } from "@khidi/domain";
-import { createSkuDraft } from "@khidi/products";
+import { createSkuDraft, transitionSkuLifecycle } from "@khidi/products";
 import { createUuidV7 } from "@khidi/shared";
-import { getCurrentPrice, setPrice } from "./index.ts";
+import { getCurrentPrice, getPriceHistory, setPrice } from "./index.ts";
 import { commitCsvImport, exportPricesCsv, parsePriceCsv, previewCsvImport, PRICE_CSV_COLUMNS } from "./csv.ts";
 
 const db = getDb(), header = PRICE_CSV_COLUMNS.join(",");
@@ -82,4 +83,45 @@ it("requires a batch reason for CSV large changes and rolls back the whole batch
   const result = await commitCsvImport(db, f.actor, { ...input, expectedPriceIds, confirmLargeChanges: true, reason: "Approved batch" });
   expect(result.rows).toHaveLength(2);
   expect(result.rows.every((row) => row.batchId === result.batchId)).toBe(true);
+});
+
+it("exports unpriced non-archived SKUs in templates and applies lifecycle filters", async () => {
+  const f = await fixture();
+  await transitionSkuLifecycle(db, f.actor, f.b.id, "ARCHIVED", { reason: "Template exclusion fixture" });
+  const template = parsePriceCsv(await exportPricesCsv(db, f.actor, f.store.id, { mode: "template" }));
+  expect(template.records.find((row) => row[1] === f.a.internalSku)?.[3]).toBe("");
+  expect(template.records.find((row) => row[1] === f.b.internalSku)).toBeUndefined();
+  const slug = "csv-ready-" + createUuidV7();
+  await db.update(skus).set({ lifecycleState: "READY", canonicalSlug: slug, reverificationRequired: true }).where(eq(skus.id, f.a.id));
+  const ready = parsePriceCsv(await exportPricesCsv(db, f.actor, f.store.id, { mode: "template", lifecycle: "READY" }));
+  expect(ready.records.some((row) => row[1] === f.a.internalSku)).toBe(true);
+  const intake = parsePriceCsv(await exportPricesCsv(db, f.actor, f.store.id, { mode: "template", lifecycle: "INTAKE" }));
+  expect(intake.records.some((row) => row[1] === f.a.internalSku)).toBe(false);
+});
+
+it("treats empty amounts as unchanged and never withdraws or changes VAT", async () => {
+  const f = await fixture();
+  await setPrice(db, f.actor, { skuId: f.a.id, storefrontId: f.store.id, basePriceMinor: 10000, vatIncluded: false });
+  const before = await getPriceHistory(db, f.actor, f.a.id);
+  const input = { storefrontId: f.store.id, csv: f.csv([f.row(f.a.internalSku, ""), f.row(f.b.internalSku, "")]) };
+  const preview = await previewCsvImport(db, f.actor, input);
+  expect(preview.rows.every((row) => row.unchanged && !row.errors.length)).toBe(true);
+  expect(preview.preview).toEqual([]);
+  expect(await commitCsvImport(db, f.actor, { ...input, expectedPriceIds: {} })).toEqual({ batchId: null, rows: [] });
+  expect(await getPriceHistory(db, f.actor, f.a.id)).toEqual(before);
+  expect(await getCurrentPrice(db, f.b.id, f.store.id)).toBeNull();
+});
+
+it("creates first prices from filled template amounts and retains blank template rows", async () => {
+  const f = await fixture();
+  const template = parsePriceCsv(await exportPricesCsv(db, f.actor, f.store.id, { mode: "template" }));
+  const rows = template.records.slice(1).filter((row) => row[1] === f.a.internalSku || row[1] === f.b.internalSku);
+  rows.find((row) => row[1] === f.a.internalSku)![3] = "45.50";
+  const input = { storefrontId: f.store.id, csv: f.csv(rows.map((row) => row.join(","))) };
+  const preview = await previewCsvImport(db, f.actor, input);
+  expect(preview.preview).toHaveLength(1);
+  const expectedPriceIds = Object.fromEntries(preview.preview.map((row) => [row.skuId, row.expectedPriceId]));
+  const result = await commitCsvImport(db, f.actor, { ...input, expectedPriceIds });
+  expect(result.rows).toMatchObject([{ skuId: f.a.id, basePriceMinor: 4550, source: "CSV_IMPORT" }]);
+  expect(await getCurrentPrice(db, f.b.id, f.store.id)).toBeNull();
 });

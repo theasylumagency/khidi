@@ -42,6 +42,7 @@ export default async function PricesPage({ searchParams }: { searchParams: Promi
       <button>{t("pricing.filter")}</button>
     </form>
     <PriceWorkspace key={store.id + JSON.stringify(query)} storefrontId={store.id} stores={storeOptions} canEdit={canEditPrices(principal)} admin={principal.role === "ADMIN"}
+      exportLifecycle={typeof query.lifecycle === "string" && query.lifecycle ? query.lifecycle : undefined}
       defaultVat={entities.find((row) => row.id === store.sellerEntityId)?.pricesIncludeVat ?? false}
       rows={visible.map((row) => { const price = bySku.get(row.id); return {
         skuId: row.id, code: row.internalSku, name: row.displayNameKa ?? row.internalSku,

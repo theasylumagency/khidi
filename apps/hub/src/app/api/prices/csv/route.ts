@@ -3,7 +3,7 @@ import { canEditPrices, canViewPrices } from "@khidi/auth";
 import { getDb } from "@khidi/db";
 import { executeIdempotent } from "@khidi/domain";
 import { assertPriceAccess } from "@khidi/pricing";
-import { commitCsvImport, exportPricesCsv, previewCsvImport, type CsvPriceInput } from "@khidi/pricing/csv";
+import { commitCsvImport, exportPricesCsv, previewCsvImport, type CsvPriceInput, type PriceCsvExportOptions } from "@khidi/pricing/csv";
 import { AppError } from "@khidi/shared";
 import { getCurrentPrincipal } from "../../../../lib/session.ts";
 import { assertSecurityOrigin } from "../../../../lib/security-origin.ts";
@@ -14,9 +14,11 @@ export async function GET(request: Request) {
     const principal = await getCurrentPrincipal();
     if (!principal) throw new AppError("UNAUTHORIZED", "Authentication required.");
     if (!canViewPrices(principal)) throw new AppError("FORBIDDEN", "Price access denied.");
-    const storefrontId = new URL(request.url).searchParams.get("storefrontId") ?? "";
+    const query = new URL(request.url).searchParams;
+    const storefrontId = query.get("storefrontId") ?? "";
     if (!/^[0-9a-f-]{36}$/i.test(storefrontId)) throw new AppError("VALIDATION_ERROR", "Invalid storefront.");
-    const csv = await exportPricesCsv(getDb(), { userId: principal.userId }, storefrontId);
+    const options = { mode: query.get("mode") ?? "current", ...(query.has("lifecycle") ? { lifecycle: query.get("lifecycle") } : {}) } as PriceCsvExportOptions;
+    const csv = await exportPricesCsv(getDb(), { userId: principal.userId }, storefrontId, options);
     return new Response(csv, { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": 'attachment; filename="khidi-prices.csv"', "Cache-Control": "private, no-store" } });
   } catch (error) { return scanningErrorResponse(error); }
 }

@@ -737,6 +737,9 @@ const SCANNING_LABELS = {
 } as const;
 
 const PRICING_LABELS = {
+  "pricing.export_template": "CSV-ის შაბლონი — ყველა არაარქივირებული პროდუქტი (მდგომარეობის ფილტრით)",
+  "pricing.csv_blank_unchanged": "ცარიელი ფასი ნიშნავს უცვლელს. CSV ფასს არ აუქმებს — ამისთვის გამოიყენეთ ფასის მოხსნის მოქმედება და მიუთითეთ მიზეზი.",
+  "pricing.csv.ARCHIVED_SKU": "დაარქივებული პროდუქტის ფასის შეცვლა შეუძლებელია.",
   "correction.prices_withdrawn": "ეს ფასები გაუქმდება", "correction.prices_not_copied": "ძველი ფასები ისტორიაში დარჩება. მიმღებ პროდუქტებზე ფასი ავტომატურად არ გადავა.",
   "correction.target_no_price": "მიმღებ პროდუქტს ამ მაღაზიაში ფასი არ აქვს.", "correction.old_price_info": "ძველი ფასი მხოლოდ ინფორმაციისთვის",
   "storefront.create": "მაღაზიის დამატება", "storefront.created": "მაღაზია დამატებულია.", "storefront.key": "მაღაზიის მუდმივი კოდი",

@@ -94,6 +94,11 @@ larger imports must be split. Bulk commits accept up to 1,000 selected price row
    price locks to serialize correction against edits. Confirmation screens list withdrawals
    and warn about unpriced targets with the old amount labeled as information only.
    Fifteen focused correction and regression tests and affected typechecks passed.
+3. CSV template export includes every non-archived SKU, optionally filtered by lifecycle.
+   Unpriced rows have blank amounts. Blank amounts are explicit no-ops during import,
+   including VAT: they never append a row or withdraw a price. The review labels them
+   unchanged. A filled template amount creates a first price normally. Eight CSV tests
+   and the existing price API checks passed, with affected typechecks green.
 
 The M8 allocation-owner blocker remains deliberately unmet. Promotions, VAT calculation,
 scheduled prices, public storefront transport and deployment remain outside M7. No business

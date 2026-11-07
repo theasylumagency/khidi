@@ -6,7 +6,7 @@ import { createUuidV7 } from "@khidi/shared/uuid";
 import { PricePreview, type PricePreviewRow } from "./price-preview.tsx";
 
 interface CsvReview {
-  rows: { rowNumber: number; internalSku: string; errors: string[]; excluded: boolean; change: { skuId: string } | null }[];
+  rows: { rowNumber: number; internalSku: string; errors: string[]; unchanged: boolean; excluded: boolean; change: { skuId: string } | null }[];
   preview: PricePreviewRow[]; errors: string[]; canCommit: boolean;
 }
 export function PriceCsv({ storefrontId }: { storefrontId: string }) {
@@ -42,6 +42,7 @@ export function PriceCsv({ storefrontId }: { storefrontId: string }) {
   }
   const names = Object.fromEntries((review?.rows ?? []).flatMap((row) => row.change ? [[row.change.skuId, row.internalSku]] : []));
   return <section className="pricing"><h2>{t("pricing.import")}</h2>
+    <p>{t("pricing.csv_blank_unchanged")}</p>
     <fieldset disabled={busy}><label>{t("pricing.import")} <input type="file" accept=".csv,text/csv" onChange={async (event) => {
       const file = event.target.files?.[0]; setReview(null); setExcludedRows([]); setMessage("");
       if (!file || file.size > 2_000_000) { setCsv(""); setMessage(t("pricing.csv.INVALID_CSV")); return; }
@@ -50,7 +51,7 @@ export function PriceCsv({ storefrontId }: { storefrontId: string }) {
     {review ? <>
       {review.errors.map((error) => <p key={error} role="alert">{t(`pricing.csv.${error}` as TranslationKey)}</p>)}
       {review.rows.length ? <table><thead><tr><th>{t("pricing.row")}</th><th>{t("pricing.product")}</th><th>{t("pricing.errors")}</th><th>{t("pricing.exclude")}</th></tr></thead><tbody>
-        {review.rows.map((row) => <tr key={row.rowNumber}><td>{row.rowNumber}</td><td>{row.internalSku}</td><td>{row.errors.map((error) => <div key={error}>{t(`pricing.csv.${error}` as TranslationKey)}</div>)}</td>
+        {review.rows.map((row) => <tr key={row.rowNumber}><td>{row.rowNumber}</td><td>{row.internalSku}</td><td>{row.unchanged && !row.errors.length ? t("pricing.unchanged") : null}{row.errors.map((error) => <div key={error}>{t(`pricing.csv.${error}` as TranslationKey)}</div>)}</td>
           <td><input type="checkbox" disabled={busy} aria-label={t("pricing.exclude") + " " + row.rowNumber} checked={row.excluded} onChange={(event) => void preview(event.target.checked ? [...excludedRows, row.rowNumber] : excludedRows.filter((number) => number !== row.rowNumber))} /></td></tr>)}
       </tbody></table> : null}
       {review.preview.length ? <PricePreview key={key} rows={review.preview} names={names} busy={busy || !review.canCommit} onCommit={(reason, confirmed) => void commit(reason, confirmed)} onCancel={() => setReview(null)} /> : null}
