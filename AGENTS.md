@@ -45,10 +45,13 @@ If two sources conflict and this list does not resolve it, stop and ask. Do not 
 | M5 Evidence and AI identity | Merged to `main` (PR #10). Local synthetic provider |
 | M6 Review, canonical content and publishing | Merged to `main` (PR #11) |
 | ADR-011 Part A / ADR-012 | Merged to `main` (PR #12); Part B remains Proposed |
-| M7 Pricing | Implemented on `m7-pricing` for Draft PR review |
-| M8–M11 | Not started |
+| M7 Pricing | Merged to `main` (PR #14) |
+| M8 Inventory core | Phase 1 (I1–I4) implemented on `m8-inventory-core` for Draft PR and owner review; Phase 2 awaits approval |
+| M9–M11 | Not started |
 
-Current task: M7 pricing; see [the task record](docs/milestones/m7-pricing.md).
+Current task: M8 Phase 1; see [the task record](docs/milestones/m8-inventory-core.md)
+and [the owner specification](docs/task-m8-inventory-core.md). Stop after the Phase 1
+Draft PR; do not begin I5–I9 until the owner approves Phase 1. ADR-011 Part B remains Proposed.
 
 Human checks still pending (the owner updates these lines):
 
@@ -130,6 +133,9 @@ the interactive `pnpm ops:bootstrap-admin` command, never development accounts.
 - IDs: `createUuidV7()`. Money: integer minor units (tetri) with currency. Time: stored UTC,
   displayed `Asia/Tbilisi`.
 - Storefronts never touch PostgreSQL. They use the versioned API only.
+- Pricing, catalog corrections and inventory follow the shared
+  [transaction lock order](docs/architecture/locking.md): sorted advisory keys, then SKU
+  rows, pool/SKU balances and allocation balances. Commitment-only batches lock allocations only.
 
 ## 6. Database rules
 

@@ -6,6 +6,7 @@ import {
   type DbExecutor, type EvidenceClaimSource, type EvidenceValue, type ProductTypeAttributeFieldDef
 } from "@khidi/db";
 import { withDomainTransaction, type DomainActor, type DomainTransactionContext } from "@khidi/domain";
+import { acquireDomainLocks, IDENTITY_CATALOG_LOCK } from "@khidi/domain/locking";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import { refreshSkuContentReview } from "./content-review.ts";
 import {
@@ -83,7 +84,7 @@ async function requireEvidenceAdmin(tx: DbExecutor, actor: DomainActor) {
 
 // Keep competing READY transitions and writes to their identity inputs in one lock order.
 export async function lockIdentityCatalog(tx: DbExecutor) {
-  await tx.execute(sql`SELECT pg_advisory_xact_lock(412629, 5)`);
+  await acquireDomainLocks(tx, { advisoryKeys: [IDENTITY_CATALOG_LOCK] });
 }
 
 async function loadSku(tx: DbExecutor, skuId: string) {
@@ -331,8 +332,9 @@ async function recomputeSkuIdentities(ctx: DomainTransactionContext, ids: (strin
   for (const id of ids) if (id) expanded.push(...await getAffectedSkuIds(ctx.tx,id));
   const roots = new Set<string>();
   for (const id of expanded) if (id) roots.add((await resolveActiveSku(ctx.tx, id))?.id ?? id);
+  await acquireDomainLocks(ctx.tx, { skuIds: [...roots] });
   const projections = [];
-  for (const id of roots) projections.push(await projectSkuIdentity(ctx, id));
+  for (const id of [...roots].sort()) projections.push(await projectSkuIdentity(ctx, id));
   // Write both sets of fields before evaluating whether either SKU has a verified difference.
   const results = [];
   for (const projection of projections) results.push(await saveSkuIdentity(ctx, projection));

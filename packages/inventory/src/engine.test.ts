@@ -39,7 +39,9 @@ for(const rule of MOVEMENT_MATRIX) it(`applies and guards ${rule.type}/${rule.va
   else if(rule.precondition.startsWith("LOST")) invalid.cancelLostLine=false;
   else invalid.quantity=1000;
   const before=await f.db.select().from(stockLedger).where(eq(stockLedger.skuId,f.sku.id));
-  await expect(f.apply([invalid])).rejects.toThrow();
+  const invalidBatch = rule.type === "TRANSFER_OUT" ? batch.map((leg)=>({...leg,quantity:1000})) : [invalid];
+  await expect(f.apply(invalidBatch)).rejects.toThrow();
+  if(rule.precondition.startsWith("LOST")) await expect(f.apply([{...m,quantity:1000}])).rejects.toThrow();
   expect(await f.db.select().from(stockLedger).where(eq(stockLedger.skuId,f.sku.id))).toHaveLength(before.length);
   const result=await f.apply(batch);
   expect(result.status).toBe("APPLIED");
@@ -104,6 +106,18 @@ it("keeps partial picks held until scan-confirmed return, and commits COD togeth
   await f.apply([{...f.line,type:"COMMIT",quantity:2},{...f.line,type:"HANDOVER_OUT",quantity:2}]);
   await expect(f.apply([{...f.line,type:"HANDOVER_OUT",quantity:1}])).rejects.toThrow();
   await expect(f.apply([{...f.line,type:"RETURN_TO_SHELF",quantity:1,scanConfirmed:true}])).rejects.toThrow();
+});
+
+it("does not borrow another reservation's units or another request's staged units",async()=>{
+  const f=await inventoryFixture();
+  await f.apply([{...f.line,type:"RESERVE",quantity:3,paymentMethod:"CARD"}]);
+  await expect(f.apply([{...f.line,type:"PICK_TO_STAGING",quantity:1}])).rejects.toThrow(/committed/);
+  await expect(f.apply([{...f.line,reservationId:createUuidV7(),type:"COMMIT",quantity:1}])).rejects.toThrow(/line/);
+  await f.apply([{...f.line,type:"COMMIT",quantity:2},{...f.line,type:"PICK_TO_STAGING",quantity:2}]);
+  await expect(f.apply([{...f.line,type:"COMMIT_RELEASE",quantity:1}])).rejects.toThrow(/staged/);
+  await expect(f.apply([{...f.line,fulfillmentRequestId:createUuidV7(),type:"RETURN_TO_SHELF",quantity:1,scanConfirmed:true}])).rejects.toThrow(/request/);
+  await expect(f.apply([{...f.line,fulfillmentRequestId:createUuidV7(),type:"HANDOVER_OUT",quantity:1}])).rejects.toThrow(/staged/);
+  await f.apply([{...f.line,type:"RETURN_TO_SHELF",quantity:1,scanConfirmed:true},{...f.line,type:"COMMIT_RELEASE",quantity:1}]);
 });
 
 it("requires trusted workflow adapters for count approvals, scan returns and atomic lost-line cancellation",async()=>{

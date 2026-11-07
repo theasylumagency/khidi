@@ -3,6 +3,7 @@ import { z } from "zod";
 import { legalEntities, skus, storefrontPrices, storefronts, userPermissions, users, type DbExecutor } from "@khidi/db";
 import { withDomainTransaction, type DomainActor } from "@khidi/domain";
 import { appendStorefrontPrice } from "@khidi/domain/price-effects";
+import { acquireDomainLocks, priceLockKey } from "@khidi/domain/locking";
 import { AppError, CURRENCY_GEL, createUuidV7 } from "@khidi/shared";
 
 export const DEFAULT_PRICE_CURRENCY = CURRENCY_GEL;
@@ -116,13 +117,8 @@ export async function commitPriceChanges(db: DbExecutor, actor: DomainActor, raw
   const input = parseBatch(raw);
   return withDomainTransaction(db, actor, async (ctx) => {
     await assertPriceAccess(ctx.tx, actor, true);
-    // Lock SKUs before price pairs, matching catalog correction lock order.
-    await ctx.tx.select({ id: skus.id }).from(skus).where(and(ne(skus.lifecycleState, "ARCHIVED"), inArray(skus.id, [...new Set(input.changes.map((row) => row.skuId))])))
-      .orderBy(asc(skus.id)).for("update");
-    // Sorted pair locks serialize first inserts and avoid deadlocks across overlapping batches.
-    for (const key of input.changes.map((row) => `${row.storefrontId}:${row.skuId}`).sort()) {
-      await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${"price:" + key}, 0))`);
-    }
+    const skuIds = [...new Set(input.changes.map((row) => row.skuId))];
+    await acquireDomainLocks(ctx.tx, { advisoryKeys: skuIds.map(priceLockKey), skuIds });
     const preview = await prepare(ctx.tx, actor, input);
     if (preview.some((row) => row.kind === "WITHDRAWN") && !input.reason) throw new AppError("VALIDATION_ERROR", "Withdrawal requires a reason.");
     if (preview.some((row) => row.largeChange) && (!input.confirmLargeChanges || !input.reason)) throw new AppError("PRECONDITION_FAILED", "Large price changes require confirmation and a reason.");

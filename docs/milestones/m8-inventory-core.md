@@ -67,3 +67,53 @@ materializations; zero initialization rows without ledger history are valid. It 
 `pnpm inventory:verify` requires an explicit `DATABASE_URL`, prints the result and exits
 0 for agreement, 1 for differences and 2 for a failed verification. No fallback target.
 Reconstruction and deliberate-drift tests passed; the property test also runs the verifier.
+
+## I4 — Shared lock order and correction protection
+
+Pricing, corrections, identity/evidence and inventory use the shared helper. Price keys are
+per SKU, so corrections can acquire all of them before the SKU rows even when a storefront
+has no price yet. The existing identity key is preserved for the accounting trigger.
+`withdrawArchivedSkuPrices` inherits its correction's plan and acquires no late locks.
+`0034_inventory_lock_guards.sql` aligns every price INSERT (including withdrawal) and
+serializes allocation creation with the SKU row. Ledger dimensions are checked against
+pool, allocation and location metadata. See [the lock contract](../architecture/locking.md).
+
+Forced, observed advisory waits prove that a merge and a split with an older target each
+allow the competing price commit to finish, then withdraw its price without a deadlock.
+The direct INSERT trigger has the same test. Real allocations, zero pool rows and drained
+ledger histories all refuse split under ADR-011 Part A; Part B is unchanged.
+
+## Review question for the next phase
+
+The task specifies split refusal but does not define how an existing SKU merge should
+handle inventory or open held lines. No stock is moved or rewritten by catalog merge in
+this phase. Before stock administration is exposed in Phase 2, the owner should decide
+whether merges involving inventory must be refused or handled by a separately approved
+ledger workflow. This PR does not invent a stock reassignment policy.
+
+## Final Phase 1 verification
+
+- Focused inventory, pricing and correction runs passed; the last engine/reconstruction
+  run passed 32 tests, followed by 30 engine tests after the final allocation-plan guard.
+- Repository typecheck, lint (including dependency boundaries) and production build passed.
+  The boundary check examined 368 modules without violations.
+- One full run on fresh local `khidi_m8_final_test`: **464 passed, 1 failed, 1 skipped**
+  across 80 files. Every M8 test passed. The skipped case was the optional S3 integration
+  without MinIO. The failure was the existing passkey inactivity fixture: it used the DB
+  clock to set exactly 20 minutes while authentication checks application time; the reported
+  deadline was still 68 ms in the future. The unchanged test passed a focused retry.
+- That fixture now uses application time, safely beyond the deadline, like the existing
+  session-activity fixtures. A separate deterministic assertion preserves exact-boundary
+  coverage (accepted at deadline minus 1 ms; rejected at the deadline). No authentication
+  behavior changed. **38 passkey/session-activity tests and auth typecheck passed** afterwards.
+  This small test-only deviation is included to remove the observed clock-dependent failure.
+  The full suite was not repeated, following the owner's verification budget.
+- `inventory:verify` returned `ok: true` and exit 0 on the newly migrated/seeded database.
+  Focused tests also verified drift, missing rows and unchanged data after verification.
+
+## Phase boundary
+
+I1–I4 are ready for Draft PR review. I5–I9, count and replenishment screens, relationship
+mode changes, sellability integration and M9 engines are not started. No new ADR was needed
+for the specified Phase 1 decisions; ADR-011 Part B stays Proposed. No deployment or shared
+database access occurred. The next phase requires explicit owner approval.

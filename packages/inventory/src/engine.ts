@@ -108,7 +108,8 @@ export async function applyStockMovements(db: DbExecutor, actor: DomainActor, ra
     const pools = await ctx.tx.select().from(stockPools).where(inArray(stockPools.id,[...new Set(movements.map((m)=>m.poolId))]));
     const poolMap = new Map(pools.map((p)=>[p.id,p]));
     const skuIds = [...new Set(movements.map((m)=>m.skuId))];
-    await acquireDomainLocks(ctx.tx, { skuIds });
+    const commitmentOnly = movements.every((m)=>["RESERVE","RESERVATION_RELEASE","COMMIT","COMMIT_RELEASE"].includes(m.type));
+    if (!commitmentOnly) await acquireDomainLocks(ctx.tx, { skuIds });
     const allocationIds = [...new Set(movements.flatMap((m)=>m.allocationId ? [m.allocationId] : []))];
     // Include every allocation in touched pairs: Rule A needs a stable list of deallocation candidates.
     const touchedPairs = new Set(movements.map((m)=>pairKey(m.poolId,m.skuId)));
@@ -122,10 +123,15 @@ export async function applyStockMovements(db: DbExecutor, actor: DomainActor, ra
     for (const m of movements) {
       const pool = poolMap.get(m.poolId);
       if (!pool?.active) throw new AppError("NOT_FOUND", "Active pool not found.");
+      if (m.allocationId) {
+        const allocation = aMap.get(m.allocationId);
+        requireCondition(allocation && allocation.poolId === m.poolId && allocation.skuId === m.skuId, "Allocation does not match this movement's pool and SKU.");
+      }
       if (user.role !== "ADMIN" && !allowedOwners.has(pool.ownerEntityId)) throw new AppError("FORBIDDEN", "Pool belongs to another entity.");
       if (user.role !== "ADMIN" && (m.variant?.startsWith("STAGING") || ["RESERVE","RESERVATION_RELEASE","COMMIT","COMMIT_RELEASE","PICK_TO_STAGING","RETURN_TO_SHELF","HANDOVER_OUT"].includes(m.type))) throw new AppError("FORBIDDEN", "This primitive requires an admin/domain workflow.");
     }
-    await acquireDomainLocks(ctx.tx, { poolBalances: movements.map((m)=>({poolId:m.poolId,skuId:m.skuId})), allocationIds: [...new Set([...allocationIds,...allAllocations.map((a)=>a.id)])] });
+    await acquireDomainLocks(ctx.tx, commitmentOnly ? { allocationIds } : {
+      poolBalances: movements.map((m)=>({poolId:m.poolId,skuId:m.skuId})), allocationIds: [...new Set([...allocationIds,...allAllocations.map((a)=>a.id)])] });
     const products = await ctx.tx.select().from(skus).where(inArray(skus.id,skuIds));
     requireCondition(products.length === skuIds.length && products.every((s)=>s.lifecycleState !== "ARCHIVED"), "Archived or missing SKU cannot receive stock movements.");
     const poolRows = await ctx.tx.select().from(poolSkuBalances).where(and(inArray(poolSkuBalances.poolId,pools.map((p)=>p.id)),inArray(poolSkuBalances.skuId,skuIds)));
@@ -175,8 +181,9 @@ export async function applyStockMovements(db: DbExecutor, actor: DomainActor, ra
       }
       if (user.role !== "ADMIN" && crossEntity) throw new AppError("FORBIDDEN", "Cross-entity operations require admin.");
       if (crossEntity && !mode) mode = history.findLast((row)=>row.allocationId === m.allocationId)?.relationshipMode ?? null;
-      const p = pb.get(pairKey(m.poolId,m.skuId))!, b = a ? ab.get(a.id) : undefined;
-      checkRule(m,r,p,b,history);
+      const p = pb.get(pairKey(m.poolId,m.skuId)), b = a ? ab.get(a.id) : undefined;
+      requireCondition(p, "Pool stock balance is not initialized.");
+      checkRule(m,r,p!,b,history);
       if (r.precondition === "COUNT" || r.precondition === "NEGATIVE_COUNT") {
         requireCondition(proofs.assertApprovedCountLine, "Count workflow must verify its approved line inside the transaction.");
         await proofs.assertApprovedCountLine!(ctx,m);
@@ -193,14 +200,14 @@ export async function applyStockMovements(db: DbExecutor, actor: DomainActor, ra
           "COD/pickup COMMIT must immediately precede the matching handover in this batch.");
       }
       if (r.precondition === "NEGATIVE_COUNT") {
-        const plan = negativeAdjustmentPlan(m.quantity,p,allAllocations.filter((a)=>a.poolId === m.poolId && a.skuId === m.skuId).map((a)=>({allocationId:a.id,availableToSell:available(ab.get(a.id)!)})));
+        const plan = negativeAdjustmentPlan(m.quantity,p!,allAllocations.filter((a)=>a.poolId === m.poolId && a.skuId === m.skuId).map((a)=>({allocationId:a.id,availableToSell:available(ab.get(a.id)!)})));
         if (plan.status !== "READY") {
           if (plan.status === "CRITICAL") await criticalReview(ctx,m,plan);
           return { status: plan.status, plan, rows: [] as LedgerRow[] };
         }
       }
       const d = r.deltas.map((coefficient)=>coefficient*m.quantity);
-      const nextP = { shelf:p.shelf+d[0]!, staging:p.staging+d[1]!, allocatedTotal:p.allocatedTotal+d[2]! };
+      const nextP = { shelf:p!.shelf+d[0]!, staging:p!.staging+d[1]!, allocatedTotal:p!.allocatedTotal+d[2]! };
       requireCondition(nextP.shelf >= 0 && nextP.staging >= 0 && nextP.allocatedTotal >= nextP.staging && unallocated(nextP) >= 0, "Movement violates pool invariants.");
       pb.set(pairKey(m.poolId,m.skuId),nextP);
       if (b && a) {
@@ -214,7 +221,7 @@ export async function applyStockMovements(db: DbExecutor, actor: DomainActor, ra
         allocationId:a?.id ?? null, locationId:location?.id ?? null, shelfDelta:d[0]!,stagingDelta:d[1]!,allocTotalDelta:d[2]!,allocatedDelta:d[3]!,reservedDelta:d[4]!,committedDelta:d[5]!,
         ownerEntityId:pool.ownerEntityId,sellerEntityId:store?.sellerEntityId ?? null,storefrontId:store?.id ?? null,relationshipMode:mode,crossEntity,
         documentRef:m.documentRef ?? null,reason:m.reason ?? null,actorUserId:user.id,correlationId:ctx.correlationId,
-        reservationId:m.reservationId ?? null,fulfillmentRequestId:m.fulfillmentRequestId ?? null,paymentMethod:m.paymentMethod ?? lineState(history,m).payment ?? null,
+        reservationId:m.reservationId ?? null,fulfillmentRequestId:m.fulfillmentRequestId ?? null,paymentMethod:(m.type === "RESERVE" ? m.paymentMethod : lineState(history,m).payment) ?? null,
         countLineId:m.approvedCountLineId ?? null,scanConfirmed:m.scanConfirmed ?? false };
       if (m.type === "COMMIT") {
         const mappings = await ctx.tx.select().from(accountingMappings).where(and(eq(accountingMappings.skuId,m.skuId),inArray(accountingMappings.legalEntityId,[pool.ownerEntityId,store!.sellerEntityId])))
@@ -237,11 +244,13 @@ export async function applyStockMovements(db: DbExecutor, actor: DomainActor, ra
       await ctx.emitOutboxEvent({eventType:"STOCK_CHANGED",storefrontId:effect.store?.id,aggregateType:"sku",aggregateId:m.skuId,
         payload:{ledgerId:row.id,type:m.type,poolId:m.poolId,skuId:m.skuId,allocationId:m.allocationId,quantity:m.quantity,unitLost:!!m.cancelLostLine},consumers:effect.store ? ["storefront:"+effect.store.id] : ["inventory"]});
     }
-    for (const [key,p] of pb) {
+    for (const [key,p] of commitmentOnly ? [] : pb) {
       const [poolId,skuId]=key.split(":");
       await ctx.tx.update(poolSkuBalances).set({...p,updatedAt:new Date()}).where(and(eq(poolSkuBalances.poolId,poolId!),eq(poolSkuBalances.skuId,skuId!)));
     }
-    for (const [allocationId,b] of ab) await ctx.tx.update(allocationBalances).set({...b,updatedAt:new Date()}).where(eq(allocationBalances.allocationId,allocationId));
+    for (const [allocationId,b] of ab) if (!commitmentOnly || allocationIds.includes(allocationId)) {
+      await ctx.tx.update(allocationBalances).set({...b,updatedAt:new Date()}).where(eq(allocationBalances.allocationId,allocationId));
+    }
     return {status:"APPLIED" as const,rows};
   });
 }
