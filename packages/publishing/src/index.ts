@@ -4,6 +4,7 @@ import { hasVerifiedPublicMainImage, listStorefrontMedia } from "@khidi/media";
 import { compareApprovedContentFacts, getApprovedContent, getContentFactFields, getStorefrontIdentityFacts } from "@khidi/evidence";
 import { AppError } from "@khidi/shared";
 import { listLatestPrices } from "@khidi/pricing";
+import { getSkuAllocationFacts } from "@khidi/inventory";
 
 /**
  * [C5, C8, C9, C18] Storefront Sellability Evaluator contract (§15.2).
@@ -14,7 +15,8 @@ export interface SellabilityEvaluationInput {
   lifecycleState: SkuLifecycleState;
   canonicalSlug: string | null; // [C8] Must be non-null
   hasActiveSellerAccountingMapping: boolean; // [C9]
-  requiresOwnerAccountingMapping: boolean | undefined; // undefined until allocation data is available
+  hasStorefrontAllocation: boolean;
+  requiresOwnerAccountingMapping: boolean;
   hasActiveOwnerAccountingMapping: boolean; // [C9]
   hasCurrentBasePrice: boolean;
   hasVerifiedPublicMainImage: boolean;
@@ -53,9 +55,8 @@ export function evaluateStorefrontSellability(
   if (!input.hasActiveSellerAccountingMapping) {
     blockingReasons.push("MISSING_SELLER_ACCOUNTING_MAPPING");
   }
-  if (input.requiresOwnerAccountingMapping === undefined) {
-    blockingReasons.push("ALLOCATION_OWNERS_UNAVAILABLE_M8");
-  } else if (input.requiresOwnerAccountingMapping && !input.hasActiveOwnerAccountingMapping) {
+  if (!input.hasStorefrontAllocation) blockingReasons.push("MISSING_STOREFRONT_ALLOCATION");
+  if (input.requiresOwnerAccountingMapping && !input.hasActiveOwnerAccountingMapping) {
     blockingReasons.push("MISSING_OWNER_ACCOUNTING_MAPPING");
   }
   if (!input.hasCurrentBasePrice) {
@@ -88,28 +89,25 @@ export async function evaluateSkuMediaSellability(db: Parameters<typeof hasVerif
 export { getStorefrontIdentityFacts };
 
 type PublishingDb = Parameters<typeof hasVerifiedPublicMainImage>[0];
-export interface StorefrontCommerceFacts {
-  /** Omitted when allocations are unavailable. An empty list is a known absence of allocations. */
-  allocatedOwnerEntityIds?: readonly string[];
-}
 
 async function loadPublicationInputs(db: PublishingDb, skuId: string, catalog?: {
   details: Awaited<ReturnType<typeof getSkuWithDetails>>; stores: Awaited<ReturnType<typeof listStorefronts>>;
 }) {
-  const [details, stores, approvals, fields, hasVerifiedPublicMainImageForSku, confidentialTerms, prices] = await Promise.all([
+  const [details, stores, approvals, fields, hasVerifiedPublicMainImageForSku, confidentialTerms, prices, allocationFacts] = await Promise.all([
     catalog?.details ?? getSkuWithDetails(db, skuId), catalog?.stores ?? listStorefronts(db),
     getApprovedContent(db, skuId), getContentFactFields(db, skuId),
-    hasVerifiedPublicMainImage(db, skuId), getCanonicalConfidentialTerms(db), listLatestPrices(db, { skuId })
+    hasVerifiedPublicMainImage(db, skuId), getCanonicalConfidentialTerms(db), listLatestPrices(db, { skuId }), getSkuAllocationFacts(db,skuId)
   ]);
-  return { details, stores, approvals, fields, hasVerifiedPublicMainImageForSku, confidentialTerms, prices };
+  return { details, stores, approvals, fields, hasVerifiedPublicMainImageForSku, confidentialTerms, prices, allocationFacts };
 }
 
 function evaluateLocale(input: Awaited<ReturnType<typeof loadPublicationInputs>>,
-  store: Awaited<ReturnType<typeof listStorefronts>>[number], locale: string, commerce: StorefrontCommerceFacts = {}) {
+  store: Awaited<ReturnType<typeof listStorefronts>>[number], locale: string) {
   const { details, approvals, fields, hasVerifiedPublicMainImageForSku } = input;
   const version = approvals.find(({ version }) => version.locale === locale)?.version;
   const factComparison = version && compareApprovedContentFacts(version.verifiedFacts, fields);
-  const owners = commerce.allocatedOwnerEntityIds?.filter((id) => id !== store.sellerEntityId);
+  const allocationFacts=input.allocationFacts.filter((a)=>a.storefrontId===store.id);
+  const owners=[...new Set(allocationFacts.map((a)=>a.ownerEntityId))].filter((id)=>id!==store.sellerEntityId);
   const mappings = new Set(details.accountingMappings.filter((mapping) => mapping.active).map((mapping) => mapping.legalEntityId));
   const slug = details.sku.canonicalSlug;
   const result = evaluateStorefrontSellability({
@@ -117,8 +115,9 @@ function evaluateLocale(input: Awaited<ReturnType<typeof loadPublicationInputs>>
     identityConflict: details.sku.identityConfidence === "CONFLICT",
     canonicalSlug: slug && isPublicCanonicalText(slug) && !/khidi-(app|internal)/i.test(slug) ? slug : null,
     hasActiveSellerAccountingMapping: mappings.has(store.sellerEntityId),
-    requiresOwnerAccountingMapping: owners ? owners.length > 0 : undefined,
-    hasActiveOwnerAccountingMapping: !!owners && owners.every((id) => mappings.has(id)),
+    hasStorefrontAllocation: allocationFacts.length>0,
+    requiresOwnerAccountingMapping: owners.length>0,
+    hasActiveOwnerAccountingMapping: owners.every((id) => mappings.has(id)),
     hasCurrentBasePrice: input.prices.some((row) => row.storefrontId === store.id && row.kind === "SET"),
     hasVerifiedPublicMainImage: hasVerifiedPublicMainImageForSku,
     isStorefrontListingEnabled: store.active && details.storefrontListings.some((listing) => listing.storefrontId === store.id && listing.enabled),
@@ -128,24 +127,25 @@ function evaluateLocale(input: Awaited<ReturnType<typeof loadPublicationInputs>>
     hasConfidentialLocaleContent: !!version && [version.displayName, version.shortDescription, version.fullDescription]
       .some((text) => findConfidentialPhrase(text, input.confidentialTerms) !== null)
   });
-  return { result, version };
+  return { result, version, availableToSell:allocationFacts.reduce((sum,a)=>sum+a.availableToSell,0) };
 }
 
 export async function getSkuPublicationReview(db: PublishingDb, skuId: string, catalog?: Parameters<typeof loadPublicationInputs>[2]) {
   const input = await loadPublicationInputs(db, skuId, catalog);
   const locales = [...new Set(["ka", "en", ...input.approvals.map(({ version }) => version.locale)])];
-  return input.stores.flatMap((store) => locales.map((locale) => ({
-    storefrontId: store.id, storefrontName: store.name, locale, ...evaluateLocale(input, store, locale).result
-  })));
+  return input.stores.flatMap((store) => locales.map((locale) => {
+    const evaluation=evaluateLocale(input,store,locale);
+    return {storefrontId:store.id,storefrontName:store.name,locale,...evaluation.result,availableToSell:evaluation.availableToSell};
+  }));
 }
 
 export async function getStorefrontProductProjection(db: PublishingDb, target: {
-  skuId: string; storefrontId: string; locale: string; commerce?: StorefrontCommerceFacts;
+  skuId: string; storefrontId: string; locale: string;
 }) {
   const input = await loadPublicationInputs(db, target.skuId);
   const store = input.stores.find((store) => store.id === target.storefrontId);
   if (!store) throw new AppError("NOT_FOUND", "Storefront not found.");
-  const { result, version } = evaluateLocale(input, store, target.locale, target.commerce);
+  const { result, version, availableToSell } = evaluateLocale(input, store, target.locale);
   if (!result.publishReady || !version) return null;
   const fields = Object.fromEntries([...input.fields].flatMap(([key, field]) =>
     field.status === "VERIFIED" && field.value !== null && !field.notDeterminableReason && isPublicCanonicalField(key)
@@ -157,6 +157,6 @@ export async function getStorefrontProductProjection(db: PublishingDb, target: {
     slug: input.details.sku.canonicalSlug!, locale: version.locale, displayName: version.displayName,
     shortDescription: version.shortDescription, fullDescription: version.fullDescription,
     fields, media, ...(price ? { basePrice: { amount: price.basePriceMinor!, currency: price.currency, vat_included: price.vatIncluded } } : {}),
-    sellable: result.sellable, blockingReasons: result.blockingReasons
+    sellable: result.sellable, blockingReasons: result.blockingReasons, available_to_sell:availableToSell
   };
 }

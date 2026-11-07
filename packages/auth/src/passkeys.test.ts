@@ -5,6 +5,7 @@ import { createUuidV7, sha256Hex } from "@khidi/shared";
 import { assertTestDatabaseSafety } from "../../db/src/test-database-safety.ts";
 import { hashSecret, generateTotpSecret, generateCurrentTotpToken } from "./credentials.ts";
 import { verifySessionToken, loginOfficeUser } from "./index.ts";
+import { sessionIdleLimitMs, sessionTiming } from "./session-timing.ts";
 import { beginPasskeyCeremony, finishPasskeyCeremony, getQuickSignInAccount, listOwnPasskeys, manageOwnPasskey } from "./passkeys.ts";
 import { reauthenticateWithPasswordTotp, startOwnTotpEnrollment, changeOwnPassword } from "./account-security.ts";
 import { recoverUser } from "./recovery.ts";
@@ -60,10 +61,17 @@ it("lists multiple independent account keys and permits passkey sign-in again af
   expect((await listOwnPasskeys(f.db, f.principal)).map((key) => key.id)).toEqual([first.keyId, second.keyId]);
   const signed = await signIn(f, first.key);
   const principal = await verifySessionToken(f.db, signed.sessionToken!);
-  await f.db.update(sessions).set({ lastActivityAt: sql`clock_timestamp() - interval '20 minutes'` }).where(eq(sessions.id, principal.sessionId!));
+  await f.db.update(sessions).set({ lastActivityAt: new Date(Date.now() - sessionIdleLimitMs("OFFICE_PASSKEY") - 1000) }).where(eq(sessions.id, principal.sessionId!));
   await expect(verifySessionToken(f.db, signed.sessionToken!)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   const again = await signIn(f, second.key);
   expect((await verifySessionToken(f.db, again.sessionToken!)).authMethod).toBe("OFFICE_PASSKEY");
+});
+
+it("expires a passkey session exactly at its idle deadline", () => {
+  const now = 1_700_000_000_000;
+  const session = { id: "deadline-fixture", authMethod: "OFFICE_PASSKEY", lastActivityAt: new Date(now - sessionIdleLimitMs("OFFICE_PASSKEY")), expiresAt: new Date(now + 60_000) };
+  expect(sessionTiming(session, now - 1).deadlineMs).toBe(now);
+  expect(() => sessionTiming(session, now)).toThrow("Session expired");
 });
 
 it.each(["origin", "rp", "uv", "challenge", "binding", "expired", "cross-user", "type"])("rejects %s during registration", async (kind) => {

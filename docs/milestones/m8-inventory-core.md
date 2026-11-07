@@ -1,0 +1,292 @@
+# M8 — Inventory core
+
+## Gap inventory (before implementation)
+
+Phase 1 starts from `main` at `cf1e98c` (M7 and the validator fix merged).
+Branch: `m8-inventory-core`. The owner-provided task is
+[`../task-m8-inventory-core.md`](../task-m8-inventory-core.md).
+
+| Requirement | Existing base | Phase 1 work |
+| --- | --- | --- |
+| Ownership and allocation | Entities, effective-dated relationships and storefronts exist; inventory exports only the 15 type names. | New pools, locations, allocations, C2 materialized balances and append-only ledger migration. |
+| Ledger rules | No stock mutation engine. | One C3/C14 matrix, transactional primitives, Rule A proposals/critical rejection and paired Rule B transfers; audit and STOCK_CHANGED. |
+| Reconstruction | No ledger or verification command. | Read-only ledger rebuild and materialized-balance comparison, including missing/extra rows. |
+| Cross-service locking | Pricing/corrections currently lock SKU rows before price advisory locks; the price trigger takes a SKU share lock. | Shared canonical helper, advisory keys before sorted SKU/pool/allocation rows, matching trigger path and concurrency tests. |
+| SKU corrections | ADR-011 Part B remains Proposed; a dynamic pre-inventory guard exists. | Refuse a split with any inventory record, including zero-balance history; test the new tables and correction races. |
+| Verification | Existing PostgreSQL tests and domain/idempotency infrastructure. | Matrix/precondition, concurrency, Rule A/B, database immutability and bounded property-based sequences with pinned fast-check. |
+
+Only I1–I4 are authorized in this phase. Manual-operation screens, count tasks,
+replenishment, relationship-mode UI and sellability integration wait for Phase 1 review.
+Reservation/fulfillment engines remain M9; this phase supplies their ledger primitives.
+No shared database access or deployment. Integer pieces only; length, weight and volume
+require a later business decision. ADR-011 Part B is not implemented.
+
+## I1 — Schema
+
+`0033_inventory_core.sql` introduces pools, their two location kinds, stable allocation
+identities, C2 balances, generated quantities and the 15-type append-only ledger with all
+six deltas and C18 snapshot fields. Per-row constraints protect quantities; deferred
+constraint triggers enforce pool allocated totals against allocation sums. Cross-entity
+allocation creation requires the latest effective owner→seller CONSIGNMENT relationship.
+The application cannot delete inventory records or update/delete ledger rows.
+One focused schema test and inventory typecheck passed on `khidi_m8_work_test`.
+
+## I2 — Ledger primitives
+
+The engine and matrix tests read one 20-row matrix covering exactly 15 movement types,
+including adjustment and transfer variants. Whole batches are simulated under locks before
+ledger/audit/outbox writes. Rule A returns explicit candidates and required deallocation;
+it never chooses an allocation. Missing held units persist a CRITICAL audited notification
+event and write no stock movements. Rule B requires paired OUT/IN legs, equal quantities,
+ownership/relationship checks and purchase documents on both legs.
+
+Reservation quantities and per-request staged quantities come from ledger history.
+COD/pickup COMMIT must immediately precede its matching HANDOVER in the same batch.
+Count approval, scan verification and fulfillment cancellation are trusted, transactional
+workflow adapters: an input flag alone cannot authorize these primitives. The originally
+planned Phase 2 count adapter was removed by ADR-013; M9 supplies return/cancellation
+adapters and full lifecycle services.
+No inventory API or UI exposes these assertions in Phase 1. Nullable future reservation,
+fulfillment and count IDs have no foreign keys until their owning tables exist.
+
+The shared lock helper is introduced for the engine here; I4 adopts it in existing services.
+`fast-check` is pinned to 4.3.0 (older than two weeks; see its
+[release notes](https://github.com/dubzzz/fast-check/releases/tag/v4.3.0)).
+The original bounded property test used 16 runs with 10–28 valid operations. The PR #15
+review follow-up below replaces it with an independent model of valid and invalid batches.
+
+I2 verification: 31 focused schema/engine/property tests passed, including the two last-unit
+races, all matrix variants, paired transfer history, COD atomic handover, transactional
+workflow-proof rejection, role scope, idempotency and both append-only protections.
+
+## I3 — Reconstruction and read-only verification
+
+`rebuildBalancesFromLedger()` groups all six deltas from one ledger snapshot.
+`verifyInventoryBalances()` compares that reconstruction with stored balances inside a
+read-only, repeatable-read transaction. It reports per-field differences and missing
+materializations; zero initialization rows without ledger history are valid. It never repairs.
+`pnpm inventory:verify` requires an explicit `DATABASE_URL`, prints the result and exits
+0 for agreement, 1 for differences and 2 for a failed verification. No fallback target.
+Reconstruction and deliberate-drift tests passed; the property test also runs the verifier.
+
+## I4 — Shared lock order and correction protection
+
+Pricing, corrections, identity/evidence and inventory use the shared helper. Price keys are
+per SKU, so corrections can acquire all of them before the SKU rows even when a storefront
+has no price yet. The existing identity key is preserved for the accounting trigger.
+`withdrawArchivedSkuPrices` inherits its correction's plan and acquires no late locks.
+`0034_inventory_lock_guards.sql` aligns every price INSERT (including withdrawal) and
+serializes allocation creation with the SKU row. Ledger dimensions are checked against
+pool, allocation and location metadata. See [the lock contract](../architecture/locking.md).
+
+Forced, observed advisory waits prove that a merge and a split with an older target each
+allow the competing price commit to finish, then withdraw its price without a deadlock.
+The direct INSERT trigger has the same test. Real allocations, zero pool rows and drained
+ledger histories all refuse split under ADR-011 Part A; Part B is unchanged.
+
+## Merge/archive rule — resolved by the owner during Phase 2
+
+History alone never blocks a merge or archive. The source must have zero shelf, staging,
+allocated, reserved and committed quantities everywhere, and no open fulfillment. The
+survivor may hold stock; a merge never moves stock or changes the survivor's availability.
+Ledger history stays on the archived source and remains traceable through merge lineage.
+Migration 0037 enforces the drained condition in the database as well as the domain.
+
+Manual procedure:
+
+1. Set the source's free-to-sell availability to zero on every storefront.
+2. Let open orders complete or cancel. A cancellation may release units back to free stock:
+   set availability to zero again if necessary. Remove any unallocated advanced-operation
+   buffer too; every source balance must be zero before continuing.
+3. Merge into the survivor. Its existing stock is left unchanged.
+4. Declare the survivor's availability explicitly under ADR-013.
+
+Archiving uses the same drained-source rule. ADR-011's stricter pre-inventory split rule
+is unchanged; Part B remains Proposed.
+
+## Final Phase 1 verification
+
+- Focused inventory, pricing and correction runs passed; the last engine/reconstruction
+  run passed 32 tests, followed by 30 engine tests after the final allocation-plan guard.
+- Repository typecheck, lint (including dependency boundaries) and production build passed.
+  The boundary check examined 368 modules without violations.
+- One full run on fresh local `khidi_m8_final_test`: **464 passed, 1 failed, 1 skipped**
+  across 80 files. Every M8 test passed. The skipped case was the optional S3 integration
+  without MinIO. The failure was the existing passkey inactivity fixture: it used the DB
+  clock to set exactly 20 minutes while authentication checks application time; the reported
+  deadline was still 68 ms in the future. The unchanged test passed a focused retry.
+- That fixture now uses application time, safely beyond the deadline, like the existing
+  session-activity fixtures. A separate deterministic assertion preserves exact-boundary
+  coverage (accepted at deadline minus 1 ms; rejected at the deadline). No authentication
+  behavior changed. **38 passkey/session-activity tests and auth typecheck passed** afterwards.
+  This small test-only deviation is included to remove the observed clock-dependent failure.
+  The full suite was not repeated, following the owner's verification budget.
+- `inventory:verify` returned `ok: true` and exit 0 on the newly migrated/seeded database.
+  Focused tests also verified drift, missing rows and unchanged data after verification.
+
+## Phase 1 review stop
+
+I1–I4 were delivered for Draft PR review. Phase 2 began only after the owner's explicit
+authorization below. No deployment or shared database access occurred.
+
+## Phase 2 — owner approval and ADR-013 gap inventory
+
+The owner authorized Phase 2 in this chat under Accepted ADR-013, which replaces the
+physical-warehouse operating model. Work continues on `m8-inventory-core`, PR #15 stays draft.
+
+| Requirement | Existing base | Phase 2 extension |
+| --- | --- | --- |
+| Declared availability | Ledger and canonical locks; no configured pool or stock screen | Configured storefront pool with drained reconfiguration, idempotent absolute free-to-sell targets, locked derived movements, multi-pool refusal and Georgian confirmation table. |
+| Advanced operations | Tested primitives | ADMIN-only operations/Rule B transfers, pool setup and enforced C17 mode guard. |
+| Counts | PHYSICAL_COUNT disabled; future proof hooks exist | Keep disabled; no counts, count proposals or marked-shelf requirements under ADR-013. |
+| Alerts/replenishment | Event names and allocation minimum exist | Stock-status transitions and owner-manager notifications; request lifecycle without movements; availability can fulfill a referenced request. |
+| Publishing | M8 owner blocker and caller-supplied commerce placeholder | Actual allocations, owner mappings and separate availability, including zero stock. |
+| Settings | Physical warehouse wording | Declared limits and the accepted risk of declaring more units than physically exist. |
+
+## I5 — Declared availability and advanced operations
+
+The primary domain entry requires an idempotency key and computes the delta only after
+locking the configured allocation and every relevant pool. It writes the exact ADR-013
+pairs, preserves reserved/committed units and returns the original result on replay, even
+after an intervening reservation. Other storefronts' balances are not updated.
+
+Migrations 0035–0038 add configuration and notification/request storage, compatible SKU
+lock strength, the drained-source guard, and the owner's amended pool/binding guards.
+SKU locks use `FOR NO KEY UPDATE`, so allocation-only reservations can insert their
+ledger FK references without forming a SKU→allocation→SKU cycle. A forced overlap test
+reproduced that cycle before the fix and now passes.
+
+The owner amended ADR-013 §6 during implementation: configuration can move only when
+the storefront's allocations in the old pool are drained. Existing stock in a destination
+must also be drained so its new declared availability starts at zero. No stock is moved
+by configuration. Shared pools may retain another storefront's stock. A mode change away
+from CONSIGNMENT is refused until every affected storefront binding has moved.
+The branch copy of ADR-013 records this amendment; older migrations remain frozen.
+
+Availability/advanced operations hold a shared configuration advisory lock; configuration
+and mode changes hold it exclusively, before the remaining sorted keys and balance rows.
+This keeps a pool selection stable while an availability target is calculated and applied.
+
+The Georgian desktop table shows free, reserved and committed units, a target, a change
+summary and confirmation. ADMIN has a separate advanced section with current per-pool
+balances, receive/remove/write-off, allocation, Rule B transfers, pool configuration and
+relationship changes. The API authenticates roles, origins and request keys; domain checks
+remain authoritative. WAREHOUSE cannot read balances. STOCK_MANAGER stays within its entity;
+cross-entity actions and the advanced section require ADMIN.
+
+Focused availability, configuration, source-drain, API and confirmation tests passed.
+Desktop smoke: a real local login, preview `7 → 10 (+3)`, commit and reload retained three
+reserved units and showed ten free units. A duplicate-name React key was corrected and the
+reloaded screen emitted no new warnings/errors.
+
+## I7 — Stock transitions and replenishment
+
+The owner confirmed the boundaries: zero is OUT_OF_STOCK; positive availability at or
+below the minimum is LOW_STOCK; above the minimum is NORMAL. A zero minimum never
+produces LOW_STOCK. Only a state transition creates a notification, addressed to the
+owning entity's stock managers. The notifications page and inventory screen expose the
+scoped requests and their acknowledgement/decline actions.
+
+Requests are work items only: creation, acknowledgement and decline leave the ledger
+and balances unchanged. A set-availability action may reference an open request and
+fulfill it in the same transaction. Focused tests cover the thresholds, transition
+deduplication, recipient scope, request lifecycle and unchanged stock.
+
+## I8 — Actual allocation ownership and separate availability
+
+Publishing now reads allocation owners from inventory instead of accepting caller-supplied
+commerce facts. A storefront needs an allocation, the seller mapping and every applicable
+owner mapping. The SKU review shows these blockers and the free-to-sell quantity; the
+storefront projection exposes only the separate `available_to_sell` value, without pool or
+owner identifiers. Zero availability does not remove sellability.
+
+Focused publishing tests cover a real CONSIGNMENT allocation, missing/active/inactive owner
+mapping, a forged caller override, and a fully drained allocation that remains sellable
+with availability zero. Existing locale, content and media eligibility coverage remains.
+
+## I9 — Declared-limit settings; I6 remains disabled
+
+Settings and the availability screen explain that the entered number is a declared online
+limit, and that offline sales or an excessive declaration can result in selling a unit that
+does not physically exist. Staff should declare conservative quantities and update them
+after offline sales. Settings link to availability and explain that physical counts remain
+disabled; task creation reports that policy instead of promising counts in M8. PICK stays
+unavailable until M9. No physical zones, count workflow or Rule A count proposals were added.
+
+## Phase 2 document changes and review stop
+
+- Added Accepted ADR-013, including the owner's amended drained pool reconfiguration rule
+  and CONSIGNMENT binding guard. No new Proposed ADR was needed for these approved decisions.
+- Updated this milestone record with Phase 2 scope, the owner-resolved merge/archive rule,
+  manual correction procedure, implementation and validation.
+- Updated `docs/architecture/locking.md` for compatible SKU lock strength, configuration
+  locks and source-drain enforcement. The original task specification remains unchanged;
+  ADR-013 explicitly replaces its I5/I6/I9 physical-warehouse model.
+- Updated `AGENTS.md` status and future-count note. ADR-011 Part B remains Proposed.
+
+No business questions remain open from this implementation. Keep PR #15 in draft for the
+required owner inventory review. No shared database, deployment or M9 work is included.
+
+## Final Phase 2 verification
+
+- Focused availability/configuration, merge/archive, replenishment, entities, publishing,
+  API and confirmation checks passed during implementation. The final count-disabled task
+  run passed all seven tests.
+- Repository typecheck, lint, dependency boundaries (998 modules, no violations) and
+  production build passed. The build includes `/inventory` and `/api/inventory`.
+- The full suite ran once on fresh local `khidi_m8_phase2_final_test`: **480 passed,
+  1 skipped**, across 84 passing files and one skipped file. The only skip is optional S3
+  integration without MinIO. No failures; no second full run was needed.
+- Desktop confirmation/reload verified ten free units with three reserved units unchanged.
+  The local screenshot is retained as review evidence. No real stock or shared data changed.
+- `inventory:verify` returned agreement and exit 0 on separately migrated/seeded local
+  `khidi_m8_phase2_verify_test`. On the completed suite's database it correctly returned
+  exit 1 for the schema test's manually inserted balances (shelf 7, staging 1, allocated 5,
+  no ledger rows); those eight field differences were confined to that known fixture.
+  The verifier and test data were left unchanged. Engine/reconstruction/property tests
+  separately prove agreement for actual ledger movements.
+
+## PR #15 review follow-up — model-based property test
+
+The oracle models individual units with allocation, reservation line, commitment and
+staging-request ownership. It imports neither the movement matrix nor the engine's
+precondition/delta helpers. Two storefront allocations share one pool; the second seller
+uses CONSIGNMENT. Eight reservation lines use CARD and CASH_ON_DELIVERY, each with two
+fulfillment requests. Trusted count/return/lost-line proofs are installed for these tests;
+no physical-count workflow is enabled.
+
+Each generated program includes parameterized handover, return, staging loss and transfer
+workflows, Rule A proposals/critical refusal/explicit deallocation, and interleaved absolute
+targets and reservations for both storefronts. Its random suffix mixes valid compound
+stock-in/allocation/reservation batches with raw and boundary operations, excessive or
+nonpositive quantities, wrong payment/scan/approval flags, and malformed transfers.
+
+The model predicts the outcome before calling the engine. Every rejected or non-applied
+batch must leave both allocations, the pool and ledger unchanged. Successful batches must
+match unit counts, each reservation's held quantities, each request's staged units and
+CONSIGNMENT metadata. Final ledger reconstruction must match the model. Each scenario is
+rolled back so the long run and shrinking start from the same initial state.
+
+`INVENTORY_PROPERTY_RUNS` defaults to 25. The seed is random on every run, including CI,
+and is printed at start and in failure diagnostics; `INVENTORY_PROPERTY_SEED` replays it.
+For the long run, set `INVENTORY_PROPERTY_RUNS=1000` and run only
+`corepack pnpm test packages/inventory/src/property.test.ts --reporter=dot` against an
+isolated local `_test` database. No dependencies or production rules changed.
+
+Review verification:
+
+- Requested long run: **1,000 scenarios passed**, seed **1307097895**, on isolated local
+  `khidi_m8_model_stress_test` (1,397.95 seconds of test execution). No counterexamples.
+  All generated primitive operation families had successful and rejected batches; both
+  storefronts had successful and rejected availability declarations. Rule A exercised all
+  three outcomes. Replay with `INVENTORY_PROPERTY_RUNS=1000` and
+  `INVENTORY_PROPERTY_SEED=1307097895`.
+- Focused default 25-run checks passed with random seeds, and repository typecheck, lint,
+  dependency boundaries and production build passed.
+- The full suite ran once on fresh local `khidi_m8_model_final_test`: **480 passed,
+  1 optional S3 integration skipped**, across 84 passing files and one skipped file.
+  Its default 25-run model test passed with fresh random seed **1012532856**. No failures
+  and no second full-suite run. No test infrastructure or production code was changed.
+- `packages/inventory/tsconfig.tsbuildinfo` was already absent from the Git index at this
+  review's starting head. Removed its generated local copy, confirmed no build caches are
+  tracked, and retained/documented the existing `*.tsbuildinfo` ignore rule.

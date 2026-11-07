@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { t } from "@khidi/i18n";
 import { getDb } from "@khidi/db";
 import { getTechnicalSynonyms, listTechnicalTermGroups } from "@khidi/products";
@@ -39,6 +40,8 @@ export default async function SettingsPage() {
           <div>{t("settings.operating_model_rule1", "ka")}</div>
           <div>{t("settings.operating_model_rule2", "ka")}</div>
           <div>{t("settings.operating_model_rule3", "ka")}</div>
+          <div>{t("inventory.counts_disabled")}</div>
+          <Link href="/inventory">{t("inventory.title")}</Link>
         </div>
       </section>
 

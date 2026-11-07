@@ -45,10 +45,16 @@ If two sources conflict and this list does not resolve it, stop and ask. Do not 
 | M5 Evidence and AI identity | Merged to `main` (PR #10). Local synthetic provider |
 | M6 Review, canonical content and publishing | Merged to `main` (PR #11) |
 | ADR-011 Part A / ADR-012 | Merged to `main` (PR #12); Part B remains Proposed |
-| M7 Pricing | Implemented on `m7-pricing` for Draft PR review |
-| M8–M11 | Not started |
+| M7 Pricing | Merged to `main` (PR #14) |
+| M8 Inventory core | I1–I5 and I7–I9 implemented on `m8-inventory-core` for Draft PR #15 and owner review; I6 disabled by Accepted ADR-013 |
+| M9–M11 | Not started |
 
-Current task: M7 pricing; see [the task record](docs/milestones/m7-pricing.md).
+Current task: M8 Phase 2 under [Accepted ADR-013](docs/adr/ADR-013-online-stock-as-declared-limit.md);
+see [the task record](docs/milestones/m8-inventory-core.md) and
+[the owner specification](docs/task-m8-inventory-core.md). ADR-013 replaces the physical-stock
+operating model in I5, I6 and I9: availability is a declared free-to-sell limit and physical
+counts stay disabled. Keep PR #15 in draft and stop for owner review before M9.
+ADR-011 Part B remains Proposed.
 
 Human checks still pending (the owner updates these lines):
 
@@ -130,6 +136,9 @@ the interactive `pnpm ops:bootstrap-admin` command, never development accounts.
 - IDs: `createUuidV7()`. Money: integer minor units (tetri) with currency. Time: stored UTC,
   displayed `Asia/Tbilisi`.
 - Storefronts never touch PostgreSQL. They use the versioned API only.
+- Pricing, catalog corrections and inventory follow the shared
+  [transaction lock order](docs/architecture/locking.md): sorted advisory keys, then SKU
+  rows, pool/SKU balances and allocation balances. Commitment-only batches lock allocations only.
 
 ## 6. Database rules
 
@@ -339,10 +348,9 @@ verification covers a sample of raw files (SHA-256 match after restore).
 
 ### Notes for later milestones
 
-- **M8 physical counts:** the camera scanner treats a code that leaves the frame for 0.8 s as
-  a new scan. That is harmless for unique intake but would overcount in `PHYSICAL_COUNT`.
-  Counting needs an explicit per-unit confirmation (or an equivalent safeguard); decide it in
-  an ADR during M8.
+- **Physical counts:** disabled by Accepted ADR-013. If a later approved phase enables them,
+  the camera's 0.8 s re-entry behavior requires explicit per-unit confirmation or an equivalent
+  safeguard. M8 does not implement counts or physical shelf marking.
 
 ## 11. Working agreement
 

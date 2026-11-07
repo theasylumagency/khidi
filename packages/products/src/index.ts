@@ -12,6 +12,7 @@ import {
   bundleComponents,
   categories,
   getSkuLineageIds,
+  getAffectedSkuIds,
   legalEntities,
   legacyUrls,
   productFamilies,
@@ -32,6 +33,8 @@ import {
 } from "@khidi/db";
 import { type DomainActor, withDomainTransaction } from "@khidi/domain";
 import { withdrawArchivedSkuPrices } from "@khidi/domain/price-effects";
+import { acquireDomainLocks, priceLockKey } from "@khidi/domain/locking";
+import { assertSkuInventoryDrained } from "@khidi/domain/inventory-effects";
 import { compareApprovedContentFacts, getContentFactFields, hasVerifiedDifference, lockIdentityCatalog, recomputeSkuIdentity, requireMergeSameness, UNIVERSAL_EVIDENCE_FIELDS, withDefaultObservableAttributes } from "@khidi/evidence";
 import { queueMediaJob } from "@khidi/media";
 import { AppError, createUuidV7 } from "@khidi/shared";
@@ -321,6 +324,8 @@ export async function upsertProductType(
       if (JSON.stringify(existing.distinguishingAttributes) !== JSON.stringify(distinguishingAttributes)) {
         const affected = await ctx.tx.select({ id: skus.id }).from(skus)
           .where(and(eq(skus.productTypeId, existing.id), ne(skus.lifecycleState, "ARCHIVED")));
+        const affectedIds = (await Promise.all(affected.map((sku) => getAffectedSkuIds(ctx.tx, sku.id)))).flat();
+        await acquireDomainLocks(ctx.tx, { skuIds: affectedIds });
         for (const sku of affected) await recomputeSkuIdentity(ctx, sku.id);
       }
 
@@ -657,6 +662,8 @@ export async function transitionSkuLifecycle(
 ) {
   return withDomainTransaction(db, actor, async (ctx) => {
     await lockIdentityCatalog(ctx.tx);
+    await acquireDomainLocks(ctx.tx,{skuIds:[skuId]});
+    if(targetState==="ARCHIVED") await assertSkuInventoryDrained(ctx.tx,skuId);
     const [sku] = await ctx.tx.select().from(skus).where(eq(skus.id, skuId)).limit(1);
     if (!sku) {
       throw new AppError("NOT_FOUND", `SKU ${skuId} not found.`);
@@ -1172,7 +1179,7 @@ export async function getBundleComponents(db: AppDatabase | DbExecutor, bundleSk
 
 /**
  * Recomputes `has_collision` across all non-ARCHIVED SKUs for a given `(identifierType, value)`
- * under a transaction-scoped advisory lock (`pg_advisory_xact_lock`).
+ * under the shared identity-catalog advisory lock.
  * If <= 1 active SKU holds the identifier, clears `has_collision = false`.
  */
 async function recomputeIdentifierCollisionState(
@@ -1180,8 +1187,7 @@ async function recomputeIdentifierCollisionState(
   identifierType: string,
   value: string
 ): Promise<{ collisionDetected: boolean; activeSkuIds: string[] }> {
-  const lockKey = `sku_id_lock:${identifierType}:${value}`;
-  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+  await lockIdentityCatalog(tx);
 
   const rowsWithSku = await tx
     .select({
@@ -1222,7 +1228,7 @@ async function recomputeIdentifierCollisionState(
  * §5.3 Attaches an external identifier/barcode (`GTIN`, `UPC`, `MPN`, `FACTORY_MODEL`, etc.) to a SKU.
  * - Forbids manual attachment of `INTERNAL_SKU` or `INTERNAL_QR` (system-generated only).
  * - Normalizes `GTIN` and `UPC` to 14-digit `GTIN-14` (`identifierType = "GTIN"`) after validating the GS1 Modulo-10 check digit.
- * - Uses `pg_advisory_xact_lock` on `(identifier_type, value)` so concurrent attachments cannot miss a collision.
+ * - Uses the identity-catalog lock so concurrent attachments and corrections cannot miss a collision.
  */
 export async function attachSkuIdentifier(
   db: AppDatabase | DbExecutor,
@@ -1256,8 +1262,7 @@ export async function attachSkuIdentifier(
   );
 
   return withDomainTransaction(db, actor, async (ctx) => {
-    const lockKey = `sku_id_lock:${canonicalType}:${canonicalValue}`;
-    await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+    await lockIdentityCatalog(ctx.tx);
 
     const id = createUuidV7();
     await ctx.tx.insert(skuIdentifiers).values({
@@ -1344,8 +1349,7 @@ export async function removeSkuIdentifier(
       );
     }
 
-    const lockKey = `sku_id_lock:${existing.identifierType}:${existing.value}`;
-    await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+    await lockIdentityCatalog(ctx.tx);
 
     await ctx.tx.delete(skuIdentifiers).where(eq(skuIdentifiers.id, existing.id));
 
@@ -1713,9 +1717,12 @@ export async function mergeSkus(db: DbExecutor, actor: DomainActor, raw: unknown
     if (!admin) throw new AppError("FORBIDDEN", "SKU merge requires an active admin.");
     if (!identityConfirmed) throw new AppError("PRECONDITION_FAILED", "Confirm that both SKUs represent the same physical variant.");
     if (!samenessEvidenceId) throw new AppError("PRECONDITION_FAILED","An accepted sameness inspection is required.");
-    const pair = await ctx.tx.select().from(skus).where(inArray(skus.id, [sourceSkuId, targetSkuId])).orderBy(asc(skus.id)).for("update");
+    const correctionIds = [...new Set([sourceSkuId, targetSkuId, ...(await getAffectedSkuIds(ctx.tx, sourceSkuId)), ...(await getAffectedSkuIds(ctx.tx, targetSkuId))])];
+    await acquireDomainLocks(ctx.tx, { advisoryKeys: [sourceSkuId, targetSkuId].map(priceLockKey), skuIds: correctionIds });
+    const pair = await ctx.tx.select().from(skus).where(inArray(skus.id, [sourceSkuId, targetSkuId]));
     const source = pair.find((sku) => sku.id === sourceSkuId), target = pair.find((sku) => sku.id === targetSkuId);
     if (!source || !target) throw new AppError("NOT_FOUND", "Both SKUs must exist.");
+    await assertSkuInventoryDrained(ctx.tx,sourceSkuId);
     if (pair.some((sku) => sku.lifecycleState === "ARCHIVED" || sku.mergedIntoSkuId) || source.productTypeId !== target.productTypeId) {
       throw new AppError("PRECONDITION_FAILED", "Only active SKUs of the same Product Type can be merged.");
     }

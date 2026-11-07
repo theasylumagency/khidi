@@ -1,12 +1,14 @@
-import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { evidence, evidenceAttributions, getSkuImages, getSkuLineageIds, imageAttributions, imageBelongsToSku, productIntakes, productTypes, skuContentVersions, skuSlugHistory, skuSplitBasis, skuSplitTargets, skus, storefrontListings, users, resolveActiveSku, type DbExecutor } from "@khidi/db";
 import { withDomainTransaction, type DomainActor, type DomainTransactionContext } from "@khidi/domain";
 import { withdrawArchivedSkuPrices } from "@khidi/domain/price-effects";
+import { acquireDomainLocks, priceLockKey } from "@khidi/domain/locking";
 import { evidenceValuesDiffer, loadSkuEvidenceSources, lockIdentityCatalog, recomputeSkuIdentity, reviewSkuEvidence, submitSkuEvidence, UNIVERSAL_EVIDENCE_FIELDS } from "@khidi/evidence";
 import { queueMediaJob } from "@khidi/media";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import { createSkuDraft, setStorefrontListing, transitionSkuLifecycle } from "./index.ts";
+import { getAffectedSkuIds } from "@khidi/db";
 import { saveCanonicalVersion } from "./content.ts";
 const reasonSchema = z.string().trim().min(1).max(4000);
 const valuesSchema = z.record(z.string(), z.union([z.string().min(1).max(400), z.number().finite(), z.boolean()]));
@@ -80,10 +82,10 @@ export async function splitSku(db: DbExecutor, actor: DomainActor, raw: unknown)
     return withDomainTransaction(db, actor, async (ctx) => {
         await lockIdentityCatalog(ctx.tx);
         const adminId = await requireAdmin(ctx, actor);
-        await ctx.tx.select({ id: skus.id }).from(skus).where(inArray(skus.id,
-            [...new Set([input.sourceSkuId, ...input.targets.flatMap((target) => target.skuId ? [target.skuId] : [])])]))
-            .orderBy(asc(skus.id)).for("update");
-        const [source] = await ctx.tx.select().from(skus).where(eq(skus.id, input.sourceSkuId)).for("update");
+        const skuIds = [...new Set([input.sourceSkuId, ...input.targets.flatMap((target) => target.skuId ? [target.skuId] : [])])];
+        const affectedIds = (await Promise.all(skuIds.map((id) => getAffectedSkuIds(ctx.tx, id)))).flat();
+        await acquireDomainLocks(ctx.tx, { advisoryKeys: skuIds.map(priceLockKey), skuIds: [...skuIds, ...affectedIds] });
+        const [source] = await ctx.tx.select().from(skus).where(eq(skus.id, input.sourceSkuId));
         if (!source || source.lifecycleState === "ARCHIVED" || source.mergedIntoSkuId)
             throw new AppError("PRECONDITION_FAILED", "Only an active SKU can be split.");
         const [type] = source.productTypeId ? await ctx.tx.select().from(productTypes).where(eq(productTypes.id, source.productTypeId)) : [];

@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   type AppDatabase,
@@ -9,6 +9,8 @@ import {
   storefronts,
   entityRelationships
 } from "@khidi/db";
+import { allocations, allocationBalances, stockPools } from "@khidi/db";
+import { acquireDomainLocks, relationshipInventoryKey, INVENTORY_CONFIGURATION_LOCK } from "@khidi/domain/locking";
 import { type DomainActor, withDomainTransaction } from "@khidi/domain";
 import {
   AppError,
@@ -182,6 +184,7 @@ export async function listStorefronts(db: AppDatabase | DbExecutor) {
       name: storefronts.name,
       domain: storefronts.domain,
       sellerEntityId: storefronts.sellerEntityId,
+      availabilityPoolId: storefronts.availabilityPoolId,
       sellerEntityKey: legalEntities.key,
       sellerEntityName: legalEntities.legalName,
       sellerPricesIncludeVat: legalEntities.pricesIncludeVat,
@@ -215,19 +218,33 @@ export async function setEntityRelationship(
   }
 
   return withDomainTransaction(db, actor, async (ctx) => {
+    const [admin] = actor.userId ? await ctx.tx.select().from(users).where(and(eq(users.id,actor.userId),eq(users.active,true),eq(users.role,"ADMIN"))) : [];
+    if(!admin) throw new AppError("FORBIDDEN","Relationship changes require admin.");
+    await acquireDomainLocks(ctx.tx,{advisoryKeys:[INVENTORY_CONFIGURATION_LOCK,relationshipInventoryKey(input.fromEntityId,input.toEntityId)]});
+    if(input.mode!=="CONSIGNMENT") {
+      const bindings=await ctx.tx.select({id:storefronts.id,name:storefronts.name}).from(storefronts).innerJoin(stockPools,eq(stockPools.id,storefronts.availabilityPoolId))
+        .where(and(eq(stockPools.ownerEntityId,input.fromEntityId),eq(storefronts.sellerEntityId,input.toEntityId)));
+      if(bindings.length) throw new AppError("PRECONDITION_FAILED","Move storefront availability pools before leaving CONSIGNMENT.",{blockedReason:"RELATIONSHIP_POOL_BINDING",storefronts:bindings});
+    }
+    const affected = await ctx.tx.select({allocation:allocations}).from(allocations).innerJoin(stockPools,eq(stockPools.id,allocations.poolId))
+      .innerJoin(storefronts,eq(storefronts.id,allocations.storefrontId)).where(and(eq(stockPools.ownerEntityId,input.fromEntityId),eq(storefronts.sellerEntityId,input.toEntityId)));
+    await acquireDomainLocks(ctx.tx,{skuIds:affected.map((r)=>r.allocation.skuId),poolBalances:affected.map((r)=>({poolId:r.allocation.poolId,skuId:r.allocation.skuId})),allocationIds:affected.map((r)=>r.allocation.id)});
     const [current] = await ctx.tx
       .select()
       .from(entityRelationships)
       .where(
         and(
           eq(entityRelationships.fromEntityId, input.fromEntityId),
-          eq(entityRelationships.toEntityId, input.toEntityId)
+          eq(entityRelationships.toEntityId, input.toEntityId),
+          sql`${entityRelationships.effectiveFrom} <= clock_timestamp()`
         )
       )
-      .orderBy(desc(entityRelationships.effectiveFrom))
+      .orderBy(desc(entityRelationships.effectiveFrom),desc(entityRelationships.id))
       .limit(1);
 
     if (current?.mode === "CONSIGNMENT" && input.mode === "PURCHASE") {
+      const held = affected.length ? await ctx.tx.select().from(allocationBalances).where(inArray(allocationBalances.allocationId,affected.map((r)=>r.allocation.id))) : [];
+      if(held.some((b)=>b.reserved>0 || b.committed>0)) throw new AppError("PRECONDITION_FAILED","Cannot switch CONSIGNMENT -> PURCHASE while cross-entity allocations have open reservations or commitments [C17].",{blockedReason:"RELATIONSHIP_HELD_UNITS",allocations:held.filter((b)=>b.reserved>0 || b.committed>0).map((b)=>({...b,skuId:affected.find((a)=>a.allocation.id===b.allocationId)!.allocation.skuId,storefrontId:affected.find((a)=>a.allocation.id===b.allocationId)!.allocation.storefrontId}))});
       if (options?.hasOpenCrossEntityCommitmentsOrReservations) {
         const hasOpen = await options.hasOpenCrossEntityCommitmentsOrReservations();
         if (hasOpen) {
@@ -247,7 +264,7 @@ export async function setEntityRelationship(
         fromEntityId: input.fromEntityId,
         toEntityId: input.toEntityId,
         mode: input.mode,
-        effectiveFrom: input.effectiveFrom ?? new Date(),
+        effectiveFrom: input.effectiveFrom ?? sql`clock_timestamp()`,
         notes: input.notes ?? null,
         createdBy: actor.userId ?? null
       })
@@ -271,6 +288,7 @@ export async function setEntityRelationship(
       reason: input.notes
     });
 
+    await ctx.emitOutboxEvent({eventType:"ENTITY_RELATIONSHIP_CHANGED",aggregateType:"entity_relationship",aggregateId:created.id,payload:{fromEntityId:input.fromEntityId,toEntityId:input.toEntityId,mode:input.mode},consumers:["inventory"]});
     return created;
   });
 }
@@ -286,10 +304,11 @@ export async function getActiveEntityRelationship(
     .where(
       and(
         eq(entityRelationships.fromEntityId, fromEntityId),
-        eq(entityRelationships.toEntityId, toEntityId)
+        eq(entityRelationships.toEntityId, toEntityId),
+        sql`${entityRelationships.effectiveFrom} <= clock_timestamp()`
       )
     )
-    .orderBy(desc(entityRelationships.effectiveFrom))
+    .orderBy(desc(entityRelationships.effectiveFrom),desc(entityRelationships.id))
     .limit(1);
 
   if (!rel) {

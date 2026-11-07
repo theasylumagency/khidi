@@ -32,6 +32,7 @@ describe("@khidi/entities — VAT Defaults [C11] & Relationship Mode Guard [C17]
 
   it("blocks CONSIGNMENT -> PURCHASE when open cross-entity reservations/commitments exist, and allows after draining [C17]", async () => {
     const db = getDb();
+    const admin=(await db.query.users.findFirst({where:(u,{eq})=>eq(u.role,"ADMIN")}))!;
     const entities = await listLegalEntities(db);
     const agro = entities.find((e) => e.key === "AGROTRADE")!;
     const newBrand = entities.find((e) => e.key === "NEWBRAND")!;
@@ -39,7 +40,7 @@ describe("@khidi/entities — VAT Defaults [C11] & Relationship Mode Guard [C17]
     // Ensure starting mode is CONSIGNMENT
     await setEntityRelationship(
       db,
-      { correlationId: "cor_c17_setup" },
+      { userId:admin.id, correlationId: "cor_c17_setup" },
       {
         fromEntityId: agro.id,
         toEntityId: newBrand.id,
@@ -52,7 +53,7 @@ describe("@khidi/entities — VAT Defaults [C11] & Relationship Mode Guard [C17]
     await expect(
       setEntityRelationship(
         db,
-        { correlationId: "cor_c17_blocked" },
+        { userId:admin.id, correlationId: "cor_c17_blocked" },
         {
           fromEntityId: agro.id,
           toEntityId: newBrand.id,
@@ -68,7 +69,7 @@ describe("@khidi/entities — VAT Defaults [C11] & Relationship Mode Guard [C17]
     // After draining open reservations/commitments -> must succeed
     await setEntityRelationship(
       db,
-      { correlationId: "cor_c17_allowed" },
+      { userId:admin.id, correlationId: "cor_c17_allowed" },
       {
         fromEntityId: agro.id,
         toEntityId: newBrand.id,
