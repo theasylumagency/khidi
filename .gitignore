@@ -4,6 +4,7 @@ dist/
 build/
 coverage/
 .turbo/
+# TypeScript incremental build caches
 *.tsbuildinfo
 .env
 .env.local

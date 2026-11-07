@@ -52,8 +52,8 @@ fulfillment and count IDs have no foreign keys until their owning tables exist.
 The shared lock helper is introduced for the engine here; I4 adopts it in existing services.
 `fast-check` is pinned to 4.3.0 (older than two weeks; see its
 [release notes](https://github.com/dubzzz/fast-check/releases/tag/v4.3.0)).
-The bounded property test uses 16 runs with 10–28 random operations and checks invariants,
-independent expected quantities and reconstruction from all six ledger deltas.
+The original bounded property test used 16 runs with 10–28 valid operations. The PR #15
+review follow-up below replaces it with an independent model of valid and invalid batches.
 
 I2 verification: 31 focused schema/engine/property tests passed, including the two last-unit
 races, all matrix variants, paired transfer history, COD atomic handover, transactional
@@ -245,3 +245,48 @@ required owner inventory review. No shared database, deployment or M9 work is in
   no ledger rows); those eight field differences were confined to that known fixture.
   The verifier and test data were left unchanged. Engine/reconstruction/property tests
   separately prove agreement for actual ledger movements.
+
+## PR #15 review follow-up — model-based property test
+
+The oracle models individual units with allocation, reservation line, commitment and
+staging-request ownership. It imports neither the movement matrix nor the engine's
+precondition/delta helpers. Two storefront allocations share one pool; the second seller
+uses CONSIGNMENT. Eight reservation lines use CARD and CASH_ON_DELIVERY, each with two
+fulfillment requests. Trusted count/return/lost-line proofs are installed for these tests;
+no physical-count workflow is enabled.
+
+Each generated program includes parameterized handover, return, staging loss and transfer
+workflows, Rule A proposals/critical refusal/explicit deallocation, and interleaved absolute
+targets and reservations for both storefronts. Its random suffix mixes valid compound
+stock-in/allocation/reservation batches with raw and boundary operations, excessive or
+nonpositive quantities, wrong payment/scan/approval flags, and malformed transfers.
+
+The model predicts the outcome before calling the engine. Every rejected or non-applied
+batch must leave both allocations, the pool and ledger unchanged. Successful batches must
+match unit counts, each reservation's held quantities, each request's staged units and
+CONSIGNMENT metadata. Final ledger reconstruction must match the model. Each scenario is
+rolled back so the long run and shrinking start from the same initial state.
+
+`INVENTORY_PROPERTY_RUNS` defaults to 25. The seed is random on every run, including CI,
+and is printed at start and in failure diagnostics; `INVENTORY_PROPERTY_SEED` replays it.
+For the long run, set `INVENTORY_PROPERTY_RUNS=1000` and run only
+`corepack pnpm test packages/inventory/src/property.test.ts --reporter=dot` against an
+isolated local `_test` database. No dependencies or production rules changed.
+
+Review verification:
+
+- Requested long run: **1,000 scenarios passed**, seed **1307097895**, on isolated local
+  `khidi_m8_model_stress_test` (1,397.95 seconds of test execution). No counterexamples.
+  All generated primitive operation families had successful and rejected batches; both
+  storefronts had successful and rejected availability declarations. Rule A exercised all
+  three outcomes. Replay with `INVENTORY_PROPERTY_RUNS=1000` and
+  `INVENTORY_PROPERTY_SEED=1307097895`.
+- Focused default 25-run checks passed with random seeds, and repository typecheck, lint,
+  dependency boundaries and production build passed.
+- The full suite ran once on fresh local `khidi_m8_model_final_test`: **480 passed,
+  1 optional S3 integration skipped**, across 84 passing files and one skipped file.
+  Its default 25-run model test passed with fresh random seed **1012532856**. No failures
+  and no second full-suite run. No test infrastructure or production code was changed.
+- `packages/inventory/tsconfig.tsbuildinfo` was already absent from the Git index at this
+  review's starting head. Removed its generated local copy, confirmed no build caches are
+  tracked, and retained/documented the existing `*.tsbuildinfo` ignore rule.
