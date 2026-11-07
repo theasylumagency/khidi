@@ -392,6 +392,8 @@ export const skus = pgTable("skus", {
   productFamilyId: uuid("product_family_id").references(() => productFamilies.id),
   productTypeId: uuid("product_type_id").references(() => productTypes.id),
   mergedIntoSkuId: uuid("merged_into_sku_id").references((): AnyPgColumn => skus.id, { onDelete: "restrict" }),
+  mergedUndeterminedFields: text("merged_undetermined_fields").array().notNull().default([]),
+  splitBasisUnverified: boolean("split_basis_unverified").notNull().default(false),
   categoryId: uuid("category_id")
     .notNull()
     .references(() => categories.id),
@@ -463,6 +465,8 @@ export const skuSlugHistory = pgTable("sku_slug_history", {
     .notNull()
     .references(() => skus.id, { onDelete: "restrict" }),
   oldSlug: text("old_slug").notNull().unique(),
+  redirectTargetType: text("redirect_target_type").notNull().default("SKU"),
+  redirectCategoryId: uuid("redirect_category_id").references(() => categories.id),
   changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow()
 });
 
@@ -510,6 +514,8 @@ export const accountingMappings = pgTable("accounting_mappings", {
   accountingName: text("accounting_name").notNull(),
   legacyCode: text("legacy_code"),
   active: boolean("active").notNull().default(true),
+  sharedItemConfirmedBy: uuid("shared_item_confirmed_by").references(() => users.id),
+  sharedItemConfirmedAt: timestamp("shared_item_confirmed_at", { withTimezone: true }),
   notes: text("notes"),
   createdBy: uuid("created_by").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -712,6 +718,11 @@ export const evidence = pgTable("evidence", {
   measurementMethod: text("measurement_method"),
   notes: text("notes"),
   comparisonSkuId: uuid("comparison_sku_id").references(() => skus.id),
+  comparisonRelation: text("comparison_relation").notNull().default("DIFFERS"),
+  acknowledgedUnknowns: jsonb("acknowledged_unknowns_json").$type<Record<string, string>>().notNull().default({}),
+  intakeId: uuid("intake_id").references(() => productIntakes.id),
+  supportingEvidenceIds: uuid("supporting_evidence_ids").array().notNull().default([]),
+  comparisonSupportingEvidenceIds: uuid("comparison_supporting_evidence_ids").array().notNull().default([]),
   comparisonImageId: uuid("comparison_image_id").references(() => productImages.id, { onDelete: "restrict" }),
   comparisonClaims: jsonb("comparison_claims_json").$type<Record<string, EvidenceValue>>(),
   comparisonClaimSources: jsonb("comparison_claim_sources_json").$type<Record<string, EvidenceClaimSource>>(),
@@ -734,6 +745,55 @@ export const skuFieldProvenance = pgTable("sku_field_provenance", {
   decidedBy: uuid("decided_by").references(() => users.id),
   decidedAt: timestamp("decided_at", { withTimezone: true })
 }, (table) => [primaryKey({ columns: [table.skuId, table.fieldName] })]);
+
+export const skuSplitTargets = pgTable("sku_split_targets", {
+  sourceSkuId: uuid("source_sku_id").notNull().references(() => skus.id),
+  targetSkuId: uuid("target_sku_id").notNull().references(() => skus.id),
+  createdBy: uuid("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [primaryKey({ columns: [table.sourceSkuId, table.targetSkuId] })]);
+
+export const evidenceAttributions = pgTable("evidence_attributions", {
+  evidenceId: uuid("evidence_id").notNull().references(() => evidence.id),
+  sourceSkuId: uuid("source_sku_id").notNull().references(() => skus.id),
+  targetSkuId: uuid("target_sku_id").notNull().references(() => skus.id),
+  claimSkuId: uuid("claim_sku_id").notNull().references(() => skus.id),
+  attributedBy: uuid("attributed_by").notNull().references(() => users.id),
+  attributedAt: timestamp("attributed_at", { withTimezone: true }).notNull().defaultNow(),
+  reason: text("reason").notNull()
+}, (table) => [primaryKey({ columns: [table.evidenceId, table.claimSkuId, table.targetSkuId] })]);
+
+export const imageAttributions = pgTable("image_attributions", {
+  imageId: uuid("image_id").notNull().references(() => productImages.id),
+  sourceSkuId: uuid("source_sku_id").notNull().references(() => skus.id),
+  targetSkuId: uuid("target_sku_id").notNull().references(() => skus.id),
+  attributedBy: uuid("attributed_by").notNull().references(() => users.id),
+  attributedAt: timestamp("attributed_at", { withTimezone: true }).notNull().defaultNow(),
+  reason: text("reason").notNull()
+}, (table) => [primaryKey({ columns: [table.imageId, table.targetSkuId] })]);
+
+export const skuMergeAcknowledgements = pgTable("sku_merge_acknowledgements", {
+  id: uuid("id").primaryKey(),
+  sourceSkuId: uuid("source_sku_id").notNull().references(() => skus.id),
+  targetSkuId: uuid("target_sku_id").notNull().references(() => skus.id),
+  evidenceId: uuid("evidence_id").notNull().references(() => evidence.id),
+  fieldName: text("field_name").notNull(),
+  reason: text("reason").notNull(),
+  sourceUnknown: boolean("source_unknown").notNull(),
+  targetUnknown: boolean("target_unknown").notNull(),
+  sourceLineageIds: uuid("source_lineage_ids").array().notNull(),
+  targetLineageIds: uuid("target_lineage_ids").array().notNull(),
+  acknowledgedBy: uuid("acknowledged_by").notNull().references(() => users.id),
+  acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const skuSplitBasis = pgTable("sku_split_basis", {
+  sourceSkuId: uuid("source_sku_id").notNull().references(() => skus.id),
+  targetSkuId: uuid("target_sku_id").notNull().references(() => skus.id),
+  fieldName: text("field_name").notNull(),
+  value: jsonb("value_json").$type<EvidenceValue>().notNull(),
+  evidenceId: uuid("evidence_id").notNull().references(() => evidence.id)
+}, (table) => [primaryKey({ columns: [table.sourceSkuId,table.targetSkuId,table.fieldName] })]);
 
 export const aiJobs = pgTable("ai_jobs", {
   id: uuid("id").primaryKey(),
