@@ -177,3 +177,16 @@ Focused availability, configuration, source-drain, API and confirmation tests pa
 Desktop smoke: a real local login, preview `7 → 10 (+3)`, commit and reload retained three
 reserved units and showed ten free units. A duplicate-name React key was corrected and the
 reloaded screen emitted no new warnings/errors.
+
+## I7 — Stock transitions and replenishment
+
+The owner confirmed the boundaries: zero is OUT_OF_STOCK; positive availability at or
+below the minimum is LOW_STOCK; above the minimum is NORMAL. A zero minimum never
+produces LOW_STOCK. Only a state transition creates a notification, addressed to the
+owning entity's stock managers. The notifications page and inventory screen expose the
+scoped requests and their acknowledgement/decline actions.
+
+Requests are work items only: creation, acknowledgement and decline leave the ledger
+and balances unchanged. A set-availability action may reference an open request and
+fulfill it in the same transaction. Focused tests cover the thresholds, transition
+deduplication, recipient scope, request lifecycle and unchanged stock.
