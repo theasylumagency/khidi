@@ -34,6 +34,7 @@ later, through an administrator's review resolution.
 | --- | --- | --- | --- |
 | Unknown internal label (`KH-…` not allocated) | `MANUAL_IDENTIFICATION_REQUIRED`, review reason `UNKNOWN_INTERNAL_LABEL` | No | Excluded |
 | Internal label of an ARCHIVED SKU without a surviving merge target | `MANUAL_IDENTIFICATION_REQUIRED`, review reason `ARCHIVED_INTERNAL_LABEL`, archived SKU id kept for reference only | No | Excluded |
+| Internal label of a split source (including a merge chain ending there) | `MANUAL_IDENTIFICATION_REQUIRED`, review reason `SPLIT_INTERNAL_LABEL`, source and scanned SKU retained; active split targets listed | No | Excluded |
 | Identifier collision (several SKUs match) | `MANUAL_IDENTIFICATION_REQUIRED`, review reason `IDENTIFIER_COLLISION` (existing behaviour, now with a reason) | No | Excluded |
 | Task completed or cancelled before the scan arrived | Existing match → `MATCHED_EXISTING` (reference only); no match → `MANUAL_IDENTIFICATION_REQUIRED`, no draft. Review reason `TASK_NOT_ACCEPTING` | No | Excluded |
 | Task no longer assigned to this user or role | Same as the row above, review reason `TASK_NOT_ASSIGNED` | No | Excluded |
@@ -44,6 +45,11 @@ Rules:
   with cycle protection. The intake keeps both `scanned_sku_id` and `matched_sku_id`.
   A broken chain or a terminal archive without a successor goes to Class A review.
   Task assignment and availability checks still apply.
+
+- Under accepted ADR-011 Part A, a terminal split source goes to `SPLIT_INTERNAL_LABEL`
+  review. Linking to an active split target queues a replacement label. Original intakes
+  retain their original matched SKU. The review list shows printed-label records and
+  resolved split-label reviews per source; it does not infer unit identity from a shared SKU code.
 
 - `review_reason` is a new nullable column with the values above; `reviewed_at`,
   `reviewed_by`, `review_resolution` and `review_note` record the outcome.

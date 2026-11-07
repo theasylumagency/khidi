@@ -20,8 +20,10 @@ import {
   skuIdentifiers,
   skuSlugHistory,
   resolveActiveSku,
+  resolveSkuTerminal,
   skuContentApprovals,
   skuContentVersions,
+  skuSplitTargets,
   skus,
   storefrontListings,
   storefronts,
@@ -1444,6 +1446,7 @@ export async function upsertAccountingMapping(
     legacyCode?: string | null;
     notes?: string | null;
     replaceExistingForEntity?: boolean;
+    confirmSharedAccountingItem?: boolean;
   }
 ) {
   const accountingItemId = input.accountingItemId.trim();
@@ -1457,6 +1460,14 @@ export async function upsertAccountingMapping(
   }
 
   return withDomainTransaction(db, actor, async (ctx) => {
+    await lockIdentityCatalog(ctx.tx);
+    const shared = await ctx.tx.select({ id:accountingMappings.id }).from(accountingMappings)
+      .innerJoin(skus,eq(skus.id,accountingMappings.skuId))
+      .where(and(eq(accountingMappings.legalEntityId,input.legalEntityId),eq(accountingMappings.accountingItemId,accountingItemId),
+        eq(accountingMappings.active,true),ne(accountingMappings.skuId,input.skuId),ne(skus.lifecycleState,"ARCHIVED")));
+    if(shared.length && input.confirmSharedAccountingItem!==true) {
+      throw new AppError("PRECONDITION_FAILED","Confirm that this accounting item is shared by multiple SKUs.");
+    }
     const [entity] = await ctx.tx
       .select()
       .from(legalEntities)
@@ -1491,7 +1502,8 @@ export async function upsertAccountingMapping(
         legacyCode: input.legacyCode ?? null,
         active: true,
         notes: input.notes ?? null,
-        createdBy: actor.userId ?? null
+        createdBy: actor.userId ?? null,
+        sharedItemConfirmedBy:shared.length?actor.userId:null,sharedItemConfirmedAt:shared.length?new Date():null
       })
       .returning();
 
@@ -1508,6 +1520,7 @@ export async function upsertAccountingMapping(
         legalEntityId: created.legalEntityId,
         legalEntityKey: entity.key,
         accountingItemId: created.accountingItemId,
+        sharedItemConfirmed:shared.length>0,
         accountingName: created.accountingName,
         active: created.active
       }
@@ -1536,6 +1549,9 @@ export async function listAccountingMappingsForSku(
       legalEntityName: legalEntities.legalName,
       accountingItemId: accountingMappings.accountingItemId,
       accountingName: accountingMappings.accountingName,
+      sharedAccountingItem: sql<boolean>`EXISTS(SELECT 1 FROM accounting_mappings peer JOIN skus other ON other.id=peer.sku_id
+        WHERE peer.sku_id <> ${accountingMappings.skuId} AND peer.legal_entity_id=${accountingMappings.legalEntityId}
+          AND peer.accounting_item_id=${accountingMappings.accountingItemId} AND peer.active AND other.lifecycle_state <> 'ARCHIVED')`,
       legacyCode: accountingMappings.legacyCode,
       active: accountingMappings.active,
       notes: accountingMappings.notes,
@@ -1769,7 +1785,16 @@ export async function resolveSkuSlug(db: DbExecutor, slug: string) {
   const [current] = await db.select({ skuId: skus.id }).from(skus).where(eq(skus.canonicalSlug, slug));
   const [history] = current ? [] : await db.select({ skuId: skuSlugHistory.skuId }).from(skuSlugHistory).where(eq(skuSlugHistory.oldSlug, slug));
   const id = current?.skuId ?? history?.skuId;
-  const sku = id ? await resolveActiveSku(db, id) : null;
+  const terminal = id ? await resolveSkuTerminal(db,id) : null;
+  if(terminal?.lifecycleState==="ARCHIVED"){
+    const [split]=await db.select().from(skuSplitTargets).where(eq(skuSplitTargets.sourceSkuId,terminal.id)).limit(1);
+    if(split){
+      const [source]=await db.select({categoryId:productTypes.defaultCategoryId}).from(skus)
+        .innerJoin(productTypes,eq(productTypes.id,skus.productTypeId)).where(eq(skus.id,terminal.id));
+      if(source)return {redirectTargetType:"CATEGORY" as const,categoryId:source.categoryId,redirected:true};
+    }
+  }
+  const sku = terminal?.lifecycleState!=="ARCHIVED"?terminal:null;
   if (!sku) return null;
   const [target] = await db.select({ canonicalSlug: skus.canonicalSlug }).from(skus).where(eq(skus.id, sku.id));
   return target?.canonicalSlug ? { skuId: sku.id, canonicalSlug: target.canonicalSlug, redirected: target.canonicalSlug !== slug } : null;

@@ -1,7 +1,9 @@
 import { eq, inArray, or, sql } from "drizzle-orm";
 import type { DbExecutor } from "./client.ts";
 import { evidenceAttributions, imageAttributions, productImages, skuSplitTargets } from "./schema.ts";
-import { getSkuLineageIds } from "./sku-lineage.ts";
+import { skus } from "./schema.ts";
+import { getSkuLineageIds, resolveSkuTerminal } from "./sku-lineage.ts";
+import { resolveActiveSku } from "./sku-lineage.ts";
 
 export async function getSkuImages(db: DbExecutor, skuId: string) {
   const ids = await getSkuLineageIds(db, skuId);
@@ -19,6 +21,21 @@ export async function getSplitTargets(db: DbExecutor, skuId: string) {
   return db.select().from(skuSplitTargets).where(eq(skuSplitTargets.sourceSkuId, skuId));
 }
 
+export async function getSplitCandidates(db: DbExecutor, sourceSkuId: string) {
+  const pending=[sourceSkuId],visited=new Set<string>(),active=new Set<string>();
+  while(pending.length){
+    const id=pending.pop()!;
+    if(visited.has(id))continue;
+    visited.add(id);
+    const terminal=await resolveSkuTerminal(db,id);
+    if(!terminal)continue;
+    if(terminal.lifecycleState!=="ARCHIVED"){active.add(terminal.id);continue;}
+    pending.push(...(await getSplitTargets(db,terminal.id)).map((row)=>row.targetSkuId));
+  }
+  return db.select({skuId:skus.id,internalSku:skus.internalSku,displayNameKa:skus.displayNameKa}).from(skus)
+    .where(inArray(skus.id,[...active]));
+}
+
 export async function getAttributedSkuIds(db: DbExecutor, sourceSkuIds: string[]) {
   if (!sourceSkuIds.length) return [];
   const [evidence, images] = await Promise.all([
@@ -26,4 +43,16 @@ export async function getAttributedSkuIds(db: DbExecutor, sourceSkuIds: string[]
     db.select({ id: imageAttributions.targetSkuId }).from(imageAttributions).where(inArray(imageAttributions.sourceSkuId, sourceSkuIds))
   ]);
   return [...new Set([...evidence, ...images].map(({ id }) => id))];
+}
+
+export async function getAffectedSkuIds(db:DbExecutor,sourceSkuId:string){
+  const pending=[sourceSkuId],seen=new Set<string>(),result=new Set<string>();
+  while(pending.length){
+    const id=pending.pop()!;
+    if(seen.has(id))continue;
+    seen.add(id);
+    result.add((await resolveActiveSku(db,id))?.id??id);
+    pending.push(...await getAttributedSkuIds(db,await getSkuLineageIds(db,id)));
+  }
+  return [...result];
 }

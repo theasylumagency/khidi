@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
-import { type DbExecutor, type MediaDerivative, getSkuLineageIds, imagePublications, productImages, skus, storefronts } from "@khidi/db";
+import { type DbExecutor, type MediaDerivative, getSkuImages, imagePublications, productImages, skus, storefronts } from "@khidi/db";
 import { withDomainTransaction, type DomainTransactionContext } from "@khidi/domain";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import type { MediaStorage } from "./storage.ts";
@@ -23,8 +23,8 @@ async function desiredCopies(ctx: DomainTransactionContext, skuId: string): Prom
   if (!sku) throw new AppError("NOT_FOUND", "SKU not found.");
   if (sku.lifecycleState !== "READY" || !sku.canonicalSlug) return [];
   try { publicMediaKey(sku.canonicalSlug, 1, 400, "webp"); } catch { return []; }
-  const lineage = await getSkuLineageIds(ctx.tx, skuId);
-  const images = await ctx.tx.select().from(productImages).where(and(inArray(productImages.skuId, lineage), eq(productImages.status, "VERIFIED"), eq(productImages.usage, "PUBLIC"))).orderBy(asc(productImages.sortOrder), asc(productImages.createdAt), asc(productImages.id)).for("update");
+  const candidates=await getSkuImages(ctx.tx,skuId);
+  const images = await ctx.tx.select().from(productImages).where(and(inArray(productImages.id,candidates.map((image)=>image.id)), eq(productImages.status, "VERIFIED"), eq(productImages.usage, "PUBLIC"))).orderBy(asc(productImages.sortOrder), asc(productImages.createdAt), asc(productImages.id)).for("update");
   images.sort((a, b) => Number(b.role === "MAIN") - Number(a.role === "MAIN"));
   const copies: DesiredCopy[] = [];
   for (const [index, image] of images.entries()) for (const derivative of Object.values(image.derivativesJson)) copies.push({ imageId: image.id, skuId, version: image.masterVersion, key: publicMediaKey(sku.canonicalSlug, index + 1, derivative.width, derivative.format), derivative });

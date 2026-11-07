@@ -1,6 +1,6 @@
 import { and, eq, isNull, or } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
-import { type DbExecutor, intakePhotoStatus, productImages, productIntakes, productTypes, scanTasks, skus } from "@khidi/db";
+import { type DbExecutor, getSkuImages, intakePhotoStatus, productImages, productIntakes, productTypes, scanTasks, skus } from "@khidi/db";
 import type { DomainTransactionContext } from "@khidi/domain";
 import { AppError } from "@khidi/shared";
 import { GENERIC_CAPTURE_SLOTS, PHOTO_SLOTS, type CaptureSlot, type PhotoSlot, type PhotoUploadInput } from "./contracts.ts";
@@ -31,7 +31,7 @@ export async function captureSlotsForSku(db: DbExecutor, skuId: string | null): 
 }
 export async function initializeIntakePhotos(ctx: DomainTransactionContext, intakeId: string, skuId: string | null) {
   const slots = await captureSlotsForSku(ctx.tx, skuId);
-  const verified = skuId ? await ctx.tx.select({ slot: productImages.slot }).from(productImages).where(and(eq(productImages.skuId, skuId), eq(productImages.status, "VERIFIED"))) : [];
+  const verified = skuId ? (await getSkuImages(ctx.tx,skuId)).filter((image)=>image.status==="VERIFIED") : [];
   const covered = [...new Set(verified.map((image) => image.slot))];
   const required = slots.filter((slot) => slot.required && !covered.includes(slot.slot)).map((slot) => slot.slot);
   await ctx.tx.insert(intakePhotoStatus).values({ intakeId, requiredSlotsJson: required, coveredSlotsJson: covered, status: required.length ? "PENDING" : "COMPLETE" }).onConflictDoNothing();
