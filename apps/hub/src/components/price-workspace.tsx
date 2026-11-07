@@ -47,7 +47,8 @@ export function PriceWorkspace({ storefrontId, stores, rows, canEdit, admin, def
         return { skuId: row.skuId, storefrontId, kind: edit.kind, ...(edit.kind === "SET" ? { basePriceMinor: amount! } : {}),
           ...(edit.vat ? { vatIncluded: edit.vat === "true" } : {}), expectedPriceId: row.expectedPriceId };
       });
-      const body = await send(copy ? { action: "copy-preview", sourceStorefrontId: copyFrom, targetStorefrontId: storefrontId, skuIds: [...selected] }
+      const body = await send(copy ? { action: "copy-preview", sourceStorefrontId: copyFrom, targetStorefrontId: storefrontId, skuIds: [...selected],
+        expectedPriceIds: Object.fromEntries(rows.filter((row) => selected.has(row.skuId)).map((row) => [row.skuId, row.expectedPriceId])) }
         : { action: "preview", batch: { changes, source: nextSource } });
       setSource(nextSource); setPreview(body.preview); setRequestKey(createUuidV7());
     } catch (error) { setMessage(error instanceof Error ? error.message : t("scanning.error")); }

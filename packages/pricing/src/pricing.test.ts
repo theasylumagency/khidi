@@ -81,8 +81,8 @@ it("rejects ungranted operators and warehouse users, accepts price.edit, and res
 it("commits batches atomically and replays once with one audit, outbox event and storefront delivery per row", async () => {
   const f = await fixture();
   const other = await createSkuDraft(db, f.actor, {});
-  const changes = [f.change, { ...f.change, skuId: other.id }];
-  await expect(commitPriceChanges(db, f.actor, { source: "BULK", changes: [f.change, { ...f.change, skuId: createUuidV7() }] })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  const changes = [{ ...f.change, expectedPriceId: null }, { ...f.change, skuId: other.id, expectedPriceId: null }];
+  await expect(commitPriceChanges(db, f.actor, { source: "BULK", changes: [changes[0]!, { ...f.change, skuId: createUuidV7(), expectedPriceId: null }] })).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect(await getCurrentPrice(db, f.sku.id, f.store.id)).toBeNull();
   const key = createUuidV7();
   const commit = () => executeIdempotent(db, { scope: "pricing-test", idempotencyKey: key, payload: changes }, async (tx) => ({
@@ -125,19 +125,39 @@ it("preserves an admin's VAT exception across omitted/explicit operator VAT and 
   expect((await setPrice(db, actor, { ...f.change, basePriceMinor: 11000 })).rows[0]?.vatIncluded).toBe(false);
 });
 
-it("copies selected base amounts through a large-change preview and uses the destination seller VAT default", async () => {
+it("copies selected base amounts through a stale-protected preview and preserves destination VAT", async () => {
   const f = await fixture();
   const target = (await db.query.storefronts.findMany()).find((row) => row.id !== f.store.id)!;
   await setPrice(db, f.actor, f.change);
-  await setPrice(db, f.actor, { ...f.change, storefrontId: target.id, basePriceMinor: 1000 });
-  const preview = await copyPricePreview(db, f.actor, f.store.id, target.id, [f.sku.id]);
-  expect(preview[0]).toMatchObject({ basePriceMinor: 10000, largeChange: true, unchanged: false });
+  const destination = (await setPrice(db, f.actor, { ...f.change, storefrontId: target.id, basePriceMinor: 1000, vatIncluded: false })).rows[0]!;
+  const preview = await copyPricePreview(db, f.actor, f.store.id, target.id, [f.sku.id], { [f.sku.id]: destination.id });
+  expect(preview[0]).toMatchObject({ basePriceMinor: 10000, largeChange: true, unchanged: false, vatIncluded: false });
   expect(await getCurrentPrice(db, f.sku.id, target.id)).toMatchObject({ basePriceMinor: 1000 });
   const changes = preview.map(({ skuId, storefrontId, basePriceMinor, expectedPriceId }) => ({ skuId, storefrontId, basePriceMinor, expectedPriceId }));
   await expect(commitPriceChanges(db, f.actor, { source: "BULK", changes })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   const result = await commitPriceChanges(db, f.actor, { source: "BULK", changes, reason: "Copy approved base prices", confirmLargeChanges: true });
-  const seller = (await db.query.legalEntities.findMany()).find((row) => row.id === target.sellerEntityId)!;
-  expect(result.rows[0]).toMatchObject({ source: "BULK", vatIncluded: seller.pricesIncludeVat });
+  expect(result.rows[0]).toMatchObject({ source: "BULK", vatIncluded: false });
   expect(result.batchId).toBeTruthy();
-  await expect(copyPricePreview(db, f.actor, f.store.id, target.id, [createUuidV7()])).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+  const missingSku = createUuidV7();
+  await expect(copyPricePreview(db, f.actor, f.store.id, target.id, [missingSku], { [missingSku]: null })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+  await expect(copyPricePreview(db, f.actor, f.store.id, target.id, [f.sku.id], { [f.sku.id]: destination.id })).rejects.toMatchObject({ code: "CONFLICT" });
+});
+
+it("requires stale-protection IDs for every bulk/CSV/copy row at the domain boundary", async () => {
+  const f = await fixture();
+  for (const source of ["BULK", "CSV_IMPORT"] as const) {
+    await expect(previewPriceChanges(db, f.actor, { source, changes: [f.change] })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(commitPriceChanges(db, f.actor, { source, changes: [f.change] })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect((await previewPriceChanges(db, f.actor, { source, changes: [{ ...f.change, expectedPriceId: null }] }))[0]?.expectedPriceId).toBeNull();
+  }
+  const other = (await db.query.storefronts.findMany()).find((row) => row.id !== f.store.id)!;
+  const sourcePrice = (await setPrice(db, f.actor, { ...f.change, storefrontId: other.id })).rows[0]!;
+  await expect(commitPriceChanges(db, f.actor, { source: "CSV_IMPORT", reason: "CSV must not withdraw", changes: [
+    { skuId: f.sku.id, storefrontId: other.id, kind: "WITHDRAWN", expectedPriceId: sourcePrice.id }
+  ] })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  await expect(copyPricePreview(db, f.actor, other.id, f.store.id, [f.sku.id], undefined!)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  await expect(copyPricePreview(db, f.actor, other.id, f.store.id, [f.sku.id], {})).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  const preview = await copyPricePreview(db, f.actor, other.id, f.store.id, [f.sku.id], { [f.sku.id]: null });
+  expect(preview[0]).toMatchObject({ expectedPriceId: null, basePriceMinor: 10000 });
+  expect(await getCurrentPrice(db, f.sku.id, f.store.id)).toBeNull();
 });

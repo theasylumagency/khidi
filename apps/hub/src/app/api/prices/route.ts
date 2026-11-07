@@ -32,9 +32,9 @@ export async function POST(request: Request) {
     assertSecurityOrigin(request);
     const db = getDb(), actor = { userId: principal.userId };
     await assertPriceAccess(db, actor, true);
-    const body = await request.json() as { action?: string; batch?: PriceBatch; sourceStorefrontId?: string; targetStorefrontId?: string; skuIds?: string[] };
+    const body = await request.json() as { action?: string; batch?: PriceBatch; sourceStorefrontId?: string; targetStorefrontId?: string; skuIds?: string[]; expectedPriceIds?: Record<string, string | null> };
     if (body.action === "copy-preview") {
-      return NextResponse.json({ preview: await copyPricePreview(db, actor, body.sourceStorefrontId!, body.targetStorefrontId!, body.skuIds!) });
+      return NextResponse.json({ preview: await copyPricePreview(db, actor, body.sourceStorefrontId!, body.targetStorefrontId!, body.skuIds!, body.expectedPriceIds!) });
     }
     if (!body.batch || !["MANUAL", "BULK"].includes(body.batch.source ?? "MANUAL")) throw new AppError("VALIDATION_ERROR", "Invalid price batch.");
     if (body.action === "preview") return NextResponse.json({ preview: await previewPriceChanges(db, actor, body.batch) });

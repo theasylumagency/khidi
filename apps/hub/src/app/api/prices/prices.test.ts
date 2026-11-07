@@ -32,7 +32,7 @@ it("requires an authenticated price permission, previews without writes and repl
     }
   }
   session.principal = principal;
-  const batch = { source: "BULK", changes: [{ skuId: sku.id, storefrontId: store.id, basePriceMinor: 10000 }] };
+  const batch = { source: "BULK", changes: [{ skuId: sku.id, storefrontId: store.id, basePriceMinor: 10000, expectedPriceId: null }] };
   const response = await POST(request({ action: "preview", batch }));
   expect(response.status).toBe(200);
   const { preview } = await response.json();
@@ -73,4 +73,9 @@ it("previews CSV errors before allowing an explicitly filtered idempotent import
   const bytes = new Uint8Array(await exported.arrayBuffer());
   expect([...bytes.slice(0, 3)]).toEqual([239, 187, 191]);
   expect(new TextDecoder().decode(bytes)).toContain(`${store.key},${sku.internalSku}`);
+  const unpriced = await createSkuDraft(db, { userId: admin.id }, {});
+  const template = await exportCsv(new Request(origin + `/api/prices/csv?storefrontId=${store.id}&mode=template&lifecycle=INTAKE`));
+  expect(template.status).toBe(200);
+  expect(await template.text()).toContain(unpriced.internalSku);
+  expect((await exportCsv(new Request(origin + `/api/prices/csv?storefrontId=${store.id}&mode=invalid`))).status).toBe(400);
 });

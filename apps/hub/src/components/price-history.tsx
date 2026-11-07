@@ -12,7 +12,7 @@ export async function PriceHistory({ skuId, userId, storefronts }: { skuId: stri
     </tr></thead><tbody>{history.map(({ price, authorName }) => <tr key={price.id}>
       <td>{storefronts.find((row) => row.id === price.storefrontId)?.name ?? "—"}</td>
       <td>{price.kind === "SET" ? formatPrice(price.basePriceMinor!) : t("pricing.withdraw")}</td><td>{t(price.vatIncluded ? "pricing.yes" : "pricing.no")}</td>
-      <td>{formatTbilisiDateTime(price.setAt)}</td><td>{formatStaffName(authorName)}</td><td>{price.reason ?? "—"}</td>
+      <td>{formatTbilisiDateTime(price.setAt)}</td><td>{formatStaffName(authorName)}</td><td>{price.reason === "SKU merged" ? t("pricing.reason_merged") : price.reason === "SKU split" ? t("pricing.reason_split") : price.reason ?? "—"}</td>
     </tr>)}</tbody></table></div> : <p>{t("pricing.empty")}</p>}
   </section>;
 }

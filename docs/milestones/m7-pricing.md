@@ -14,7 +14,8 @@
 
 One immediate GEL base price per SKU/storefront; integer positive tetri. No scheduled
 prices, VAT calculation or storefront promotion logic. Withdrawals append a reasoned
-tombstone. The first price uses seller VAT; later rows retain the latest row's VAT flag unless ADMIN changes it. ADMIN and granted
+tombstone. The first price uses seller VAT; later rows retain the latest row's VAT flag unless
+ADMIN changes it. ADMIN and granted
 `price.edit` users edit; WAREHOUSE cannot read or write prices. First prices are not large
 changes; changes of 30% or more require explicit confirmation and a batch reason.
 
@@ -37,7 +38,8 @@ restores `MISSING_STOREFRONT_BASE_PRICE`. A fully publish-ready priced SKU still
 M8 allocation-owner blocker. Four focused publishing tests and its typecheck passed.
 P3 adds the Georgian `/prices` workspace, storefront/type/lifecycle/missing-price filters,
 inline GEL editing, selected-row withdrawals, previews and one atomic commit. Copying
-selected base amounts retains destination VAT, using seller VAT only for its first price and the same batch preview.
+selected base amounts uses the same batch preview and retains destination VAT, using seller
+VAT only for the first price.
 The product page shows immutable per-storefront history. Staff names are formatted and
 authorized staff see the stored storefront names. Navigation honors granular price grants, including
 the permanent WAREHOUSE exclusion. API reads/writes are authenticated; commits require
@@ -67,7 +69,7 @@ larger imports must be split. Bulk commits accept up to 1,000 selected price row
 - A narrow `.gitattributes` rule retains LF for `next.config.ts`: the existing CSP source-text
   assertion otherwise fails on a Windows CRLF checkout. The test and production CSP are preserved.
 
-## Verification
+## Initial P1–P4 verification
 
 - 17 focused pricing, CSV/API and storefront-immutability tests passed before final checks.
 - Repository typecheck, lint and dependency boundaries passed.
@@ -78,8 +80,6 @@ larger imports must be split. Bulk commits accept up to 1,000 selected price row
 - Desktop browser smoke check: Georgian price table, comma-decimal entry, 30% delta preview,
   disabled confirmation until reason and checkbox are supplied, and storefront key guidance.
 - Production build passed, including the Hub's TypeScript and route generation.
-
-## Gaps and business decisions
 
 ## Review corrections
 
@@ -99,6 +99,25 @@ larger imports must be split. Bulk commits accept up to 1,000 selected price row
    including VAT: they never append a row or withdraw a price. The review labels them
    unchanged. A filled template amount creates a first price normally. Eight CSV tests
    and the existing price API checks passed, with affected typechecks green.
+4. Every BULK and CSV_IMPORT domain change requires an explicit `expectedPriceId`,
+   including `null` for a first price. Copy preview also requires destination expectations
+   for every selected SKU; omission and stale IDs are rejected by the domain service.
+   CSV_IMPORT also rejects WITHDRAWN operations at the domain boundary. Manual single-price
+   behavior is unchanged. All existing split targets are locked in SKU ID order before price
+   locks, including targets older than the source.
+
+## Review verification
+
+- 26 focused tests passed across pricing, CSV, catalog-correction prices, API requests and
+  the confirmation warnings. The existing split/merge evidence regressions also passed.
+- Repository typecheck, lint (including dependency boundaries) and production build passed.
+- The full suite ran once on fresh isolated `khidi_m7_corrections_final_test`: **414 passed,
+  1 skipped** across 73 files. Only the optional S3 integration case was skipped (no MinIO).
+  The existing Windows-sensitive architecture assertion passed with the retained LF rule.
+- A final explicit CSV-withdrawal domain guard was then checked by 18 passing pricing/CSV
+  tests and the pricing typecheck. No second full-suite run was performed.
+
+## Gaps and business decisions
 
 The M8 allocation-owner blocker remains deliberately unmet. Promotions, VAT calculation,
 scheduled prices, public storefront transport and deployment remain outside M7. No business

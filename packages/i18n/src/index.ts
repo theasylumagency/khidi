@@ -737,6 +737,7 @@ const SCANNING_LABELS = {
 } as const;
 
 const PRICING_LABELS = {
+  "pricing.reason_merged": "პროდუქტი გაერთიანდა", "pricing.reason_split": "პროდუქტი გაიყო",
   "pricing.export_template": "CSV-ის შაბლონი — ყველა არაარქივირებული პროდუქტი (მდგომარეობის ფილტრით)",
   "pricing.csv_blank_unchanged": "ცარიელი ფასი ნიშნავს უცვლელს. CSV ფასს არ აუქმებს — ამისთვის გამოიყენეთ ფასის მოხსნის მოქმედება და მიუთითეთ მიზეზი.",
   "pricing.csv.ARCHIVED_SKU": "დაარქივებული პროდუქტის ფასის შეცვლა შეუძლებელია.",

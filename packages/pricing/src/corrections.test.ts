@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { expect, it } from "vitest";
-import { auditLogs, getDb, outboxEvents, productImages, storefrontPrices } from "@khidi/db";
+import { auditLogs, getDb, outboxEvents, productImages, skus, storefrontPrices } from "@khidi/db";
 import { createSkuDraft, getProductTypeByKey, mergeSkus, transitionSkuLifecycle, upsertProductType } from "@khidi/products";
 import { splitSku } from "@khidi/products/corrections";
 import { makeSamenessFixture } from "../../products/src/sameness.test-fixture.ts";
@@ -12,7 +12,8 @@ async function fixture() {
   const admin = (await db.query.users.findFirst({ where: (row, { eq }) => eq(row.role, "ADMIN") }))!;
   const stores = await db.query.storefronts.findMany({ limit: 2 });
   const actor = { userId: admin.id };
-  const source = await createSkuDraft(db, actor, {}), target = await createSkuDraft(db, actor, {});
+  // Existing split targets can predate the source; both operations must use the same lock order.
+  const target = await createSkuDraft(db, actor, {}), source = await createSkuDraft(db, actor, {});
   for (const store of stores) await setPrice(db, actor, { skuId: source.id, storefrontId: store.id, basePriceMinor: 10000, vatIncluded: false });
   await setPrice(db, actor, { skuId: target.id, storefrontId: stores[0]!.id, basePriceMinor: 40000 });
   return { actor, stores, source, target };
@@ -60,7 +61,6 @@ it("withdraws split-source prices atomically and leaves existing/new target pric
   const template = await getProductTypeByKey(db, "MOTOBLOCK");
   const type = await upsertProductType(db, f.actor, { ...template, key: "PRICE_SPLIT_" + createUuidV7().slice(-9), distinguishingAttributes: ["wheel_type"] });
   // Synthetic fixtures establish the type before the correction is submitted.
-  const { skus } = await import("@khidi/db");
   await db.update(skus).set({ productTypeId: type.id }).where(sql`${skus.id} IN (${f.source.id}::uuid, ${f.target.id}::uuid)`);
   const photos: string[] = [];
   for (let index = 0; index < 2; index++) {
@@ -82,4 +82,17 @@ it("withdraws split-source prices atomically and leaves existing/new target pric
   expect(await getCurrentPrice(db, f.target.id, f.stores[1]!.id)).toBeNull();
   const createdId = result.targetSkuIds.find((id) => id !== f.target.id)!;
   for (const store of f.stores) expect(await getCurrentPrice(db, createdId, store.id)).toBeNull();
+});
+
+it("rejects an edit waiting on a SKU that becomes archived before the write can proceed", async () => {
+  const f = await fixture();
+  let pending: Promise<unknown> | undefined;
+  await db.transaction(async (tx) => {
+    await tx.select({ id: skus.id }).from(skus).where(eq(skus.id, f.source.id)).for("update");
+    pending = setPrice(db, f.actor, { skuId: f.source.id, storefrontId: f.stores[0]!.id, basePriceMinor: 11000 })
+      .then(() => ({ succeeded: true }), (error: unknown) => ({ error }));
+    await transitionSkuLifecycle(tx, f.actor, f.source.id, "ARCHIVED", { reason: "Concurrent archive fixture" });
+  });
+  expect(await pending).toMatchObject({ error: { code: "PRECONDITION_FAILED" } });
+  expect((await getPriceHistory(db, f.actor, f.source.id)).map((row) => row.price.kind)).toEqual(["SET", "SET"]);
 });

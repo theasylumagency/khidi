@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { legalEntities, skus, storefrontPrices, storefronts, userPermissions, users, type DbExecutor } from "@khidi/db";
 import { withDomainTransaction, type DomainActor } from "@khidi/domain";
@@ -28,6 +28,10 @@ function parseBatch(raw: unknown) {
   if (!parsed.success) throw new AppError("VALIDATION_ERROR", "Invalid price changes.");
   const input = parsed.data;
   if (input.source === "MANUAL" && input.changes.length !== 1) throw new AppError("VALIDATION_ERROR", "Manual changes contain one row.");
+  if (input.source !== "MANUAL" && input.changes.some((row) => row.expectedPriceId === undefined)) {
+    throw new AppError("VALIDATION_ERROR", "Bulk and CSV changes require an expected price ID (null for a first price).");
+  }
+  if (input.source === "CSV_IMPORT" && input.changes.some((row) => row.kind === "WITHDRAWN")) throw new AppError("VALIDATION_ERROR", "CSV imports cannot withdraw prices.");
   const keys = input.changes.map((row) => `${row.storefrontId}:${row.skuId}`);
   if (new Set(keys).size !== keys.length) throw new AppError("VALIDATION_ERROR", "Duplicate price rows.");
   return input;
@@ -113,7 +117,7 @@ export async function commitPriceChanges(db: DbExecutor, actor: DomainActor, raw
   return withDomainTransaction(db, actor, async (ctx) => {
     await assertPriceAccess(ctx.tx, actor, true);
     // Lock SKUs before price pairs, matching catalog correction lock order.
-    await ctx.tx.select({ id: skus.id }).from(skus).where(inArray(skus.id, [...new Set(input.changes.map((row) => row.skuId))]))
+    await ctx.tx.select({ id: skus.id }).from(skus).where(and(ne(skus.lifecycleState, "ARCHIVED"), inArray(skus.id, [...new Set(input.changes.map((row) => row.skuId))])))
       .orderBy(asc(skus.id)).for("update");
     // Sorted pair locks serialize first inserts and avoid deadlocks across overlapping batches.
     for (const key of input.changes.map((row) => `${row.storefrontId}:${row.skuId}`).sort()) {
@@ -155,17 +159,19 @@ export async function getCorrectionPriceImpact(db: DbExecutor, actor: DomainActo
 }
 export type CorrectionPriceImpact = Awaited<ReturnType<typeof getCorrectionPriceImpact>>;
 
-export async function copyPricePreview(db: DbExecutor, actor: DomainActor, sourceStorefrontId: string, targetStorefrontId: string, skuIds: string[]) {
+export async function copyPricePreview(db: DbExecutor, actor: DomainActor, sourceStorefrontId: string, targetStorefrontId: string, skuIds: string[], expectedPriceIds: Record<string, string | null>) {
   await assertPriceAccess(db, actor, true);
   if (!z.string().uuid().safeParse(sourceStorefrontId).success || !z.string().uuid().safeParse(targetStorefrontId).success
     || sourceStorefrontId === targetStorefrontId || !z.array(z.string().uuid()).min(1).max(1000).safeParse(skuIds).success) {
     throw new AppError("VALIDATION_ERROR", "Invalid price copy selection.");
   }
+  const expected = z.record(z.string().uuid().nullable()).safeParse(expectedPriceIds);
+  if (!expected.success || skuIds.some((skuId) => expected.data[skuId] === undefined)) throw new AppError("VALIDATION_ERROR", "Copying prices requires an expected destination price ID for every SKU.");
   const source = new Map((await listLatestPrices(db, { storefrontId: sourceStorefrontId })).filter((row) => row.kind === "SET").map((row) => [row.skuId, row]));
   const changes = skuIds.map((skuId) => {
     const row = source.get(skuId);
     if (!row) throw new AppError("PRECONDITION_FAILED", "A selected SKU has no source price.");
-    return { skuId, storefrontId: targetStorefrontId, basePriceMinor: row.basePriceMinor! };
+    return { skuId, storefrontId: targetStorefrontId, basePriceMinor: row.basePriceMinor!, expectedPriceId: expected.data[skuId]! };
   });
   return previewPriceChanges(db, actor, { changes, source: "BULK" });
 }

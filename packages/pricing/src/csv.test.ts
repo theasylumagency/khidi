@@ -112,6 +112,16 @@ it("treats empty amounts as unchanged and never withdraws or changes VAT", async
   expect(await getCurrentPrice(db, f.b.id, f.store.id)).toBeNull();
 });
 
+it("allows an operator's CSV to retain an existing VAT exception but rejects changing it", async () => {
+  const f = await fixture();
+  const operator = (await db.query.users.findFirst({ where: (row, { eq }) => eq(row.email, "operator@agrotrade.local") }))!;
+  await setPrice(db, f.actor, { skuId: f.a.id, storefrontId: f.store.id, basePriceMinor: 10000, vatIncluded: false });
+  const input = { storefrontId: f.store.id, csv: f.csv([f.row(f.a.internalSku, "110").replace(",true,", ",false,")]) };
+  const actor = { userId: operator.id };
+  expect((await previewCsvImport(db, actor, input)).canCommit).toBe(true);
+  expect((await previewCsvImport(db, actor, { ...input, csv: f.csv([f.row(f.a.internalSku, "110")]) })).rows[0]?.errors).toContain("VAT_OVERRIDE_FORBIDDEN");
+});
+
 it("creates first prices from filled template amounts and retains blank template rows", async () => {
   const f = await fixture();
   const template = parsePriceCsv(await exportPricesCsv(db, f.actor, f.store.id, { mode: "template" }));
