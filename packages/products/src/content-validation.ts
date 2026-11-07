@@ -88,7 +88,7 @@ const wordEnd = String.raw`(?![\p{L}\p{M}\p{N}])`;
 const numberPattern = String.raw`[+-]?(?:\p{Nd}{1,3}(?: \p{Nd}{3})+(?:[.,]\p{Nd}+)?|\p{Nd}+(?:[.,]\p{Nd}+)?|[.,]\p{Nd}+)`;
 const modelTokens = /[\p{L}\p{M}\p{N}]+(?:-[\p{L}\p{M}\p{N}]+)*/gu;
 // Short abbreviations and mixed words are ambiguous unless the text labels them as model codes.
-const clearModelCode = /^(?:\d{3}[a-z]{2,3}|[a-z]{1,4}\d{3,5}[a-z]{1,3})(?:-[a-z\d]{2,12})*$/i;
+const clearModelCode = /^(?:\d{3}[a-z]{2,3}|[a-z]{1,4}-?\d{3,5}[a-z]{1,3})(?:-[a-z\d]{2,12})*$/i;
 const compactQuantity = /^\d+(?:[kmgt]?hz|[kmgt]b|fps|rpm)$/i;
 const modelLabel = new RegExp(`${wordStart}(?:model(?: +code)?|მოდელი|მოდელის +კოდი) *[:#=] *$`, "iu");
 const literal = (value: string) => normalizeContentText(value.trim()).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -146,8 +146,10 @@ function technicalMatcher(rules: ContentValidationRules) {
   const suffix = new RegExp(`^ *(?:- *)?(${alternatives(new Set([...units.keys(), ...parameters.keys()]))})${wordEnd}`, "iu");
   const prefixTerms = alternatives(new Set([...parameters.keys(), ...[...units.keys()].filter((term) => term.length > 1)]));
   const prefix = new RegExp(`${wordStart}(${prefixTerms})(?: *[:=])?$`, "iu");
-  return (text: string) => [...text.matchAll(new RegExp(`${wordStart}${numberPattern}`, "gu"))].flatMap((number) => {
+  return (text: string, modelPhrases: readonly { start: number; end: number }[]) => [...text.matchAll(new RegExp(`${wordStart}${numberPattern}`, "gu"))].flatMap((number) => {
     const index = number.index;
+    // A unit-like fragment belongs to the verified model only at this occurrence.
+    if (modelPhrases.some(({ start, end }) => start <= index && index < end)) return [];
     const end = index + number[0].length;
     const afterMatch = suffix.exec(text.slice(end));
     const after = afterMatch?.[1] === "a" && afterMatch[0].startsWith(" ") ? null : afterMatch;
@@ -179,7 +181,11 @@ export function validateCanonicalDraft(draft: CanonicalDraft, context: Canonical
     const cite = (key: string, fact: CanonicalFact) => { if (field !== "searchAliases") facts[key] = fact.value; };
     const privatePhrase = findConfidentialPhrase(text, rules.confidentialTerms);
     if (privatePhrase) reject("INTERNAL_TEXT", privatePhrase);
-    const recognized = readTechnical(text);
+    const identityPhrases = (fact: CanonicalFact | undefined) => fact
+      ? [...text.matchAll(new RegExp(`${wordStart}${literal(String(fact.value))}${wordEnd}`, "giu"))]
+        .map((match) => ({ start: match.index, end: match.index + match[0].length })) : [];
+    const modelPhrases = identityPhrases(model);
+    const recognized = readTechnical(text, modelPhrases);
     for (const { fields, value, start, end, numberStart, hasUnit } of recognized) {
       const matched = fields.filter((key) => {
         const reading = context.facts[key]?.value;
@@ -196,10 +202,7 @@ export function validateCanonicalDraft(draft: CanonicalDraft, context: Canonical
       const match = findLiteral(text, known);
       if (match) reject("UNVERIFIED_BRAND", match[0]);
     }
-    const identityPhrases = [brand, model].flatMap((fact) => fact
-      ? [...text.matchAll(new RegExp(`${wordStart}${literal(String(fact.value))}${wordEnd}`, "giu"))]
-        .map((match) => ({ start: match.index, end: match.index + match[0].length })) : []);
-    const covered = [...identityPhrases, ...recognized];
+    const covered = [...identityPhrases(brand), ...modelPhrases, ...recognized];
     for (const token of text.matchAll(modelTokens)) {
       const phrase = token[0];
       const code = phrase.replace(/-(?:ში|ის|ზე|ით|დან|მდე|თან|ს|მა)$/u, "");
