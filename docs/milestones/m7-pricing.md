@@ -31,4 +31,8 @@ insert writes its audit and storefront-specific outbox delivery in the same tran
 are checked again by the service. Direct dependencies use existing pinned library versions.
 
 P1: six focused pricing tests and pricing typecheck passed on `khidi_m7_work_test`.
-P2–P4 and final verification remain pending.
+P2 loads stored current prices for every storefront. The public projection adds only
+`basePrice: { amount, currency, vat_included }` when present. A withdrawal removes it and
+restores `MISSING_STOREFRONT_BASE_PRICE`. A fully publish-ready priced SKU still has the
+M8 allocation-owner blocker. Four focused publishing tests and its typecheck passed.
+P3–P4 and final verification remain pending.

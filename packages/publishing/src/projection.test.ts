@@ -4,6 +4,7 @@ import { getApprovedContent, getContentFactFields, reviewSkuEvidence, setSkuIden
 import { approveCanonicalVersion, createSkuDraft, getProductTypeByKey, listSkusWorkspace, normalizePowerToKw, saveCanonicalVersion, setStorefrontListing,
   transitionSkuLifecycle, transitionSkuToReady, upsertAccountingMapping } from "@khidi/products";
 import { createUuidV7 } from "@khidi/shared";
+import { setPrice, withdrawPrice } from "@khidi/pricing";
 import { getSkuPublicationReview, getStorefrontProductProjection } from "./index.ts";
 
 it("suspends only locales whose approved content cites a conflicting, changed or unverified fact", async () => {
@@ -47,10 +48,19 @@ it("suspends only locales whose approved content cites a conflicting, changed or
   expect(await project("en")).toBeNull();
   const first = await project("ka");
   expect(first).toMatchObject({ locale: "ka", sellable: false, blockingReasons: [
-    "ALLOCATION_OWNERS_UNAVAILABLE_M8", "STOREFRONT_PRICING_UNAVAILABLE_M7"
+    "ALLOCATION_OWNERS_UNAVAILABLE_M8", "MISSING_STOREFRONT_BASE_PRICE"
   ], fields: { ...claims, wheel_type: "RUBBER" } });
   expect(Object.keys(first!)).toEqual(["slug", "locale", "displayName", "shortDescription", "fullDescription", "fields", "media", "sellable", "blockingReasons"]);
   expect(JSON.stringify(first)).not.toMatch(/KH-\d|khidi\.app|supplier|accountingItem|raw\//i);
+
+  expect(first).not.toHaveProperty("basePrice");
+  const priced = await setPrice(db, actor, { skuId: sku.id, storefrontId: storefront!.id, basePriceMinor: 123450, vatIncluded: false });
+  expect(await project("ka")).toMatchObject({ sellable: false, blockingReasons: ["ALLOCATION_OWNERS_UNAVAILABLE_M8"],
+    basePrice: { amount: 123450, currency: "GEL", vat_included: false } });
+  expect(await getSkuPublicationReview(db, sku.id)).toContainEqual(expect.objectContaining({ storefrontId: storefront!.id, locale: "ka",
+    publishReady: true, sellable: false, blockingReasons: ["ALLOCATION_OWNERS_UNAVAILABLE_M8"] }));
+  await withdrawPrice(db, actor, { skuId: sku.id, storefrontId: storefront!.id, expectedPriceId: priced.rows[0]!.id }, "Recheck fixture price");
+  expect(await project("ka")).toEqual(first);
 
   const title = `${claims.brand} ${claims.model_code} — ${type.nameEn}`;
   const en = await saveCanonicalVersion(db, actor, { skuId: sku.id, locale: "en",
