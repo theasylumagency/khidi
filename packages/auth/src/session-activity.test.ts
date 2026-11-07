@@ -32,7 +32,8 @@ it.each(["OFFICE_PASSWORD_TOTP", "OFFICE_PASSKEY", "WAREHOUSE_PIN"])("enforces t
 it("does not renew when background API or page checks authenticate a session", async () => {
   const f = await office();
   for (let i = 0; i < 3; i++) expect((await verifySessionToken(db, f.token)).sessionTiming?.lastActivityAtMs).toBe(f.timing.lastActivityAtMs);
-  await db.update(sessions).set({ lastActivityAt: sql`clock_timestamp() - interval '20 minutes'` }).where(eq(sessions.id, f.id));
+  // Integration expiry uses the application clock; exact millisecond boundaries are covered above.
+  await db.update(sessions).set({ lastActivityAt: new Date(Date.now() - sessionIdleLimitMs("OFFICE_PASSWORD_TOTP") - 1000) }).where(eq(sessions.id, f.id));
   await expect(verifySessionToken(db, f.token)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   await expect(renewSessionActivity(db, f.token, f.id, f.timing.lastActivityAtMs)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });
@@ -80,7 +81,7 @@ it("allows a fresh warehouse PIN sign-in after the old session expires", async (
   const first = await loginWithWarehousePin(db, input);
   const old = first.principal.sessionTiming!;
   expect(old.deadlineMs - old.lastActivityAtMs).toBe(10 * 60_000);
-  await db.update(sessions).set({ lastActivityAt: sql`clock_timestamp() - interval '10 minutes'` }).where(eq(sessions.id, old.sessionId));
+  await db.update(sessions).set({ lastActivityAt: new Date(Date.now() - sessionIdleLimitMs("WAREHOUSE_PIN") - 1000) }).where(eq(sessions.id, old.sessionId));
   await expect(verifySessionToken(db, first.sessionToken)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   const second = await loginWithWarehousePin(db, input);
   expect(second.principal.sessionId).not.toBe(old.sessionId);

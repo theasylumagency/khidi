@@ -1,6 +1,7 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
-import { type DbExecutor, intakeReviewActions, labelEvents, productIntakes, scanTasks, skus, users } from "@khidi/db";
+import { type DbExecutor, getSplitCandidates, getSkuLineageIds, intakeReviewActions, labelEvents, productIntakes, scanTasks,
+  skuSplitTargets, skus, users } from "@khidi/db";
 import { executeIdempotent, withDomainTransaction } from "@khidi/domain";
 import { resolveSkuByScannedIdentifier, type SkuIdentifierType } from "@khidi/products";
 import { AppError, createUuidV7, sha256Hex, uuidSchema } from "@khidi/shared";
@@ -17,7 +18,9 @@ export async function getIntakeReview(db: DbExecutor, principal: AuthenticatedPr
     .leftJoin(scanTasks, eq(scanTasks.id, productIntakes.taskId)).where(eq(productIntakes.id, intakeId)).limit(1);
   if (!row) throw new AppError("NOT_FOUND", "Intake not found.");
   const raw = row.intake.scannedIdentifiersJson[0];
-  const matches = raw ? (await resolveSkuByScannedIdentifier(db, normalizeScan(raw).canonicalValue)).matches : [];
+  const matches = row.intake.reviewOriginalReason==="SPLIT_INTERNAL_LABEL" && row.intake.reviewReferenceSkuId
+    ? await getSplitCandidates(db,row.intake.reviewReferenceSkuId)
+    : raw ? (await resolveSkuByScannedIdentifier(db, normalizeScan(raw).canonicalValue)).matches : [];
   const [referenceSku] = row.intake.reviewReferenceSkuId ? await db.select({ id: skus.id, internalSku: skus.internalSku }).from(skus).where(eq(skus.id, row.intake.reviewReferenceSkuId)).limit(1) : [];
   return { ...row, matches, referenceSku: referenceSku ?? null };
 }
@@ -51,9 +54,13 @@ export async function resolveIntakeReview(db: DbExecutor, principal: Authenticat
       if (input.resolution === "LINK_EXISTING") {
         const [target] = await ctx.tx.select().from(skus).where(input.skuId ? eq(skus.id, input.skuId) : eq(skus.internalSku, input.skuCode!)).limit(1);
         if (!target || target.lifecycleState === "ARCHIVED") throw new AppError("PRECONDITION_FAILED", "Choose an active SKU.");
+        if(original.reviewReason==="SPLIT_INTERNAL_LABEL" && (!original.reviewReferenceSkuId
+          || !(await getSplitCandidates(ctx.tx,original.reviewReferenceSkuId)).some((candidate)=>candidate.skuId===target.id))) {
+          throw new AppError("PRECONDITION_FAILED","Choose a target of the split.");
+        }
         const lookup = original.scannedIdentifiersJson[0] ? await resolveSkuByScannedIdentifier(ctx.tx, original.scannedIdentifiersJson[0]) : null;
         const replacement = original.isNoBarcode || input.requestReplacementLabel ||
-          ["UNKNOWN_INTERNAL_LABEL", "ARCHIVED_INTERNAL_LABEL"].includes(original.reviewReason) || !lookup?.uniqueSkuIds.includes(target.id);
+          ["UNKNOWN_INTERNAL_LABEL", "ARCHIVED_INTERNAL_LABEL", "SPLIT_INTERNAL_LABEL"].includes(original.reviewReason) || !lookup?.uniqueSkuIds.includes(target.id);
         changes = { ...changes, matchedSkuId: target.id, resultState: "MATCHED_EXISTING",
           replacementLabelRequested: replacement, labelStatus: replacement ? "TO_PRINT" : "NOT_REQUIRED" };
         if (replacement) await ctx.tx.insert(labelEvents).values({ id: createUuidV7(), intakeId: original.id,
@@ -104,4 +111,20 @@ export async function resolveIntakeReview(db: DbExecutor, principal: Authenticat
       return { status: 200, body };
     })
   );
+}
+
+export async function listSplitLabelProgress(db:DbExecutor,principal:AuthenticatedPrincipal){
+  await assertScanningPrincipal(db,principal,true);
+  const sources=await db.selectDistinct({sourceSkuId:skuSplitTargets.sourceSkuId,internalSku:skus.internalSku}).from(skuSplitTargets)
+    .innerJoin(skus,eq(skus.id,skuSplitTargets.sourceSkuId));
+  return Promise.all(sources.map(async(source)=>{
+    const lineage=await getSkuLineageIds(db,source.sourceSkuId);
+    const printed=await db.execute<{count:number}>(sql`SELECT count(DISTINCT event.intake_id)::integer AS count
+      FROM label_events event JOIN product_intakes intake ON intake.id=event.intake_id
+      WHERE event.to_status='PRINTED' AND intake.matched_sku_id=ANY(ARRAY[${sql.join(lineage.map((id)=>sql`${id}::uuid`),sql`,`)}])`);
+    const resolved=await db.execute<{count:number}>(sql`SELECT count(*)::integer AS count FROM product_intakes
+      WHERE review_reference_sku_id=${source.sourceSkuId} AND review_original_reason='SPLIT_INTERNAL_LABEL'
+        AND review_resolution='LINK_EXISTING' AND reviewed_at IS NOT NULL`);
+    return {...source,printed:printed.rows[0]?.count??0,resolved:resolved.rows[0]?.count??0};
+  }));
 }

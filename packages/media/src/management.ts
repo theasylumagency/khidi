@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
-import { type DbExecutor, getSkuLineageIds, imageMasterVersions, productImages, resolveActiveSku } from "@khidi/db";
+import { type DbExecutor, getAffectedSkuIds, getSkuImages, imageMasterVersions, productImages } from "@khidi/db";
 import { executeIdempotent, withDomainTransaction } from "@khidi/domain";
 import { lockIdentityCatalog, recomputeIdentityAfterPhotoDecision } from "@khidi/evidence";
 import { AppError, sha256Hex } from "@khidi/shared";
@@ -20,13 +20,11 @@ const actionSchema = z.object({ idempotencyKey: uuidV7, imageId: z.string().uuid
 export async function listManagedImages(db: DbExecutor, principal: AuthenticatedPrincipal, target: { skuId?: string; intakeId?: string }) {
   await assertMediaPrincipal(db, principal, true);
   if (Number(!!target.skuId) + Number(!!target.intakeId) !== 1 || !z.string().uuid().safeParse(target.skuId ?? target.intakeId).success) throw new AppError("VALIDATION_ERROR", "Choose a SKU or intake.");
-  const lineage = target.skuId ? await getSkuLineageIds(db, target.skuId) : [];
-  return db.select().from(productImages).where(target.skuId ? inArray(productImages.skuId, lineage) : eq(productImages.intakeId, target.intakeId!)).orderBy(asc(productImages.sortOrder), asc(productImages.createdAt), asc(productImages.id));
+  if(target.skuId)return (await getSkuImages(db,target.skuId)).sort((a,b)=>a.sortOrder-b.sortOrder||a.createdAt.getTime()-b.createdAt.getTime()||a.id.localeCompare(b.id));
+  return db.select().from(productImages).where(eq(productImages.intakeId,target.intakeId!)).orderBy(asc(productImages.sortOrder),asc(productImages.createdAt),asc(productImages.id));
 }
 export async function hasVerifiedPublicMainImage(db: DbExecutor, skuId: string) {
-  const lineage = await getSkuLineageIds(db, skuId);
-  const rows = await db.select({ id: productImages.id }).from(productImages).where(and(inArray(productImages.skuId, lineage), eq(productImages.status, "VERIFIED"), eq(productImages.usage, "PUBLIC"), eq(productImages.role, "MAIN"))).limit(1);
-  return rows.length > 0;
+  return (await getSkuImages(db,skuId)).some((image)=>image.status==="VERIFIED"&&image.usage==="PUBLIC"&&image.role==="MAIN");
 }
 export async function listMediaImageViews(db: DbExecutor, principal: AuthenticatedPrincipal, target: { skuId?: string; intakeId?: string }) {
   const images = await listManagedImages(db, principal, target);
@@ -62,7 +60,7 @@ export async function manageImage(db: DbExecutor, principal: AuthenticatedPrinci
     await ctx.tx.update(productImages).set(changes).where(eq(productImages.id, image.id));
     if (image.skuId && (input.action === "VERIFY" || input.action === "REJECT")) await recomputeIdentityAfterPhotoDecision(ctx, image.skuId, image.id);
     if (image.intakeId && ["VERIFY", "REJECT"].includes(input.action)) await refreshIntakePhotoStatus(ctx, image.intakeId);
-    if (image.skuId) await queueMediaJob(ctx, "publish-sku-media", { skuId: (await resolveActiveSku(ctx.tx, image.skuId))?.id ?? image.skuId });
+    if (image.skuId) for(const skuId of await getAffectedSkuIds(ctx.tx,image.skuId))await queueMediaJob(ctx,"publish-sku-media",{skuId});
     const body = { id: image.id, status: changes.status ?? image.status, requestedVersion: changes.requestedVersion ?? image.requestedVersion };
     await ctx.recordAudit({ action: input.action === "REPROCESS" ? "IMAGE_REPROCESSED" : "IMAGE_UPDATED", entityType: "product_image", entityId: image.id,
       before: { status: image.status, role: image.role, usage: image.usage, sortOrder: image.sortOrder, requestedVersion: image.requestedVersion }, after: { ...changes, action: input.action }, reason: input.reason });

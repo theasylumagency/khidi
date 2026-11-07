@@ -5,7 +5,7 @@ import { skus } from "./schema.ts";
 type SkuReference = Pick<typeof skus.$inferSelect, "id" | "internalSku" | "displayNameKa" | "lifecycleState" | "mergedIntoSkuId">;
 
 /** Resolve a legacy SKU to its active survivor. A broken chain is unresolved. */
-export async function resolveActiveSku(db: DbExecutor, skuId: string) {
+export async function resolveSkuTerminal(db: DbExecutor, skuId: string) {
   const visited = new Set<string>();
   let current: string | null = skuId;
   while (current && !visited.has(current)) {
@@ -14,10 +14,15 @@ export async function resolveActiveSku(db: DbExecutor, skuId: string) {
       lifecycleState: skus.lifecycleState, mergedIntoSkuId: skus.mergedIntoSkuId })
       .from(skus).where(eq(skus.id, current));
     if (!sku) return null;
-    if (sku.lifecycleState !== "ARCHIVED") return sku;
+    if (sku.lifecycleState !== "ARCHIVED" || !sku.mergedIntoSkuId) return sku;
     current = sku.mergedIntoSkuId;
   }
   return null;
+}
+
+export async function resolveActiveSku(db: DbExecutor, skuId: string) {
+  const sku = await resolveSkuTerminal(db, skuId);
+  return sku?.lifecycleState !== "ARCHIVED" ? sku : null;
 }
 
 /** Historical records stay with their original SKU. Follow back-links for reads. */

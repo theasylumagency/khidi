@@ -20,15 +20,18 @@ import {
   skuIdentifiers,
   skuSlugHistory,
   resolveActiveSku,
+  resolveSkuTerminal,
   skuContentApprovals,
   skuContentVersions,
+  skuSplitTargets,
+  skuMergeAcknowledgements,
   skus,
   storefrontListings,
   storefronts,
   users
 } from "@khidi/db";
 import { type DomainActor, withDomainTransaction } from "@khidi/domain";
-import { compareApprovedContentFacts, getContentFactFields, hasVerifiedDifference, lockIdentityCatalog, recomputeSkuIdentity, UNIVERSAL_EVIDENCE_FIELDS, withDefaultObservableAttributes } from "@khidi/evidence";
+import { compareApprovedContentFacts, getContentFactFields, hasVerifiedDifference, lockIdentityCatalog, recomputeSkuIdentity, requireMergeSameness, UNIVERSAL_EVIDENCE_FIELDS, withDefaultObservableAttributes } from "@khidi/evidence";
 import { queueMediaJob } from "@khidi/media";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import {
@@ -1444,6 +1447,7 @@ export async function upsertAccountingMapping(
     legacyCode?: string | null;
     notes?: string | null;
     replaceExistingForEntity?: boolean;
+    confirmSharedAccountingItem?: boolean;
   }
 ) {
   const accountingItemId = input.accountingItemId.trim();
@@ -1457,6 +1461,19 @@ export async function upsertAccountingMapping(
   }
 
   return withDomainTransaction(db, actor, async (ctx) => {
+    await lockIdentityCatalog(ctx.tx);
+    const shared = await ctx.tx.select({ id:accountingMappings.id }).from(accountingMappings)
+      .innerJoin(skus,eq(skus.id,accountingMappings.skuId))
+      .where(and(eq(accountingMappings.legalEntityId,input.legalEntityId),eq(accountingMappings.accountingItemId,accountingItemId),
+        eq(accountingMappings.active,true),ne(accountingMappings.skuId,input.skuId),ne(skus.lifecycleState,"ARCHIVED")));
+    if(shared.length && input.confirmSharedAccountingItem!==true) {
+      throw new AppError("PRECONDITION_FAILED","Confirm that this accounting item is shared by multiple SKUs.");
+    }
+    if(shared.length){
+      const [admin]=actor.userId?await ctx.tx.select({id:users.id}).from(users)
+        .where(and(eq(users.id,actor.userId),eq(users.role,"ADMIN"),eq(users.active,true))):[];
+      if(!admin)throw new AppError("FORBIDDEN","Sharing an accounting item requires an active admin.");
+    }
     const [entity] = await ctx.tx
       .select()
       .from(legalEntities)
@@ -1491,7 +1508,8 @@ export async function upsertAccountingMapping(
         legacyCode: input.legacyCode ?? null,
         active: true,
         notes: input.notes ?? null,
-        createdBy: actor.userId ?? null
+        createdBy: actor.userId ?? null,
+        sharedItemConfirmedBy:shared.length?actor.userId:null,sharedItemConfirmedAt:shared.length?new Date():null
       })
       .returning();
 
@@ -1508,10 +1526,13 @@ export async function upsertAccountingMapping(
         legalEntityId: created.legalEntityId,
         legalEntityKey: entity.key,
         accountingItemId: created.accountingItemId,
+        sharedItemConfirmed:shared.length>0,
         accountingName: created.accountingName,
         active: created.active
       }
     });
+    await ctx.emitOutboxEvent({eventType:"PRODUCT_UPDATED",aggregateType:"sku",aggregateId:input.skuId,
+      payload:{skuId:input.skuId,accountingMappingId:created.id,sharedAccountingItem:shared.length>0},consumers:[]});
 
     return created;
   });
@@ -1536,6 +1557,9 @@ export async function listAccountingMappingsForSku(
       legalEntityName: legalEntities.legalName,
       accountingItemId: accountingMappings.accountingItemId,
       accountingName: accountingMappings.accountingName,
+      sharedAccountingItem: sql<boolean>`EXISTS(SELECT 1 FROM accounting_mappings peer JOIN skus other ON other.id=peer.sku_id
+        WHERE peer.sku_id <> ${accountingMappings.skuId} AND peer.legal_entity_id=${accountingMappings.legalEntityId}
+          AND peer.accounting_item_id=${accountingMappings.accountingItemId} AND peer.active AND other.lifecycle_state <> 'ARCHIVED')`,
       legacyCode: accountingMappings.legacyCode,
       active: accountingMappings.active,
       notes: accountingMappings.notes,
@@ -1669,6 +1693,7 @@ export async function listStorefrontListingsForSku(
 
 const mergeSkuInput = z.object({
   sourceSkuId: z.string().uuid(), targetSkuId: z.string().uuid(),
+  samenessEvidenceId: z.string().uuid().optional(),
   identityConfirmed: z.boolean().default(false),
   reason: z.string().trim().min(1).max(4000),
   listingChoices: z.record(z.string().uuid(), z.enum(["SOURCE", "TARGET"])).default({})
@@ -1679,13 +1704,14 @@ export async function mergeSkus(db: DbExecutor, actor: DomainActor, raw: unknown
   if (!parsed.success || parsed.data.sourceSkuId === parsed.data.targetSkuId) {
     throw new AppError("VALIDATION_ERROR", "Choose two different SKUs and give a reason.");
   }
-  const { sourceSkuId, targetSkuId, identityConfirmed, reason, listingChoices } = parsed.data;
+  const { sourceSkuId, targetSkuId, samenessEvidenceId, identityConfirmed, reason, listingChoices } = parsed.data;
   return withDomainTransaction(db, actor, async (ctx) => {
     await lockIdentityCatalog(ctx.tx);
     const [admin] = actor.userId ? await ctx.tx.select({ id: users.id }).from(users)
       .where(and(eq(users.id, actor.userId), eq(users.role, "ADMIN"), eq(users.active, true))) : [];
     if (!admin) throw new AppError("FORBIDDEN", "SKU merge requires an active admin.");
     if (!identityConfirmed) throw new AppError("PRECONDITION_FAILED", "Confirm that both SKUs represent the same physical variant.");
+    if (!samenessEvidenceId) throw new AppError("PRECONDITION_FAILED","An accepted sameness inspection is required.");
     const pair = await ctx.tx.select().from(skus).where(inArray(skus.id, [sourceSkuId, targetSkuId]));
     const source = pair.find((sku) => sku.id === sourceSkuId), target = pair.find((sku) => sku.id === targetSkuId);
     if (!source || !target) throw new AppError("NOT_FOUND", "Both SKUs must exist.");
@@ -1704,6 +1730,12 @@ export async function mergeSkus(db: DbExecutor, actor: DomainActor, raw: unknown
     if (pair.some((sku) => sku.identityConfidence === "CONFLICT") || hasVerifiedDifference(sourceFacts, targetFacts)) {
       throw new AppError("CONFLICT", "Resolve identity conflicts and verified differences before merging.");
     }
+    const sameness = await requireMergeSameness(ctx.tx,sourceSkuId,targetSkuId,samenessEvidenceId,sourceFacts,targetFacts);
+    const targetLineage = await getSkuLineageIds(ctx.tx,targetSkuId);
+    for (const acknowledgement of sameness.acknowledgements) await ctx.tx.insert(skuMergeAcknowledgements).values({
+      ...acknowledgement,id:createUuidV7(),sourceSkuId,targetSkuId,evidenceId:samenessEvidenceId,
+      sourceLineageIds:sourceLineage,targetLineageIds:targetLineage,acknowledgedBy:admin.id
+    });
     const targetContent = needsApprovedTarget ? await requireCurrentValidCanonicalContent(ctx.tx, targetSkuId, "ka") : null;
     const decisions = [];
     for (const listing of listings.filter((row) => row.skuId === sourceSkuId)) {
@@ -1735,7 +1767,8 @@ export async function mergeSkus(db: DbExecutor, actor: DomainActor, raw: unknown
     await queueMediaJob(ctx, "publish-sku-media", { skuId: targetSkuId });
     await ctx.recordAudit({ action: "SKU_MERGED", entityType: "sku", entityId: sourceSkuId,
       before: { sourceState: source.lifecycleState, targetState: target.lifecycleState, sourceSlug: source.canonicalSlug },
-      after: { mergedIntoSkuId: targetSkuId, identityConfirmed, sourceLineage, decisions }, reason });
+      after: { mergedIntoSkuId: targetSkuId, identityConfirmed, samenessEvidenceId,
+        acknowledgedUnknowns:sameness.acknowledgements,sourceLineage,targetLineage,decisions }, reason });
     await ctx.emitOutboxEvent({ eventType: "PRODUCT_UPDATED", aggregateType: "sku", aggregateId: targetSkuId,
       payload: { skuId: targetSkuId, mergedSkuId: sourceSkuId }, consumers: [] });
     return { sourceSkuId, targetSkuId };
@@ -1769,7 +1802,16 @@ export async function resolveSkuSlug(db: DbExecutor, slug: string) {
   const [current] = await db.select({ skuId: skus.id }).from(skus).where(eq(skus.canonicalSlug, slug));
   const [history] = current ? [] : await db.select({ skuId: skuSlugHistory.skuId }).from(skuSlugHistory).where(eq(skuSlugHistory.oldSlug, slug));
   const id = current?.skuId ?? history?.skuId;
-  const sku = id ? await resolveActiveSku(db, id) : null;
+  const terminal = id ? await resolveSkuTerminal(db,id) : null;
+  if(terminal?.lifecycleState==="ARCHIVED"){
+    const [split]=await db.select().from(skuSplitTargets).where(eq(skuSplitTargets.sourceSkuId,terminal.id)).limit(1);
+    if(split){
+      const [source]=await db.select({categoryId:productTypes.defaultCategoryId}).from(skus)
+        .innerJoin(productTypes,eq(productTypes.id,skus.productTypeId)).where(eq(skus.id,terminal.id));
+      if(source)return {redirectTargetType:"CATEGORY" as const,categoryId:source.categoryId,redirected:true};
+    }
+  }
+  const sku = terminal?.lifecycleState!=="ARCHIVED"?terminal:null;
   if (!sku) return null;
   const [target] = await db.select({ canonicalSlug: skus.canonicalSlug }).from(skus).where(eq(skus.id, sku.id));
   return target?.canonicalSlug ? { skuId: sku.id, canonicalSlug: target.canonicalSlug, redirected: target.canonicalSlug !== slug } : null;

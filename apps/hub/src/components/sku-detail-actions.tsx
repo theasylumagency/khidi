@@ -44,6 +44,7 @@ export function SkuDetailActions({
   const [accountingItemId, setAccountingItemId] = useState("");
   const [accountingName, setAccountingName] = useState("");
   const [legacyCode, setLegacyCode] = useState("");
+  const [confirmShared,setConfirmShared]=useState(false);
   const [slugInput, setSlugInput] = useState(canonicalSlug ?? "");
   const [confirmMedium, setConfirmMedium] = useState(false);
   const [allowSuffix, setAllowSuffix] = useState(false);
@@ -60,13 +61,13 @@ export function SkuDetailActions({
     try {
       const res = await fetch("/api/products/accounting-mappings", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json","Idempotency-Key":createUuidV7() },
         body: JSON.stringify({
           skuId,
           legalEntityId,
           accountingItemId,
           accountingName,
-          legacyCode
+          legacyCode,confirmSharedAccountingItem:confirmShared
         })
       });
       const data = (await res.json()) as { error?: string };
@@ -76,6 +77,7 @@ export function SkuDetailActions({
         setAccountingItemId("");
         setAccountingName("");
         setLegacyCode("");
+        setConfirmShared(false);
         setStatusMsg("✓ ბუღალტრული მეპინგი შენახულია [C9]");
         router.refresh();
       }
@@ -401,6 +403,8 @@ export function SkuDetailActions({
             }}
           />
         </label>
+        <label><input type="checkbox" checked={confirmShared} onChange={(event)=>setConfirmShared(event.target.checked)}/>
+          {t("correction.confirm_shared")}</label>
 
         <button
           type="submit"

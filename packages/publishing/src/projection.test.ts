@@ -14,7 +14,9 @@ it("suspends only locales whose approved content cites a conflicting, changed or
   ]);
   const actor = { userId: admin!.id };
   const sku = await createSkuDraft(db, actor, { productTypeId: type.id });
-  const claims = { brand: "FIXTUREBRAND", model_code: `P-${createUuidV7().slice(-8)}` };
+  // A unique decimal identifier avoids random hex endings such as "123a" looking like amperes.
+  const modelSuffix = BigInt("0x" + createUuidV7().replaceAll("-", "")).toString();
+  const claims = { brand: "FIXTUREBRAND", model_code: `P-${modelSuffix}` };
   const sheet = await submitSkuEvidence(db, actor, { skuId: sku.id, type: "FACTORY_SPEC_SHEET", claims });
   await reviewSkuEvidence(db, actor, { evidenceId: sheet.id, status: "ACCEPTED", reason: "Synthetic sheet", claims });
   await setSkuIdentityKind(db, actor, sku.id, "MANUFACTURER_IDENTIFIED", "Verified fixture identity");

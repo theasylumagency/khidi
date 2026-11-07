@@ -11,17 +11,20 @@ const taskTypes = ["PACKAGING_PHOTO", "PRODUCT_MARKING_PHOTO", "SUPPLIER_DOCUMEN
 const adminTypes = [...taskTypes, "PRODUCT_PLATE_PHOTO", "PASSPORT_MANUAL", "FACTORY_SPEC_SHEET", "ADMIN_PHYSICAL_INSPECTION",
   "CUSTOMS_DECLARATION", "SUPPLIER_CORRESPONDENCE", "SUPPLIER_CATALOG", "STAFF_STATEMENT", "PUBLIC_WEB"];
 
-export function EvidenceCapture({ skuId, taskId, fields, images = [], comparisons = [], replaceable = [] }: {
+export function EvidenceCapture({ skuId, taskId, fields, images = [], comparisons = [], replaceable = [], distinguishing = [], intakes = [] }: {
   skuId: string; taskId?: string; fields: EvidenceFieldOption[];
   images?: { id: string; label: string; verified: boolean }[];
   comparisons?: { skuId: string; internalSku: string; imageId: string; label: string }[];
   replaceable?: { id: string; label: string }[];
+  distinguishing?:string[];
+  intakes?:{id:string;label:string}[];
 }) {
   const router = useRouter();
   const [kind, setKind] = useState(taskTypes[0]!), [chosen, setChosen] = useState<string[]>([""]);
   const [busy, setBusy] = useState(false), [message, setMessage] = useState("");
   const [supersedesEvidenceId, setSupersedesEvidenceId] = useState("");
   const [comparisonSkuId, setComparisonSkuId] = useState("");
+  const [comparisonRelation,setComparisonRelation]=useState("DIFFERS");
   const key = useRef(createUuidV7());
   const isInspection = kind === "ADMIN_PHYSICAL_INSPECTION";
   const comparisonSkus = new Map(comparisons.map((photo) => [photo.skuId, photo.internalSku]));
@@ -41,10 +44,13 @@ export function EvidenceCapture({ skuId, taskId, fields, images = [], comparison
       if (!definition || value === undefined) return [];
       return [[field, definition.dataType === "number" ? Number(value) : definition.dataType === "boolean" ? value === "true" : value]];
     }));
-    const payload = { action: "submit", skuId, taskId, type: kind, claims: readClaims("value"), notes: read("notes"),
+    const payload = { action: "submit", skuId, taskId, type: kind, claims: readClaims("value"), notes: read("notes"), intakeId:read("intakeId"),
       imageId: hasAttachment ? undefined : read("imageId"), comparisonSkuId: comparisonSkuId || undefined,
       comparisonImageId: comparisonSkuId ? read("comparisonImageId") : undefined,
       comparisonClaims: comparisonSkuId ? readClaims("compared") : undefined, supplierName: read("supplierName"),
+      comparisonRelation,acknowledgedUnknowns:comparisonSkuId && comparisonRelation==="MATCHES"
+        ? Object.fromEntries(fields.filter((field)=>distinguishing.includes(field.key)&&!field.observable)
+          .flatMap((field)=>read("unknown-"+field.key)?[[field.key,read("unknown-"+field.key)]]:[])) : {},
       documentNumber: read("documentNumber"), lineText: read("lineText"), quantity: read("quantity") ? Number(read("quantity")) : undefined,
       measurementUnit: kind === "MEASUREMENT" ? options.find((field) => field.key === chosen[0])?.unit : undefined,
       measurementMethod: read("measurementMethod"), supersedesEvidenceId: supersedesEvidenceId || undefined,
@@ -62,6 +68,9 @@ export function EvidenceCapture({ skuId, taskId, fields, images = [], comparison
   }
   return <form className="office-login" onSubmit={(event) => void submit(event)}>
     <fieldset disabled={busy}>
+      {intakes.length && !comparisonSkuId?<label>{t("correction.evidence_unit")}<select name="intakeId">
+        <option value="">—</option>{intakes.map((intake)=><option key={intake.id} value={intake.id}>{intake.label}</option>)}
+      </select></label>:null}
       {replaceable.length ? <>
         <label>{t("evidence.replaces")} <select value={supersedesEvidenceId} onChange={(event) => setSupersedesEvidenceId(event.target.value)}>
           <option value="">—</option>{replaceable.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
@@ -74,6 +83,17 @@ export function EvidenceCapture({ skuId, taskId, fields, images = [], comparison
       {isInspection && comparisonSkus.size ? <label>{t("evidence.compared_sku")}<select value={comparisonSkuId} onChange={(event) => setComparisonSkuId(event.target.value)}>
         <option value="">—</option>{[...comparisonSkus].map(([id, internalSku]) => <option key={id} value={id}>{internalSku}</option>)}
       </select></label> : null}
+      {comparisonSkuId ? <label>{t("correction.relation")}<select value={comparisonRelation} onChange={(event)=>{
+        setComparisonRelation(event.target.value);
+        setChosen(event.target.value==="MATCHES"?options.filter((field)=>distinguishing.includes(field.key)).map((field)=>field.key):[""]);
+      }}>
+        <option value="DIFFERS">{t("correction.differs")}</option><option value="MATCHES">{t("correction.matches")}</option>
+      </select></label>:null}
+      {comparisonSkuId && comparisonRelation==="MATCHES"?<fieldset><legend>{t("correction.unknowns")}</legend>
+        <p>{t("correction.unknowns_hint")}</p>
+        {fields.filter((field)=>distinguishing.includes(field.key)&&!field.observable).map((field)=>
+          <label key={field.key}>{field.label}<input name={"unknown-"+field.key} maxLength={4000} /></label>)}
+      </fieldset>:null}
       {!comparisonSkuId ? <label>{t(allowsPdf ? "evidence.photo_or_pdf" : "evidence.photo")}
         <input key={kind} name="photo" type="file" accept={allowsPdf ? "image/jpeg,image/png,image/webp,application/pdf" : "image/jpeg,image/png,image/webp"}
           capture={allowsPdf ? undefined : "environment"} required={!!usesFile} />

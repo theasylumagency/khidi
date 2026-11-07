@@ -5,7 +5,7 @@ export const SCAN_TASK_TYPES = ["INTAKE_UNIQUE", "PHYSICAL_COUNT", "PHOTO_REQUES
 export type ScanTaskType = (typeof SCAN_TASK_TYPES)[number];
 export const RESULT_STATES = ["MATCHED_EXISTING", "NEW_DRAFT", "MANUAL_IDENTIFICATION_REQUIRED"] as const;
 export const LABEL_STATUSES = ["NOT_REQUIRED", "TO_PRINT", "PRINTED", "ATTACHED"] as const;
-export const REVIEW_REASONS = ["UNKNOWN_INTERNAL_LABEL", "ARCHIVED_INTERNAL_LABEL", "IDENTIFIER_COLLISION", "TASK_NOT_ACCEPTING", "TASK_NOT_ASSIGNED"] as const;
+export const REVIEW_REASONS = ["UNKNOWN_INTERNAL_LABEL", "ARCHIVED_INTERNAL_LABEL", "SPLIT_INTERNAL_LABEL", "IDENTIFIER_COLLISION", "TASK_NOT_ACCEPTING", "TASK_NOT_ASSIGNED"] as const;
 export type ReviewReason = (typeof REVIEW_REASONS)[number];
 export const uuidV7Schema = z.string().uuid().refine((value) => value[14] === "7", "UUIDv7 required");
 

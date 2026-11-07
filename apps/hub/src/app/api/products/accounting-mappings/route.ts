@@ -1,54 +1,33 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@khidi/db";
 import { assertRoleAllowed } from "@khidi/auth";
+import { executeIdempotent } from "@khidi/domain";
 import { upsertAccountingMapping } from "@khidi/products";
 import { AppError } from "@khidi/shared";
 import { getCurrentPrincipal } from "../../../../lib/session.ts";
-
+import { assertSecurityOrigin } from "../../../../lib/security-origin.ts";
+import { scanningErrorResponse } from "../../../../lib/scanning-response.ts";
 export async function POST(request: Request) {
-  try {
-    const principal = await getCurrentPrincipal();
-    if (!principal) {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    try {
+        const principal = await getCurrentPrincipal();
+        if (!principal)
+            throw new AppError("UNAUTHORIZED", "Authentication required.");
+        assertRoleAllowed(principal, ["ADMIN"]);
+        assertSecurityOrigin(request);
+        const key = request.headers.get("Idempotency-Key") ?? "";
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key))
+            throw new AppError("VALIDATION_ERROR", "Invalid request key.");
+        const body = await request.json() as Parameters<typeof upsertAccountingMapping>[2];
+        if (!body.skuId || !body.legalEntityId || typeof body.accountingItemId !== "string" || typeof body.accountingName !== "string"
+            || (body.confirmSharedAccountingItem !== undefined && typeof body.confirmSharedAccountingItem !== "boolean"))
+            throw new AppError("VALIDATION_ERROR", "Accounting mapping fields are required.");
+        const actor = { userId: principal.userId };
+        const result = await executeIdempotent(getDb(), { scope: "catalog:accounting-mapping", idempotencyKey: key, payload: { body, ...actor } }, async (tx) => ({ status: 201, body: { ok: true, mapping: await upsertAccountingMapping(tx, actor, {
+                    ...body, legacyCode: body.legacyCode || null, notes: body.notes || null, replaceExistingForEntity: true
+                }) } }));
+        return NextResponse.json(result.body, { status: result.status });
     }
-    assertRoleAllowed(principal, ["ADMIN"]);
-
-    const body = (await request.json()) as {
-      skuId?: string;
-      legalEntityId?: string;
-      accountingItemId?: string;
-      accountingName?: string;
-      legacyCode?: string;
-      notes?: string;
-    };
-
-    if (!body.skuId || !body.legalEntityId || !body.accountingItemId || !body.accountingName) {
-      return NextResponse.json(
-        { error: "skuId, legalEntityId, accountingItemId, and accountingName are required" },
-        { status: 400 }
-      );
+    catch (error) {
+        return scanningErrorResponse(error);
     }
-
-    const db = getDb();
-    const mapping = await upsertAccountingMapping(
-      db,
-      { userId: principal.userId },
-      {
-        skuId: body.skuId,
-        legalEntityId: body.legalEntityId,
-        accountingItemId: body.accountingItemId,
-        accountingName: body.accountingName,
-        legacyCode: body.legacyCode || null,
-        notes: body.notes || null,
-        replaceExistingForEntity: true
-      }
-    );
-
-    return NextResponse.json({ ok: true, mapping }, { status: 201 });
-  } catch (err) {
-    if (err instanceof AppError) {
-      return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
-    }
-    return NextResponse.json({ error: "Failed to save accounting mapping" }, { status: 500 });
-  }
 }

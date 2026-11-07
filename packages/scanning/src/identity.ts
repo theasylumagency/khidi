@@ -1,4 +1,4 @@
-import type { DbExecutor } from "@khidi/db";
+import { getSplitTargets, resolveSkuTerminal, type DbExecutor } from "@khidi/db";
 import type { DomainActor } from "@khidi/domain";
 import { attachSkuIdentifier, createSkuDraft, resolveSkuByScannedIdentifier } from "@khidi/products";
 import type { IntakeResult, ReviewReason } from "./contracts.ts";
@@ -20,6 +20,12 @@ export async function resolveScanIdentity(tx: DbExecutor, actor: DomainActor, no
     referenceSkuId: null, scannedSkuId: normalized?.internal ? lookup.matches[0]?.scannedSkuId : undefined };
   if (normalized?.internal) {
     const archived = await resolveSkuByScannedIdentifier(tx, normalized.canonicalValue, { includeArchived: true });
+    const scannedSkuId=archived.uniqueSkuIds[0];
+    const terminal=scannedSkuId?await resolveSkuTerminal(tx,scannedSkuId):null;
+    if(terminal && (await getSplitTargets(tx,terminal.id)).length)return {
+      skuId:null,resultState:"MANUAL_IDENTIFICATION_REQUIRED",reviewReason:"SPLIT_INTERNAL_LABEL",
+      referenceSkuId:terminal.id,scannedSkuId
+    };
     return { skuId: null, resultState: "MANUAL_IDENTIFICATION_REQUIRED",
       reviewReason: archived.uniqueSkuIds.length ? "ARCHIVED_INTERNAL_LABEL" : "UNKNOWN_INTERNAL_LABEL",
       referenceSkuId: archived.uniqueSkuIds[0] ?? null, scannedSkuId: archived.uniqueSkuIds[0] };

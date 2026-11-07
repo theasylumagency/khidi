@@ -1,7 +1,8 @@
 import { and, eq, inArray, ne, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
-  evidence, getSkuLineageIds, productImages, productTypes, resolveActiveSku, scanTasks, skuFieldProvenance, skus, users,
+  evidence, evidenceAttributions, getAffectedSkuIds, getSkuImages, getSkuLineageIds, imageBelongsToSku,
+  productImages, productIntakes, productTypes, resolveActiveSku, scanTasks, skuFieldProvenance, skuSplitBasis, skus, users,
   type DbExecutor, type EvidenceClaimSource, type EvidenceValue, type ProductTypeAttributeFieldDef
 } from "@khidi/db";
 import { withDomainTransaction, type DomainActor, type DomainTransactionContext } from "@khidi/domain";
@@ -11,6 +12,7 @@ import {
   allowsEvidencePdf, computeIdentity, evidenceSensitivity, evidenceStrength, evidenceValuesDiffer, EVIDENCE_TYPES, hasVerifiedDifference,
   IDENTITY_KINDS, isDocumentAnchor, resolveEvidenceField, type IdentityKind, type ResolvedField
 } from "./rules.ts";
+import { applyMergeUncertainty, type EvidenceSource } from "./merge-uncertainty.ts";
 
 export const UNIVERSAL_EVIDENCE_FIELDS = [
   "power_kw", "engine_displacement_cm3", "length_mm", "width_mm", "height_mm",
@@ -51,6 +53,11 @@ const evidenceInput = z.object({
   quantity: z.number().int().min(1).max(2147483647).optional(), notes: notesSchema.optional(),
   measurementUnit: z.string().trim().min(1).max(40).optional(), measurementMethod: notesSchema.optional(),
   comparisonSkuId: uuid.optional(), comparisonImageId: uuid.optional(), comparisonClaims: claimsSchema.optional(),
+  comparisonRelation: z.enum(["DIFFERS","MATCHES"]).default("DIFFERS"),
+  acknowledgedUnknowns: z.record(fieldKeySchema, notesSchema).default({}),
+  intakeId: uuid.optional(),
+  supportingEvidenceIds: z.array(uuid).max(30).default([]),
+  comparisonSupportingEvidenceIds: z.array(uuid).max(30).default([]),
   claims: claimsSchema.default({}),
   supersedesEvidenceId: uuid.optional(), supersessionReason: notesSchema.optional()
 }).strict().refine((input) => !!input.supersedesEvidenceId === !!input.supersessionReason);
@@ -108,26 +115,56 @@ function validateClaims(claims: Record<string, EvidenceValue>, productType: Cata
 async function validateComparison(tx: DbExecutor, subject: CatalogSku, type: CatalogType | undefined, input: {
   type: string; comparisonSkuId?: string | null; imageId?: string | null; comparisonImageId?: string | null;
   claims: Record<string, EvidenceValue>; comparisonClaims?: Record<string, EvidenceValue> | null; notes?: string | null;
+  comparisonRelation?: string; acknowledgedUnknowns?: Record<string, string>;
+  supportingEvidenceIds?: string[]; comparisonSupportingEvidenceIds?: string[];
 }) {
   if (!input.comparisonSkuId) {
     if (input.comparisonClaims || input.comparisonImageId) throw new AppError("VALIDATION_ERROR", "Choose a SKU for comparison.");
     return;
   }
   const compared = await loadSku(tx, input.comparisonSkuId);
-  if (input.type !== "ADMIN_PHYSICAL_INSPECTION" || !input.notes || subject.id === compared.id || !type
+  const candidate = input.type === "STAFF_STATEMENT" && input.comparisonRelation === "DIFFERS";
+  if ((!candidate && input.type !== "ADMIN_PHYSICAL_INSPECTION") || !input.notes || subject.id === compared.id || !type
     || compared.productTypeId !== type.id || [subject, compared].some((sku) => sku.lifecycleState === "ARCHIVED")) {
     throw new AppError("VALIDATION_ERROR", "Compare two live SKUs of the same Product Type.");
   }
   const other = input.comparisonClaims ?? {};
   validateClaims(other, type, input.type);
-  if (!Object.entries(other).some(([field, value]) => Object.hasOwn(input.claims, field) && evidenceValuesDiffer(input.claims[field]!, value))) {
+  if (candidate) {
+    const ids = [...(input.supportingEvidenceIds??[]),...(input.comparisonSupportingEvidenceIds??[])];
+    const found = ids.length ? await tx.select({id:evidence.id}).from(evidence).where(inArray(evidence.id,ids)) : [];
+    if (!input.supportingEvidenceIds?.length || !input.comparisonSupportingEvidenceIds?.length
+      || new Set(found.map((row)=>row.id)).size !== new Set(ids).size
+      || !Object.entries(other).some(([key,value])=>Object.hasOwn(input.claims,key)&&evidenceValuesDiffer(input.claims[key]!,value))) {
+      throw new AppError("VALIDATION_ERROR","Candidate differences require existing supporting evidence on both sides.");
+    }
+    if (Object.keys({...input.claims,...other}).some((key)=>!type.distinguishingAttributes.includes(key)
+      || type.attributeSchemaJson.some((field)=>field.key===key&&field.observable))) {
+      throw new AppError("VALIDATION_ERROR","Candidate comparisons are for non-observable distinguishing attributes.");
+    }
+    return;
+  }
+  if (input.comparisonRelation === "MATCHES") {
+    const observable = (type.distinguishingAttributes ?? []).filter((key) =>
+      type.attributeSchemaJson.some((field) => field.key === key && field.observable) && !UNIVERSAL_EVIDENCE_FIELDS.some((field) => field === key));
+    const keys = new Set([...observable, ...Object.keys(input.claims), ...Object.keys(other)]);
+    if ([...keys].some((key) => !Object.hasOwn(input.claims,key) || !Object.hasOwn(other,key)
+      || evidenceValuesDiffer(input.claims[key]!,other[key]!))) {
+      throw new AppError("VALIDATION_ERROR", "Record matching observable distinguishing values on both products.");
+    }
+    for (const key of Object.keys(input.acknowledgedUnknowns ?? {})) {
+      if (!type.distinguishingAttributes.includes(key) || observable.includes(key)) {
+        throw new AppError("VALIDATION_ERROR", "Only non-observable distinguishing attributes may be acknowledged unknown.");
+      }
+    }
+  } else if (!Object.entries(other).some(([field, value]) => Object.hasOwn(input.claims, field) && evidenceValuesDiffer(input.claims[field]!, value))) {
     throw new AppError("VALIDATION_ERROR", "Record a different observable value for the same field on both SKUs.");
   }
   if (!input.imageId || !input.comparisonImageId) throw new AppError("VALIDATION_ERROR", "Choose a verified photo of each SKU.");
-  const photos = await tx.select({ id: productImages.id, skuId: productImages.skuId }).from(productImages)
+  const photos = await tx.select({ id: productImages.id }).from(productImages)
     .where(and(inArray(productImages.id, [input.imageId, input.comparisonImageId]), eq(productImages.status, "VERIFIED")));
-  if (!photos.some((photo) => photo.id === input.imageId && photo.skuId === subject.id)
-    || !photos.some((photo) => photo.id === input.comparisonImageId && photo.skuId === compared.id)) {
+  if (!photos.some((photo) => photo.id === input.imageId) || !photos.some((photo) => photo.id === input.comparisonImageId)
+    || !await imageBelongsToSku(tx,input.imageId,subject.id) || !await imageBelongsToSku(tx,input.comparisonImageId,compared.id)) {
     throw new AppError("VALIDATION_ERROR", "Each verified photo must belong to the SKU it shows.");
   }
 }
@@ -143,22 +180,70 @@ async function findIndistinguishable(tx: DbExecutor, sku: CatalogSku, productTyp
       .map((field) => [field.fieldName, field]))));
 }
 
-async function loadSkuEvidenceSources(tx: DbExecutor, ids: string[]) {
+/** Recheck an immutable inspection against current photos and field verification at merge time. */
+export async function requireMergeSameness(tx: DbExecutor, sourceSkuId: string, targetSkuId: string, evidenceId: string,
+  sourceFacts: ReadonlyMap<string, {status:string;value:EvidenceValue|null}>,
+  targetFacts: ReadonlyMap<string, {status:string;value:EvidenceValue|null}>) {
+  const [item] = await tx.select().from(evidence).where(eq(evidence.id,evidenceId));
+  if (!item || item.status !== "ACCEPTED" || item.type !== "ADMIN_PHYSICAL_INSPECTION"
+    || item.comparisonRelation !== "MATCHES"
+    || !((item.skuId === sourceSkuId && item.comparisonSkuId === targetSkuId)
+      || (item.skuId === targetSkuId && item.comparisonSkuId === sourceSkuId))) {
+    throw new AppError("PRECONDITION_FAILED","Merge requires an accepted sameness inspection of these two SKUs.");
+  }
+  const subject = await loadSku(tx,item.skuId);
+  const [type] = subject.productTypeId ? await tx.select().from(productTypes).where(eq(productTypes.id,subject.productTypeId)) : [];
+  await validateComparison(tx,subject,type,item);
+  const acknowledgements = [];
+  for (const key of type!.distinguishingAttributes) {
+    const left=sourceFacts.get(key),right=targetFacts.get(key);
+    if (left?.status==="CONFLICT" || right?.status==="CONFLICT") {
+      throw new AppError("CONFLICT","Resolve conflicting distinguishing facts before merging.");
+    }
+    if (type!.attributeSchemaJson.some((field)=>field.key===key && field.observable)
+      && !UNIVERSAL_EVIDENCE_FIELDS.some((field)=>field===key)) continue;
+    const sourceUnknown=left?.status!=="VERIFIED",targetUnknown=right?.status!=="VERIFIED";
+    if (!sourceUnknown && !targetUnknown) {
+      if (evidenceValuesDiffer(left!.value!,right!.value!)) throw new AppError("CONFLICT","Verified distinguishing values differ.");
+      continue;
+    }
+    const reason=item.acknowledgedUnknowns[key]?.trim();
+    if (!reason) throw new AppError("PRECONDITION_FAILED","Explicitly acknowledge each undetermined distinguishing field.",{field:key});
+    acknowledgements.push({fieldName:key,reason,sourceUnknown,targetUnknown,
+      expectedValue:!sourceUnknown?left!.value:!targetUnknown?right!.value:null});
+  }
+  return {item,acknowledgements};
+}
+
+export async function loadSkuEvidenceSources(tx: DbExecutor, ids: string[]) {
   const lineage = new Set(ids);
-  const items = await tx.select().from(evidence).where(or(inArray(evidence.skuId, ids), inArray(evidence.comparisonSkuId, ids)));
+  const attributed = await tx.select().from(evidenceAttributions).where(inArray(evidenceAttributions.targetSkuId,ids));
+  const items = await tx.select().from(evidence).where(or(inArray(evidence.skuId, ids), inArray(evidence.comparisonSkuId, ids),
+    attributed.length ? inArray(evidence.id,attributed.map((row) => row.evidenceId)) : undefined));
   const photoIds = items.flatMap((item) => item.comparisonClaims && item.imageId && item.comparisonImageId
     ? [item.imageId, item.comparisonImageId] : []);
   const photos = photoIds.length ? await tx.select({ id: productImages.id, skuId: productImages.skuId }).from(productImages)
     .where(and(inArray(productImages.id, photoIds), eq(productImages.status, "VERIFIED"))) : [];
-  const owners = new Map(photos.map((photo) => [photo.id, photo.skuId]));
-  return items.flatMap((item) => {
+  const validPhotos = new Set(photos.map((photo) => photo.id));
+  const results: EvidenceSource[] = [];
+  for (const item of items) {
     const own = lineage.has(item.skuId);
-    if (!item.comparisonClaims) return own ? [item] : [];
-    if (own && item.comparisonSkuId && lineage.has(item.comparisonSkuId)) return [];
-    if (!item.imageId || !item.comparisonImageId || owners.get(item.imageId) !== item.skuId
-      || owners.get(item.comparisonImageId) !== item.comparisonSkuId) return [];
-    return own ? [item] : [{ ...item, claims: item.comparisonClaims, imageId: item.comparisonImageId }];
-  });
+    const sides = attributed.filter((row) => row.evidenceId === item.id).map((row) => row.claimSkuId);
+    if (own) sides.push(item.skuId);
+    if (item.comparisonSkuId && lineage.has(item.comparisonSkuId)) sides.push(item.comparisonSkuId);
+    if (item.comparisonClaims) {
+      if (item.type === "ADMIN_PHYSICAL_INSPECTION" && (!item.imageId || !item.comparisonImageId || !validPhotos.has(item.imageId)
+        || !validPhotos.has(item.comparisonImageId) || !await imageBelongsToSku(tx,item.imageId,item.skuId)
+        || !await imageBelongsToSku(tx,item.comparisonImageId,item.comparisonSkuId!))) continue;
+      if (own && item.comparisonSkuId && lineage.has(item.comparisonSkuId) && item.comparisonRelation === "DIFFERS") continue;
+    }
+    for (const side of new Set(sides)) {
+      if (side === item.skuId) results.push({...item,claimSkuId:side});
+      else if (side === item.comparisonSkuId && item.comparisonClaims) results.push({ ...item, claims: item.comparisonClaims,
+        claimSources: item.comparisonClaimSources ?? {}, imageId: item.comparisonImageId,claimSkuId:side });
+    }
+  }
+  return results;
 }
 
 async function projectSkuIdentity(ctx: DomainTransactionContext, skuId: string) {
@@ -167,8 +252,7 @@ async function projectSkuIdentity(ctx: DomainTransactionContext, skuId: string) 
     loadType(ctx.tx, sku),
     loadSkuEvidenceSources(ctx.tx, lineage),
     ctx.tx.select().from(skuFieldProvenance).where(eq(skuFieldProvenance.skuId, skuId)),
-    ctx.tx.select({ slot: productImages.slot }).from(productImages)
-      .where(and(inArray(productImages.skuId, lineage), eq(productImages.status, "VERIFIED"), inArray(productImages.slot, ["MAIN", "SECONDARY"])))
+    getSkuImages(ctx.tx,skuId).then((images) => images.filter((image) => image.status === "VERIFIED"))
   ]);
   const decisions = new Map(priorFields.map((field) => [field.fieldName, field]));
   const distinguishingAttributes = productType?.distinguishingAttributes ?? [];
@@ -196,18 +280,32 @@ async function projectSkuIdentity(ctx: DomainTransactionContext, skuId: string) 
       .onConflictDoUpdate({ target: [skuFieldProvenance.skuId, skuFieldProvenance.fieldName], set: nowVerified
         ? { ...projection, notDeterminableReason: null, decidedBy: null, decidedAt: null } : projection });
   }
-  return { sku, productType, items, photos, decisions, distinguishingAttributes, fields, previousFields: new Map(priorFields.map((field) => [field.fieldName, field])) };
+  const merged = await applyMergeUncertainty(ctx,skuId,lineage,items,fields,decisions);
+  for (const [fieldName,field] of fields) await ctx.tx.update(skuFieldProvenance).set({
+    value:field.value,status:field.status,evidenceIds:field.evidenceIds
+  }).where(and(eq(skuFieldProvenance.skuId,skuId),eq(skuFieldProvenance.fieldName,fieldName)));
+  const basis = await ctx.tx.select().from(skuSplitBasis).where(inArray(skuSplitBasis.targetSkuId,lineage));
+  const basisUnverified = basis.length > 0 && !basis.some((item)=>fields.get(item.fieldName)?.status==="VERIFIED"
+    && !evidenceValuesDiffer(fields.get(item.fieldName)!.value!,item.value));
+  if (sku.splitBasisUnverified !== basisUnverified) {
+    await ctx.tx.update(skus).set({splitBasisUnverified:basisUnverified}).where(eq(skus.id,skuId));
+    await ctx.recordAudit({action:"SPLIT_BASIS_VERIFICATION_CHANGED",entityType:"sku",entityId:skuId,
+      before:{unverified:sku.splitBasisUnverified},after:{unverified:basisUnverified}});
+  }
+  return { sku, productType, items, photos, decisions, distinguishingAttributes, fields, mergeConflict:merged.conflict,
+    previousFields: new Map(priorFields.map((field) => [field.fieldName, field])) };
 }
 
 async function saveSkuIdentity(ctx: DomainTransactionContext, projection: Awaited<ReturnType<typeof projectSkuIdentity>>) {
   const { sku, productType, items, photos, decisions, distinguishingAttributes, fields, previousFields } = projection;
   const skuId = sku.id;
   const duplicates = await findIndistinguishable(ctx.tx, sku, productType, fields);
-  const result = computeIdentity({
+  let result = computeIdentity({
     kind: sku.identityKind as IdentityKind, productTypeSet: !!productType?.active,
     referencePhotos: ["MAIN", "SECONDARY"].every((slot) => photos.some((photo) => photo.slot === slot)),
     unique: duplicates.length === 0, fields, decisions, distinguishingAttributes, items
   });
+  if (projection.mergeConflict) result = {...result,level:"CONFLICT"};
   const reverificationRequired = sku.lifecycleState === "READY" && (result.level === "LOW" || result.level === "CONFLICT");
   await ctx.tx.update(skus).set({
     identityConfidence: result.level, identityRuleVersion: result.ruleVersion,
@@ -217,10 +315,11 @@ async function saveSkuIdentity(ctx: DomainTransactionContext, projection: Awaite
     await ctx.recordAudit({ action: "SKU_IDENTITY_RECOMPUTED", entityType: "sku", entityId: skuId,
       before: { confidence: sku.identityConfidence, reverificationRequired: sku.reverificationRequired },
       after: { ...result, reverificationRequired } });
-    await ctx.emitOutboxEvent({ eventType: reverificationRequired ? "PRODUCT_REVIEW_REQUIRED" : "PRODUCT_UPDATED",
+    const attention = reverificationRequired || projection.mergeConflict;
+    await ctx.emitOutboxEvent({ eventType: attention ? "PRODUCT_REVIEW_REQUIRED" : "PRODUCT_UPDATED",
       aggregateType: "sku", aggregateId: skuId, payload: { skuId, confidence: result.level, reverificationRequired,
-        ...(reverificationRequired ? { severity: "ACTION_REQUIRED", reason: "IDENTITY_REVERIFICATION" } : {}) },
-      consumers: reverificationRequired ? ["notifications"] : [] });
+        ...(attention ? { severity: "ACTION_REQUIRED", reason: projection.mergeConflict ? "MERGE_EVIDENCE_CONFLICT" : "IDENTITY_REVERIFICATION" } : {}) },
+      consumers: attention ? ["notifications"] : [] });
   }
   await refreshSkuContentReview(ctx, skuId, previousFields);
   return { ...result, fields, decisions, productType, duplicates, reverificationRequired };
@@ -228,8 +327,10 @@ async function saveSkuIdentity(ctx: DomainTransactionContext, projection: Awaite
 
 async function recomputeSkuIdentities(ctx: DomainTransactionContext, ids: (string | null | undefined)[]) {
   await lockIdentityCatalog(ctx.tx);
+  const expanded = [...ids];
+  for (const id of ids) if (id) expanded.push(...await getAffectedSkuIds(ctx.tx,id));
   const roots = new Set<string>();
-  for (const id of ids) if (id) roots.add((await resolveActiveSku(ctx.tx, id))?.id ?? id);
+  for (const id of expanded) if (id) roots.add((await resolveActiveSku(ctx.tx, id))?.id ?? id);
   const projections = [];
   for (const id of roots) projections.push(await projectSkuIdentity(ctx, id));
   // Write both sets of fields before evaluating whether either SKU has a verified difference.
@@ -251,7 +352,10 @@ export async function recomputeIdentityAfterPhotoDecision(ctx: DomainTransaction
 
 function evidenceReading(item: EvidenceRow) {
   return { id: item.id, status: item.status, claims: item.claims, claimSources: item.claimSources,
-    comparisonSkuId: item.comparisonSkuId, comparisonClaims: item.comparisonClaims, comparisonClaimSources: item.comparisonClaimSources };
+    comparisonSkuId: item.comparisonSkuId, comparisonRelation: item.comparisonRelation, acknowledgedUnknowns: item.acknowledgedUnknowns,
+    comparisonClaims: item.comparisonClaims, comparisonClaimSources: item.comparisonClaimSources,
+    intakeId:item.intakeId,imageId:item.imageId,comparisonImageId:item.comparisonImageId,
+    supportingEvidenceIds:item.supportingEvidenceIds,comparisonSupportingEvidenceIds:item.comparisonSupportingEvidenceIds };
 }
 
 function humanClaimSources(claims: Record<string, EvidenceValue>, userId: string) {
@@ -261,8 +365,8 @@ function humanClaimSources(claims: Record<string, EvidenceValue>, userId: string
 async function evidenceChanged(ctx: DomainTransactionContext, item: EvidenceRow, action: string, reason?: string, previous?: EvidenceRow) {
   await ctx.recordAudit({ action, entityType: "evidence", entityId: item.id,
     before: previous ? evidenceReading(previous) : undefined,
-    after: { skuId: item.skuId, type: item.type, sensitivity: item.sensitivity, status: item.status,
-      ...(previous ? evidenceReading(item) : {}) }, reason });
+    after: { skuId: item.skuId, type: item.type, sensitivity: item.sensitivity,
+      ...evidenceReading(item) }, reason });
   await ctx.emitOutboxEvent({ eventType: "EVIDENCE_UPDATED", aggregateType: "evidence", aggregateId: item.id,
     payload: { skuId: item.skuId, evidenceId: item.id, status: item.status,
       ...(item.comparisonSkuId ? { comparisonSkuId: item.comparisonSkuId } : {}) },
@@ -316,6 +420,12 @@ export async function submitSkuEvidence(
     const sku = await loadSku(ctx.tx, input.skuId);
     if (sku.lifecycleState === "ARCHIVED") throw new AppError("PRECONDITION_FAILED", "Archived SKU cannot receive evidence.");
     const productType = await loadType(ctx.tx, sku);
+    if(input.intakeId) {
+      const [intake]=await ctx.tx.select().from(productIntakes).where(eq(productIntakes.id,input.intakeId));
+      if(!intake?.matchedSkuId || (await resolveActiveSku(ctx.tx,intake.matchedSkuId))?.id!==sku.id) {
+        throw new AppError("VALIDATION_ERROR","Evidence intake must resolve to this SKU.");
+      }
+    }
     let task;
     if (input.taskId) {
       [task] = await ctx.tx.select().from(scanTasks).where(eq(scanTasks.id, input.taskId)).for("update");
@@ -337,8 +447,8 @@ export async function submitSkuEvidence(
     }
     if (input.imageId) {
       const [image] = await ctx.tx.select({ id: productImages.id }).from(productImages)
-        .where(and(eq(productImages.id, input.imageId), eq(productImages.skuId, sku.id), ne(productImages.status, "REJECTED")));
-      if (!image) throw new AppError("VALIDATION_ERROR", "Evidence image must belong to this SKU.");
+        .where(and(eq(productImages.id, input.imageId), ne(productImages.status, "REJECTED")));
+      if (!image || !await imageBelongsToSku(ctx.tx,input.imageId,sku.id)) throw new AppError("VALIDATION_ERROR", "Evidence image must belong to this SKU.");
     }
     if (input.type === "ADMIN_PHYSICAL_INSPECTION" && (!input.notes && !input.imageId)) {
       throw new AppError("VALIDATION_ERROR", "Physical inspection requires a photo or a note.");
@@ -470,7 +580,8 @@ export async function decideSkuEvidenceField(db: DbExecutor, actor: DomainActor,
     const sku = await loadSku(ctx.tx, input.skuId);
     const productType = await loadType(ctx.tx, sku);
     if (input.evidenceId) {
-      const [item] = await ctx.tx.select().from(evidence).where(and(eq(evidence.id, input.evidenceId), eq(evidence.skuId, sku.id)));
+      const item = (await loadSkuEvidenceSources(ctx.tx,await getSkuLineageIds(ctx.tx,sku.id)))
+        .find((candidate)=>candidate.id===input.evidenceId && Object.hasOwn(candidate.claims,input.field));
       if (!item || item.status !== "ACCEPTED" || evidenceStrength(item) !== "MEDIUM" || !Object.hasOwn(item.claims, input.field)) {
         throw new AppError("VALIDATION_ERROR", "Choose accepted Medium evidence for this field.");
       }
@@ -517,20 +628,25 @@ export async function listSkuEvidence(db: DbExecutor, actor: DomainActor, skuId:
   await requireEvidenceAdmin(db, actor);
   const sku = await loadSku(db, skuId);
   const lineage = await getSkuLineageIds(db, skuId);
+  const attributedIds=db.select({id:evidenceAttributions.evidenceId}).from(evidenceAttributions)
+    .where(inArray(evidenceAttributions.targetSkuId,lineage));
   const [items, fields, productType] = await Promise.all([
-    db.select().from(evidence).where(inArray(evidence.skuId, lineage)),
+    db.select().from(evidence).where(or(inArray(evidence.skuId, lineage),inArray(evidence.id,attributedIds))),
     db.select().from(skuFieldProvenance).where(eq(skuFieldProvenance.skuId, skuId)),
     loadType(db, sku)
   ]);
   const resolved = new Map(fields.map((field) => [field.fieldName, field]));
   const comparisons = await findIndistinguishable(db, sku, productType, resolved);
-  const comparisonPhotos = productType ? await db.select({ skuId: skus.id, internalSku: skus.internalSku,
-    imageId: productImages.id, slot: productImages.slot, sortOrder: productImages.sortOrder }).from(skus)
-    .innerJoin(productImages, eq(productImages.skuId, skus.id))
-    .where(and(eq(skus.productTypeId, productType.id), ne(skus.id, skuId), ne(skus.lifecycleState, "ARCHIVED"),
-      eq(productImages.status, "VERIFIED"))) : [];
+  const comparisonSkus=productType?await db.select({id:skus.id,internalSku:skus.internalSku}).from(skus)
+    .where(and(eq(skus.productTypeId,productType.id),ne(skus.id,skuId),ne(skus.lifecycleState,"ARCHIVED"))):[];
+  const comparisonPhotos=(await Promise.all(comparisonSkus.map(async(peer)=>
+    (await getSkuImages(db,peer.id)).filter((photo)=>photo.status==="VERIFIED").map((photo)=>({
+      skuId:peer.id,internalSku:peer.internalSku,imageId:photo.id,slot:photo.slot,sortOrder:photo.sortOrder
+    }))))).flat();
   const incomingComparisons = await db.select({ id: evidence.id, skuId: evidence.skuId }).from(evidence)
     .where(and(inArray(evidence.comparisonSkuId, lineage), notInArray(evidence.skuId, lineage)));
+  for(const item of items)if(!lineage.includes(item.skuId)&&!incomingComparisons.some((row)=>row.id===item.id))
+    incomingComparisons.push({id:item.id,skuId:item.skuId});
   return { sku, items, fields, productType, comparisons, comparisonPhotos, incomingComparisons };
 }
 

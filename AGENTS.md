@@ -39,10 +39,11 @@ If two sources conflict and this list does not resolve it, stop and ask. Do not 
 | M3 Scanning, intake, labels, offline queue, backup tooling | Done — merged to `main` (PR #1). Human checks below pending |
 | M4 Photo capture and media pipeline | Merged to `main`. Human deployment checks below pending |
 | M5 Evidence and AI identity | Merged to `main` (PR #10). Local synthetic provider |
-| M6 Review, canonical content and publishing | Implemented on `m6-review-publishing` for draft PR review |
+| M6 Review, canonical content and publishing | Merged to `main` (PR #11) |
+| ADR-011 Part A / ADR-012 | Implemented on `feat/sku-split-merge-evidence` for draft PR review; Part B remains Proposed |
 | M7–M11 | Not started |
 
-Current task: review M6 against [the milestone record](docs/milestones/m6-review-publishing.md).
+Current task: ADR-011 Part A and ADR-012; see [the task record](docs/milestones/sku-split-merge-evidence.md).
 
 Human checks still pending (the owner updates these lines):
 

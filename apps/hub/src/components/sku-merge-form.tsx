@@ -6,8 +6,9 @@ import { t } from "@khidi/i18n";
 import { createUuidV7 } from "@khidi/shared/uuid";
 import type { listSkuMergeTargets } from "@khidi/products";
 
-export function SkuMergeForm({ sourceSkuId, candidates }: {
+export function SkuMergeForm({ sourceSkuId, candidates, records }: {
   sourceSkuId: string; candidates: Readonly<Awaited<ReturnType<typeof listSkuMergeTargets>>>;
+  records:{id:string;otherSkuId:string;label:string}[];
 }) {
   const router = useRouter();
   const [targetSkuId, setTargetSkuId] = useState("");
@@ -24,7 +25,7 @@ export function SkuMergeForm({ sourceSkuId, candidates }: {
       const result = await fetch("/api/products/merge", { method: "POST", headers: {
         "Content-Type": "application/json", "Idempotency-Key": createUuidV7()
       }, body: JSON.stringify({ sourceSkuId, targetSkuId, identityConfirmed: data.get("identityConfirmed") === "on",
-        reason: data.get("reason"), listingChoices }) });
+        samenessEvidenceId:data.get("samenessEvidenceId"),reason: data.get("reason"), listingChoices }) });
       if (!result.ok) throw new Error();
       router.push(`/products/${targetSkuId}`);
       router.refresh();
@@ -40,6 +41,11 @@ export function SkuMergeForm({ sourceSkuId, candidates }: {
           <option value="">—</option>
           {candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.internalSku} · {candidate.name}</option>)}
         </select></label>
+        <label>{t("correction.sameness_record")} <select name="samenessEvidenceId" key={targetSkuId} required>
+          <option value="">—</option>{records.filter((record)=>record.otherSkuId===targetSkuId).map((record)=>
+            <option key={record.id} value={record.id}>{record.label}</option>)}
+        </select></label>
+        <p>{t("correction.sameness_hint")}</p>
         {shared.map((store) => <label key={`${targetSkuId}:${store.id}`}>{store.name} · {t("merge.listing_choice")}
           <select name={store.id} required>
             <option value="">—</option>

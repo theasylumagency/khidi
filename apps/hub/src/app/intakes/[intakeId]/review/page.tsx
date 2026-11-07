@@ -35,7 +35,7 @@ export default async function IntakeReviewPage({ params }: { params: Promise<{ i
     {intake.reviewReason && !intake.reviewedAt ? <IntakeReviewForm intakeId={intake.id} idempotencyKey={createUuidV7()}
       canAccept={["TASK_NOT_ACCEPTING", "TASK_NOT_ASSIGNED"].includes(intake.reviewReason)}
       closedTask={!!taskStatus && !["OPEN", "IN_PROGRESS"].includes(taskStatus)}
-      replacementRequired={intake.isNoBarcode || ["UNKNOWN_INTERNAL_LABEL", "ARCHIVED_INTERNAL_LABEL"].includes(intake.reviewReason)}
+      replacementRequired={intake.isNoBarcode || ["UNKNOWN_INTERNAL_LABEL", "ARCHIVED_INTERNAL_LABEL","SPLIT_INTERNAL_LABEL"].includes(intake.reviewReason)}
       candidates={candidates.map(({ internalSku, displayNameKa }) => ({ internalSku, displayNameKa }))} /> : <>
       {intake.reviewedAt ? <p>{t("scanning.review_closed")} · {formatTbilisiDateTime(intake.reviewedAt)} · {intake.reviewNote}</p> : null}
     </>}

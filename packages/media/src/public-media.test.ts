@@ -13,6 +13,10 @@ import { manageImage } from "./management.ts";
 import { buildPublicMediaUrl, listStorefrontMedia, publicMediaKey, synchronizePublicMedia } from "./public-media.ts";
 import { FilesystemMediaStorage, type MediaStorage } from "./storage.ts";
 import { fixturePhoto } from "./test-fixtures.ts";
+import { makeSamenessFixture } from "../../products/src/sameness.test-fixture.ts";
+import { splitSku } from "../../products/src/corrections.ts";
+import { getProductTypeByKey, upsertProductType } from "../../products/src/index.ts";
+import { getContentFactFields } from "@khidi/evidence";
 describe("P9 eligible public copies and recoverable transfer intents", () => {
   const db = getDb(); let admin: AuthenticatedPrincipal, storage: FilesystemMediaStorage, root: string, bytes: Buffer;
   beforeAll(async () => {
@@ -62,6 +66,40 @@ describe("P9 eligible public copies and recoverable transfer intents", () => {
     for (const intent of intents) await expect(readFile(path.join(root, "public", intent.objectKey))).rejects.toMatchObject({ code: "ENOENT" });
     expect((await db.select().from(imagePublications).where(eq(imagePublications.skuId, item.skuId))).every((row) => row.status === "WITHDRAWN")).toBe(true);
   }, 60000);
+  it("publishes explicitly attributed split photos and withdraws them after rejection without moving originals",async()=>{
+    const source=await candidate();
+    const actor={userId:admin.userId};
+    const template=await getProductTypeByKey(db,"MOTOBLOCK");
+    const type=await upsertProductType(db,actor,{...template,key:"MEDIA_SPLIT_"+createUuidV7().slice(-9),distinguishingAttributes:["wheel_type"]});
+    await db.update(skus).set({productTypeId:type.id}).where(eq(skus.id,source.skuId));
+    const originalOwnerId=source.skuId;
+    const mergedSurvivor=await createSkuDraft(db,actor,{productTypeId:type.id});
+    const sameness=await makeSamenessFixture(db,actor,source.skuId,mergedSurvivor.id,{claims:{wheel_type:"RUBBER"}});
+    await mergeSkus(db,actor,{sourceSkuId:source.skuId,targetSkuId:mergedSurvivor.id,samenessEvidenceId:sameness.id,
+      identityConfirmed:true,reason:"Matched the original fixture"});
+    source.skuId=mergedSurvivor.id;
+    const photo=await receivePhoto(db,storage,admin,{idempotencyKey:createUuidV7(),skuId:source.skuId,userId:admin.userId,
+      deviceId:createUuidV7(),capturedAt:new Date().toISOString(),slot:"SECONDARY"},bytes);
+    const secondId=photo.body.id as string;
+    const [job]=await db.select().from(mediaJobs).where(and(eq(mediaJobs.imageId,secondId),eq(mediaJobs.jobType,"process-image")));
+    await executeMediaJob(db,storage,job!.id);
+    await action(source.imageId,"VERIFY");await action(secondId,"VERIFY");
+    const split=await splitSku(db,actor,{sourceSkuId:source.skuId,reason:"Inspected differing wheels",
+      targets:[{claims:{wheel_type:"RUBBER"},imageId:source.imageId},{claims:{wheel_type:"IRON"},imageId:secondId}]});
+    const targetId=split.targetSkuIds[0]!;
+    await ready({skuId:targetId,imageId:source.imageId,slug:"split-photo-"+createUuidV7().slice(-9)});
+    await synchronizePublicMedia(db,storage,targetId);
+    const copies=await active(targetId);
+    expect(copies).toHaveLength(6);
+    expect(copies.every((copy)=>copy.imageId===source.imageId)).toBe(true);
+    expect(await db.query.productImages.findFirst({where:(row,{eq})=>eq(row.id,source.imageId)})).toMatchObject({skuId:originalOwnerId});
+    await action(source.imageId,"REJECT",{reason:"New inspection required"});
+    expect((await getContentFactFields(db,targetId)).get("wheel_type")?.status).not.toBe("VERIFIED");
+    expect(await db.select().from(mediaJobs).where(and(eq(mediaJobs.skuId,targetId),eq(mediaJobs.jobType,"publish-sku-media"))))
+      .not.toHaveLength(0);
+    await synchronizePublicMedia(db,storage,targetId);
+    expect(await active(targetId)).toEqual([]);
+  },60000);
   it("rejects internal identifiers, traversal, a Hub media host, credentials and non-HTTPS public URLs", () => {
     for (const slug of ["KH-000001", `tool-${createUuidV7()}`, "../tool", "khidi-internal-local-tool"]) expect(() => publicMediaKey(slug, 1, 400, "webp")).toThrow();
     const key = publicMediaKey("neutral-tool", 1, 800, "avif"); expect(buildPublicMediaUrl("https://media.example/catalog", key)).toBe("https://media.example/catalog/neutral-tool-1-800.avif");
@@ -78,7 +116,8 @@ describe("P9 eligible public copies and recoverable transfer intents", () => {
     const { version } = await saveCanonicalVersion(db, actor, { skuId: target.skuId, locale: "ka",
       draft: { displayName: title, shortDescription: title, fullDescription: title, searchAliases: [] } });
     await approveCanonicalVersion(db, actor, { skuId: target.skuId, versionId: version.id });
-    await mergeSkus(db, actor, { sourceSkuId: source.skuId, targetSkuId: target.skuId,
+    const sameness=await makeSamenessFixture(db,actor,source.skuId,target.skuId);
+    await mergeSkus(db, actor, { sourceSkuId: source.skuId, targetSkuId: target.skuId,samenessEvidenceId:sameness.id,
       identityConfirmed: true, reason: "Compared the physical markings and configuration of both fixtures" });
     await synchronizePublicMedia(db, storage, source.skuId);
     await synchronizePublicMedia(db, storage, target.skuId);
