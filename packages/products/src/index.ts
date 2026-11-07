@@ -1469,6 +1469,11 @@ export async function upsertAccountingMapping(
     if(shared.length && input.confirmSharedAccountingItem!==true) {
       throw new AppError("PRECONDITION_FAILED","Confirm that this accounting item is shared by multiple SKUs.");
     }
+    if(shared.length){
+      const [admin]=actor.userId?await ctx.tx.select({id:users.id}).from(users)
+        .where(and(eq(users.id,actor.userId),eq(users.role,"ADMIN"),eq(users.active,true))):[];
+      if(!admin)throw new AppError("FORBIDDEN","Sharing an accounting item requires an active admin.");
+    }
     const [entity] = await ctx.tx
       .select()
       .from(legalEntities)
@@ -1526,6 +1531,8 @@ export async function upsertAccountingMapping(
         active: created.active
       }
     });
+    await ctx.emitOutboxEvent({eventType:"PRODUCT_UPDATED",aggregateType:"sku",aggregateId:input.skuId,
+      payload:{skuId:input.skuId,accountingMappingId:created.id,sharedAccountingItem:shared.length>0},consumers:[]});
 
     return created;
   });

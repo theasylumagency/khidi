@@ -1,7 +1,7 @@
 import { and, eq, inArray, ne, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
-  evidence, evidenceAttributions, getAttributedSkuIds, getSkuImages, getSkuLineageIds, imageBelongsToSku,
+  evidence, evidenceAttributions, getAffectedSkuIds, getSkuImages, getSkuLineageIds, imageBelongsToSku,
   productImages, productIntakes, productTypes, resolveActiveSku, scanTasks, skuFieldProvenance, skuSplitBasis, skus, users,
   type DbExecutor, type EvidenceClaimSource, type EvidenceValue, type ProductTypeAttributeFieldDef
 } from "@khidi/db";
@@ -328,7 +328,7 @@ async function saveSkuIdentity(ctx: DomainTransactionContext, projection: Awaite
 async function recomputeSkuIdentities(ctx: DomainTransactionContext, ids: (string | null | undefined)[]) {
   await lockIdentityCatalog(ctx.tx);
   const expanded = [...ids];
-  for (const id of ids) if (id) expanded.push(...await getAttributedSkuIds(ctx.tx,await getSkuLineageIds(ctx.tx,id)));
+  for (const id of ids) if (id) expanded.push(...await getAffectedSkuIds(ctx.tx,id));
   const roots = new Set<string>();
   for (const id of expanded) if (id) roots.add((await resolveActiveSku(ctx.tx, id))?.id ?? id);
   const projections = [];
@@ -353,7 +353,9 @@ export async function recomputeIdentityAfterPhotoDecision(ctx: DomainTransaction
 function evidenceReading(item: EvidenceRow) {
   return { id: item.id, status: item.status, claims: item.claims, claimSources: item.claimSources,
     comparisonSkuId: item.comparisonSkuId, comparisonRelation: item.comparisonRelation, acknowledgedUnknowns: item.acknowledgedUnknowns,
-    comparisonClaims: item.comparisonClaims, comparisonClaimSources: item.comparisonClaimSources };
+    comparisonClaims: item.comparisonClaims, comparisonClaimSources: item.comparisonClaimSources,
+    intakeId:item.intakeId,imageId:item.imageId,comparisonImageId:item.comparisonImageId,
+    supportingEvidenceIds:item.supportingEvidenceIds,comparisonSupportingEvidenceIds:item.comparisonSupportingEvidenceIds };
 }
 
 function humanClaimSources(claims: Record<string, EvidenceValue>, userId: string) {
@@ -363,8 +365,8 @@ function humanClaimSources(claims: Record<string, EvidenceValue>, userId: string
 async function evidenceChanged(ctx: DomainTransactionContext, item: EvidenceRow, action: string, reason?: string, previous?: EvidenceRow) {
   await ctx.recordAudit({ action, entityType: "evidence", entityId: item.id,
     before: previous ? evidenceReading(previous) : undefined,
-    after: { skuId: item.skuId, type: item.type, sensitivity: item.sensitivity, status: item.status,
-      ...(previous ? evidenceReading(item) : {}) }, reason });
+    after: { skuId: item.skuId, type: item.type, sensitivity: item.sensitivity,
+      ...evidenceReading(item) }, reason });
   await ctx.emitOutboxEvent({ eventType: "EVIDENCE_UPDATED", aggregateType: "evidence", aggregateId: item.id,
     payload: { skuId: item.skuId, evidenceId: item.id, status: item.status,
       ...(item.comparisonSkuId ? { comparisonSkuId: item.comparisonSkuId } : {}) },
@@ -578,7 +580,8 @@ export async function decideSkuEvidenceField(db: DbExecutor, actor: DomainActor,
     const sku = await loadSku(ctx.tx, input.skuId);
     const productType = await loadType(ctx.tx, sku);
     if (input.evidenceId) {
-      const [item] = await ctx.tx.select().from(evidence).where(and(eq(evidence.id, input.evidenceId), eq(evidence.skuId, sku.id)));
+      const item = (await loadSkuEvidenceSources(ctx.tx,await getSkuLineageIds(ctx.tx,sku.id)))
+        .find((candidate)=>candidate.id===input.evidenceId && Object.hasOwn(candidate.claims,input.field));
       if (!item || item.status !== "ACCEPTED" || evidenceStrength(item) !== "MEDIUM" || !Object.hasOwn(item.claims, input.field)) {
         throw new AppError("VALIDATION_ERROR", "Choose accepted Medium evidence for this field.");
       }
@@ -625,20 +628,25 @@ export async function listSkuEvidence(db: DbExecutor, actor: DomainActor, skuId:
   await requireEvidenceAdmin(db, actor);
   const sku = await loadSku(db, skuId);
   const lineage = await getSkuLineageIds(db, skuId);
+  const attributedIds=db.select({id:evidenceAttributions.evidenceId}).from(evidenceAttributions)
+    .where(inArray(evidenceAttributions.targetSkuId,lineage));
   const [items, fields, productType] = await Promise.all([
-    db.select().from(evidence).where(inArray(evidence.skuId, lineage)),
+    db.select().from(evidence).where(or(inArray(evidence.skuId, lineage),inArray(evidence.id,attributedIds))),
     db.select().from(skuFieldProvenance).where(eq(skuFieldProvenance.skuId, skuId)),
     loadType(db, sku)
   ]);
   const resolved = new Map(fields.map((field) => [field.fieldName, field]));
   const comparisons = await findIndistinguishable(db, sku, productType, resolved);
-  const comparisonPhotos = productType ? await db.select({ skuId: skus.id, internalSku: skus.internalSku,
-    imageId: productImages.id, slot: productImages.slot, sortOrder: productImages.sortOrder }).from(skus)
-    .innerJoin(productImages, eq(productImages.skuId, skus.id))
-    .where(and(eq(skus.productTypeId, productType.id), ne(skus.id, skuId), ne(skus.lifecycleState, "ARCHIVED"),
-      eq(productImages.status, "VERIFIED"))) : [];
+  const comparisonSkus=productType?await db.select({id:skus.id,internalSku:skus.internalSku}).from(skus)
+    .where(and(eq(skus.productTypeId,productType.id),ne(skus.id,skuId),ne(skus.lifecycleState,"ARCHIVED"))):[];
+  const comparisonPhotos=(await Promise.all(comparisonSkus.map(async(peer)=>
+    (await getSkuImages(db,peer.id)).filter((photo)=>photo.status==="VERIFIED").map((photo)=>({
+      skuId:peer.id,internalSku:peer.internalSku,imageId:photo.id,slot:photo.slot,sortOrder:photo.sortOrder
+    }))))).flat();
   const incomingComparisons = await db.select({ id: evidence.id, skuId: evidence.skuId }).from(evidence)
     .where(and(inArray(evidence.comparisonSkuId, lineage), notInArray(evidence.skuId, lineage)));
+  for(const item of items)if(!lineage.includes(item.skuId)&&!incomingComparisons.some((row)=>row.id===item.id))
+    incomingComparisons.push({id:item.id,skuId:item.skuId});
   return { sku, items, fields, productType, comparisons, comparisonPhotos, incomingComparisons };
 }
 

@@ -19,6 +19,8 @@ import { AiJobAction } from "../../../components/ai-job-action.tsx";
 import { CanonicalContentEditor } from "../../../components/canonical-content-editor.tsx";
 import { SkuMergeForm } from "../../../components/sku-merge-form.tsx";
 import { getSkuPublicationReview } from "@khidi/publishing";
+import { getSkuCorrectionContext } from "@khidi/products/corrections";
+import { SkuAttributionForm, SkuSplitForm } from "../../../components/sku-correction-forms.tsx";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +82,12 @@ export default async function SkuDetailPage({
   const approvedKa = contentReview?.approved.find((version) => version.locale === "ka");
   const canUseKaForReady = !!approvedKa && approvedKa.changedFields.length === 0 &&
     contentReview?.versions.find((version) => version.id === approvedKa.id)?.issues.length === 0;
+  const correction=principal.role==="ADMIN"?await getSkuCorrectionContext(db,skuId):null;
+  const sourceEvidence=correction?.evidenceItems.map((item)=>({id:item.id,claimSkuId:item.claimSkuId??item.skuId,
+    label:t(`evidence.type.${item.type}` as TranslationKey)+" · "+Object.entries(item.claims).map(([key,value])=>key+": "+String(value)).join(", ")
+      +" · "+t(`evidence.status.${item.status}` as TranslationKey)}))??[];
+  const sourcePhotos=images.map((image)=>({id:image.id,skuId,verified:image.status==="VERIFIED",
+    label:t("evidence.photo")+" · "+t(`media.slot.${image.slot}` as TranslationKey)+" · "+(image.sortOrder+1)}));
 
   return (
     <div style={{ display: "grid", gap: "1.5rem" }}>
@@ -269,7 +277,26 @@ export default async function SkuDetailPage({
         </table> : <p>{t("publishing.no_storefronts")}</p>}
       </section> : null}
       {sku.mergedIntoSkuId ? <p><Link href={`/products/${sku.mergedIntoSkuId}`}>{t("merge.survivor_link")}</Link></p> : null}
-      {principal.role === "ADMIN" ? <SkuMergeForm sourceSkuId={skuId} candidates={mergeTargets} /> : null}
+      {sku.mergedUndeterminedFields.length?<p role="status">{t("correction.merged_unknowns")}: {sku.mergedUndeterminedFields.map((key)=>
+        evidenceFieldOptions(productType).find((field)=>field.key===key)?.label??key).join(", ")}</p>:null}
+      {sku.splitBasisUnverified?<p role="status">{t("correction.split_unverified")}</p>:null}
+      {correction?<SkuMergeForm sourceSkuId={skuId} candidates={mergeTargets} records={correction.samenessRecords.map((record)=>({
+        id:record.id,otherSkuId:record.skuId===skuId?record.comparisonSkuId!:record.skuId,
+        label:record.createdAt.toLocaleString("ka-GE",{timeZone:"Asia/Tbilisi"})+" · "+record.notes
+      }))}/>:null}
+      {correction && productType && sku.lifecycleState!=="ARCHIVED"?<SkuSplitForm sourceSkuId={skuId}
+        targets={correction.targets.map((target)=>({id:target.id,label:target.internalSku}))}
+        fields={evidenceFieldOptions(productType).filter((field)=>field.observable||productType.distinguishingAttributes.includes(field.key))}
+        evidence={sourceEvidence} locales={[...new Set(contentReview?.versions.map((version)=>version.locale)??[])]}
+        photos={[...sourcePhotos,...(evidenceView?.comparisonPhotos??[]).map((photo)=>({
+          id:photo.imageId,skuId:photo.skuId,verified:true,label:photo.internalSku+" · "+t(`media.slot.${photo.slot}` as TranslationKey)
+        }))]}/>:null}
+      {correction?.splitTargets.length?<section>
+        <p>{correction.splitTargets.map((target)=><Link key={target.id} href={`/products/${target.id}`}>{target.internalSku} </Link>)}</p>
+        <SkuAttributionForm sourceSkuId={skuId} targets={correction.splitTargets.map((target)=>({id:target.id,label:target.internalSku}))}
+          assets={[...sourceEvidence.map((item)=>({...item,kind:"EVIDENCE" as const})),
+            ...sourcePhotos.map((item)=>({...item,kind:"IMAGE" as const}))]}/>
+      </section>:null}
       {principal.role === "ADMIN" && intakeHistory.length ? <details><summary>{t("merge.intake_history")}</summary>
         <ul>{intakeHistory.map((intake) => <li key={intake.id}>
           <Link href={`/intakes/${intake.id}/review`}>{intake.scannedAt.toLocaleString("ka-GE", { timeZone: "Asia/Tbilisi" })}</Link>
@@ -280,6 +307,9 @@ export default async function SkuDetailPage({
         {sku.reverificationRequired ? <p role="status">{t("evidence.reverification")}</p> : null}
         {evidenceView.comparisons.length ? <p>{t("evidence.duplicate_warning")} {evidenceView.comparisons.map((item) => item.internalSku).join(", ")}</p> : null}
         <EvidenceCapture skuId={sku.id} fields={evidenceFieldOptions(productType)}
+          distinguishing={productType?.distinguishingAttributes??[]}
+          intakes={correction?.intakeChoices.map((intake)=>({id:intake.id,label:intake.scannedAt.toLocaleString("ka-GE",{timeZone:"Asia/Tbilisi"})
+            +" · "+(intake.codes[0]||t("scanning.no_barcode"))}))}
           comparisons={evidenceView.comparisonPhotos.map((photo) => ({ ...photo,
             label: `${t(`media.slot.${photo.slot}` as TranslationKey)} · ${photo.sortOrder + 1}` }))}
           replaceable={evidenceView.items.filter((item) => item.skuId === skuId && item.status === "ACCEPTED").map((item) => ({ id: item.id,
@@ -466,6 +496,7 @@ export default async function SkuDetailPage({
                     </span>
                   </div>
                   <div style={{ marginTop: "0.2rem" }}>{m.accountingName}</div>
+                  {m.sharedAccountingItem?<p>{t("correction.shared_accounting")}</p>:null}
                 </div>
               ))}
             </div>

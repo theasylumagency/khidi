@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getDb } from "@khidi/db";
-import { intakeFiltersSchema, LABEL_STATUSES, listIntakes, RESULT_STATES } from "@khidi/scanning";
+import { intakeFiltersSchema, LABEL_STATUSES, listIntakes, listSplitLabelProgress, RESULT_STATES } from "@khidi/scanning";
 import { formatStaffName, t, type TranslationKey } from "@khidi/i18n";
 import { formatTbilisiDateTime } from "@khidi/shared";
 import { requirePageAuth } from "../../lib/session.ts";
@@ -14,9 +14,16 @@ export default async function IntakesPage({ searchParams }: { searchParams: Prom
   if (!parsed.success) return <section className="scanning-panel"><p role="alert">{t("scanning.error.VALIDATION_ERROR")}</p><Link href="/intakes">{t("scanning.back")}</Link></section>;
   const filters = parsed.data;
   const result = await listIntakes(getDb(), principal, filters);
+  const splitProgress=await listSplitLabelProgress(getDb(),principal);
   function pageHref(page: number) { const params = new URLSearchParams({ ...Object.fromEntries(Object.entries(filters).map(([key, value]) => [key, String(value)])), page: String(page) }); return `/intakes?${params}`; }
   return <section className="scanning-panel"><h1>{t("scanning.intakes")}</h1>
     <nav className="scanning-actions"><Link href="/tasks">{t("scanning.tasks")}</Link><Link href="/scanning/quick">{t("scanning.quick_scan")}</Link><Link href="/labels">{t("scanning.labels")}</Link></nav>
+    {splitProgress.length?<details><summary>{t("correction.labels")}</summary>
+      <p>{t("correction.labels_hint")}</p><table><thead><tr><th>{t("scanning.sku")}</th>
+        <th>{t("correction.printed")}</th><th>{t("correction.resolved")}</th></tr></thead>
+        <tbody>{splitProgress.map((row)=><tr key={row.sourceSkuId}><th scope="row">
+          <Link href={`/products/${row.sourceSkuId}`}>{row.internalSku}</Link></th><td>{row.printed}</td><td>{row.resolved}</td></tr>)}</tbody>
+      </table></details>:null}
     <form method="get"><div className="scanning-fields">
       {filters.taskId ? <input type="hidden" name="taskId" value={filters.taskId} /> : null}
       <label>{t("scanning.needs_review")}<select name="needsReview" defaultValue={filters.needsReview ?? ""}><option value="">{t("scanning.all")}</option><option value="yes">{t("scanning.needs_review")}</option><option value="no">{t("scanning.no_review_needed")}</option></select></label>

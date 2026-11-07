@@ -73,7 +73,7 @@ export function resolveEvidenceField(field: string, items: readonly EvidenceFact
   const candidates = items.filter((item) => item.status !== "REJECTED" && Object.hasOwn(item.claims, field))
     .sort((a, b) => a.id.localeCompare(b.id));
   if (!candidates.length) return { status: "NOT_FOUND", value: null, evidenceIds: [], strong: false };
-  const evidenceIds = candidates.map((item) => item.id).sort();
+  const evidenceIds = [...new Set(candidates.map((item) => item.id))].sort();
   if (new Set(candidates.map((item) => comparable(item.claims[field]!))).size > 1) {
     return { status: "CONFLICT", value: null, evidenceIds, strong: false };
   }
@@ -86,7 +86,7 @@ export function resolveEvidenceField(field: string, items: readonly EvidenceFact
   return {
     status: verified ? "VERIFIED" : "UNVERIFIED",
     value: chosen.claims[field]!,
-    evidenceIds: verified ? [...strong, ...medium].map((item) => item.id).sort() : evidenceIds,
+    evidenceIds: verified ? [...new Set([...strong, ...medium].map((item) => item.id))].sort() : evidenceIds,
     strong: strong.length > 0
   };
 }

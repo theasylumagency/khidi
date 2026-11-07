@@ -16,6 +16,7 @@ interface Item {
   attachmentUrl: string | null; privateMimeType: string | null; imageId: string | null;
   supersedesEvidenceId: string | null;
   comparisonSkuId: string | null; comparisonPhotoUrl: string | null; comparisonClaims: Record<string, FactValue> | null;
+  comparisonRelation:string;acknowledgedUnknowns:Record<string,string>;
 }
 interface Field {
   fieldName: string; status: string; value: FactValue | null; notDeterminableReason: string | null; evidenceIds: string[];
@@ -134,6 +135,8 @@ export function EvidenceReview({ skuId, kind, items, fields, distinguishing, pho
       {item.attachmentUrl ? <a href={item.attachmentUrl}>{t(item.privateMimeType === "application/pdf" ? "evidence.open_pdf" : "evidence.photo")}</a>
         : item.imageId && photoUrls[item.imageId] ? <a href={photoUrls[item.imageId]}>{t("evidence.photo")}</a> : null}
       {item.comparisonSkuId ? <div>
+        <p>{t(item.comparisonRelation==="MATCHES"?"correction.matches":"correction.differs")}</p>
+        {Object.entries(item.acknowledgedUnknowns).map(([field,reason])=><p key={field}>{field} · {t("correction.unknowns")} · {reason}</p>)}
         <a href={`/products/${item.comparisonSkuId}`}>{t("evidence.compared_sku")}</a>
         {item.comparisonPhotoUrl ? <p><a href={item.comparisonPhotoUrl}>{t("evidence.compared_verified_photo")}</a></p> : null}
         <ul>{Object.entries(item.comparisonClaims ?? {}).map(([field, value]) => <li key={field}>{field} · {String(value)}</li>)}</ul>
