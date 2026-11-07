@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   uuid,
@@ -873,4 +874,48 @@ export const storefrontPrices = pgTable("storefront_prices", {
   vatIncluded: boolean("vat_included").notNull(), setBy: uuid("set_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   setAt: timestamp("set_at", { withTimezone: true }).notNull().defaultNow(), reason: text("reason"),
   batchId: uuid("batch_id"), source: text("source").$type<"MANUAL" | "BULK" | "CSV_IMPORT">().notNull()
+});
+
+export const stockPools = pgTable("stock_pools", {
+  id: uuid("id").primaryKey(), ownerEntityId: uuid("owner_entity_id").notNull().references(() => legalEntities.id, { onDelete: "restrict" }),
+  name: text("name").notNull(), locationNote: text("location_note"), active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+});
+export const poolLocations = pgTable("pool_locations", {
+  id: uuid("id").primaryKey(), poolId: uuid("pool_id").notNull().references(() => stockPools.id, { onDelete: "restrict" }),
+  kind: text("kind").$type<"SHELF" | "STAGING">().notNull(), name: text("name").notNull()
+}, (t) => [unique().on(t.poolId, t.kind)]);
+export const allocations = pgTable("allocations", {
+  id: uuid("id").primaryKey(), poolId: uuid("pool_id").notNull().references(() => stockPools.id, { onDelete: "restrict" }),
+  storefrontId: uuid("storefront_id").notNull().references(() => storefronts.id, { onDelete: "restrict" }),
+  skuId: uuid("sku_id").notNull().references(() => skus.id, { onDelete: "restrict" }), minimumStock: integer("minimum_stock").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (t) => [unique().on(t.poolId, t.storefrontId, t.skuId)]);
+export const poolSkuBalances = pgTable("pool_sku_balances", {
+  poolId: uuid("pool_id").notNull().references(() => stockPools.id, { onDelete: "restrict" }),
+  skuId: uuid("sku_id").notNull().references(() => skus.id, { onDelete: "restrict" }),
+  shelf: integer("shelf").notNull().default(0), staging: integer("staging").notNull().default(0), allocatedTotal: integer("allocated_total").notNull().default(0),
+  unallocated: integer("unallocated").generatedAlwaysAs(sql` shelf + staging - allocated_total `),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+}, (t) => [primaryKey({ columns: [t.poolId, t.skuId] })]);
+export const allocationBalances = pgTable("allocation_balances", {
+  allocationId: uuid("allocation_id").primaryKey().references(() => allocations.id, { onDelete: "restrict" }),
+  allocated: integer("allocated").notNull().default(0), reserved: integer("reserved").notNull().default(0), committed: integer("committed").notNull().default(0),
+  availableToSell: integer("available_to_sell").generatedAlwaysAs(sql` allocated - reserved - committed `),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});
+export const stockLedger = pgTable("stock_ledger", {
+  id: uuid("id").primaryKey(), movementType: text("movement_type").notNull(), variant: text("variant").notNull().default("DEFAULT"), quantity: integer("quantity").notNull(),
+  poolId: uuid("pool_id").notNull().references(() => stockPools.id, { onDelete: "restrict" }), skuId: uuid("sku_id").notNull().references(() => skus.id, { onDelete: "restrict" }),
+  allocationId: uuid("allocation_id").references(() => allocations.id, { onDelete: "restrict" }), locationId: uuid("location_id").references(() => poolLocations.id, { onDelete: "restrict" }),
+  shelfDelta: integer("shelf_delta").notNull(), stagingDelta: integer("staging_delta").notNull(), allocTotalDelta: integer("alloc_total_delta").notNull(),
+  allocatedDelta: integer("allocated_delta").notNull(), reservedDelta: integer("reserved_delta").notNull(), committedDelta: integer("committed_delta").notNull(),
+  ownerEntityId: uuid("owner_entity_id").notNull().references(() => legalEntities.id, { onDelete: "restrict" }),
+  sellerEntityId: uuid("seller_entity_id").references(() => legalEntities.id, { onDelete: "restrict" }), storefrontId: uuid("storefront_id").references(() => storefronts.id, { onDelete: "restrict" }),
+  relationshipMode: text("relationship_mode").$type<"PURCHASE" | "CONSIGNMENT">(), crossEntity: boolean("cross_entity").notNull(),
+  documentRef: text("document_ref"), reason: text("reason"), actorUserId: uuid("actor_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  correlationId: text("correlation_id").notNull(), reservationId: uuid("reservation_id"), fulfillmentRequestId: uuid("fulfillment_request_id"), paymentMethod: text("payment_method"),
+  countLineId: uuid("count_line_id"), scanConfirmed: boolean("scan_confirmed").notNull().default(false),
+  sellerAccountingItemId: text("seller_accounting_item_id"), sellerAccountingName: text("seller_accounting_name"), ownerAccountingItemId: text("owner_accounting_item_id"), ownerAccountingName: text("owner_accounting_name"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
 });
