@@ -1,7 +1,8 @@
-import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { evidence, evidenceAttributions, getSkuImages, getSkuLineageIds, imageAttributions, imageBelongsToSku, productIntakes, productTypes, skuContentVersions, skuSlugHistory, skuSplitBasis, skuSplitTargets, skus, storefrontListings, users, resolveActiveSku, type DbExecutor } from "@khidi/db";
 import { withDomainTransaction, type DomainActor, type DomainTransactionContext } from "@khidi/domain";
+import { withdrawArchivedSkuPrices } from "@khidi/domain/price-effects";
 import { evidenceValuesDiffer, loadSkuEvidenceSources, lockIdentityCatalog, recomputeSkuIdentity, reviewSkuEvidence, submitSkuEvidence, UNIVERSAL_EVIDENCE_FIELDS } from "@khidi/evidence";
 import { queueMediaJob } from "@khidi/media";
 import { AppError, createUuidV7 } from "@khidi/shared";
@@ -79,6 +80,9 @@ export async function splitSku(db: DbExecutor, actor: DomainActor, raw: unknown)
     return withDomainTransaction(db, actor, async (ctx) => {
         await lockIdentityCatalog(ctx.tx);
         const adminId = await requireAdmin(ctx, actor);
+        await ctx.tx.select({ id: skus.id }).from(skus).where(inArray(skus.id,
+            [...new Set([input.sourceSkuId, ...input.targets.flatMap((target) => target.skuId ? [target.skuId] : [])])]))
+            .orderBy(asc(skus.id)).for("update");
         const [source] = await ctx.tx.select().from(skus).where(eq(skus.id, input.sourceSkuId)).for("update");
         if (!source || source.lifecycleState === "ARCHIVED" || source.mergedIntoSkuId)
             throw new AppError("PRECONDITION_FAILED", "Only an active SKU can be split.");
@@ -138,6 +142,7 @@ export async function splitSku(db: DbExecutor, actor: DomainActor, raw: unknown)
                 pairs.push({ a, b, fields });
             }
         await transitionSkuLifecycle(ctx.tx, actor, source.id, "ARCHIVED", { reason: input.reason });
+        await withdrawArchivedSkuPrices(ctx, source.id, "SKU split");
         const listings = await ctx.tx.select().from(storefrontListings).where(and(eq(storefrontListings.skuId, source.id), eq(storefrontListings.enabled, true)));
         for (const listing of listings)
             await setStorefrontListing(ctx.tx, actor, { skuId: source.id, storefrontId: listing.storefrontId, enabled: false, reason: input.reason });

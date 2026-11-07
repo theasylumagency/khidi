@@ -3,6 +3,7 @@ import { listStorefronts } from "@khidi/entities";
 import { hasVerifiedPublicMainImage, listStorefrontMedia } from "@khidi/media";
 import { compareApprovedContentFacts, getApprovedContent, getContentFactFields, getStorefrontIdentityFacts } from "@khidi/evidence";
 import { AppError } from "@khidi/shared";
+import { listLatestPrices } from "@khidi/pricing";
 
 /**
  * [C5, C8, C9, C18] Storefront Sellability Evaluator contract (§15.2).
@@ -15,7 +16,7 @@ export interface SellabilityEvaluationInput {
   hasActiveSellerAccountingMapping: boolean; // [C9]
   requiresOwnerAccountingMapping: boolean | undefined; // undefined until allocation data is available
   hasActiveOwnerAccountingMapping: boolean; // [C9]
-  hasCurrentBasePrice: boolean | undefined; // undefined until pricing data is available
+  hasCurrentBasePrice: boolean;
   hasVerifiedPublicMainImage: boolean;
   isStorefrontListingEnabled: boolean; // §4.5
   identityConflict?: boolean;
@@ -57,9 +58,7 @@ export function evaluateStorefrontSellability(
   } else if (input.requiresOwnerAccountingMapping && !input.hasActiveOwnerAccountingMapping) {
     blockingReasons.push("MISSING_OWNER_ACCOUNTING_MAPPING");
   }
-  if (input.hasCurrentBasePrice === undefined) {
-    blockingReasons.push("STOREFRONT_PRICING_UNAVAILABLE_M7");
-  } else if (!input.hasCurrentBasePrice) {
+  if (!input.hasCurrentBasePrice) {
     blockingReasons.push("MISSING_STOREFRONT_BASE_PRICE");
   }
   if (!input.hasVerifiedPublicMainImage) {
@@ -92,18 +91,17 @@ type PublishingDb = Parameters<typeof hasVerifiedPublicMainImage>[0];
 export interface StorefrontCommerceFacts {
   /** Omitted when allocations are unavailable. An empty list is a known absence of allocations. */
   allocatedOwnerEntityIds?: readonly string[];
-  hasCurrentBasePrice?: boolean;
 }
 
 async function loadPublicationInputs(db: PublishingDb, skuId: string, catalog?: {
   details: Awaited<ReturnType<typeof getSkuWithDetails>>; stores: Awaited<ReturnType<typeof listStorefronts>>;
 }) {
-  const [details, stores, approvals, fields, hasVerifiedPublicMainImageForSku, confidentialTerms] = await Promise.all([
+  const [details, stores, approvals, fields, hasVerifiedPublicMainImageForSku, confidentialTerms, prices] = await Promise.all([
     catalog?.details ?? getSkuWithDetails(db, skuId), catalog?.stores ?? listStorefronts(db),
     getApprovedContent(db, skuId), getContentFactFields(db, skuId),
-    hasVerifiedPublicMainImage(db, skuId), getCanonicalConfidentialTerms(db)
+    hasVerifiedPublicMainImage(db, skuId), getCanonicalConfidentialTerms(db), listLatestPrices(db, { skuId })
   ]);
-  return { details, stores, approvals, fields, hasVerifiedPublicMainImageForSku, confidentialTerms };
+  return { details, stores, approvals, fields, hasVerifiedPublicMainImageForSku, confidentialTerms, prices };
 }
 
 function evaluateLocale(input: Awaited<ReturnType<typeof loadPublicationInputs>>,
@@ -121,7 +119,7 @@ function evaluateLocale(input: Awaited<ReturnType<typeof loadPublicationInputs>>
     hasActiveSellerAccountingMapping: mappings.has(store.sellerEntityId),
     requiresOwnerAccountingMapping: owners ? owners.length > 0 : undefined,
     hasActiveOwnerAccountingMapping: !!owners && owners.every((id) => mappings.has(id)),
-    hasCurrentBasePrice: commerce.hasCurrentBasePrice,
+    hasCurrentBasePrice: input.prices.some((row) => row.storefrontId === store.id && row.kind === "SET"),
     hasVerifiedPublicMainImage: hasVerifiedPublicMainImageForSku,
     isStorefrontListingEnabled: store.active && details.storefrontListings.some((listing) => listing.storefrontId === store.id && listing.enabled),
     hasApprovedLocaleContent: !!version,
@@ -154,9 +152,11 @@ export async function getStorefrontProductProjection(db: PublishingDb, target: {
       && (typeof field.value !== "string" || (isPublicCanonicalText(field.value) && !findConfidentialPhrase(field.value, input.confidentialTerms)))
       ? [[key, field.value]] : []));
   const media = await listStorefrontMedia(db, target.skuId, target.storefrontId);
+  const price = input.prices.find((row) => row.storefrontId === store.id && row.kind === "SET");
   return {
     slug: input.details.sku.canonicalSlug!, locale: version.locale, displayName: version.displayName,
     shortDescription: version.shortDescription, fullDescription: version.fullDescription,
-    fields, media, sellable: result.sellable, blockingReasons: result.blockingReasons
+    fields, media, ...(price ? { basePrice: { amount: price.basePriceMinor!, currency: price.currency, vat_included: price.vatIncluded } } : {}),
+    sellable: result.sellable, blockingReasons: result.blockingReasons
   };
 }

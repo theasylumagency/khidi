@@ -5,10 +5,13 @@ import { useRouter } from "next/navigation";
 import { t } from "@khidi/i18n";
 import { createUuidV7 } from "@khidi/shared/uuid";
 import type { listSkuMergeTargets } from "@khidi/products";
+import type { CorrectionPriceImpact } from "@khidi/pricing";
+import { CorrectionPriceImpactPanel } from "./correction-price-impact.tsx";
 
-export function SkuMergeForm({ sourceSkuId, candidates, records }: {
+export function SkuMergeForm({ sourceSkuId, candidates, records, priceImpact }: {
   sourceSkuId: string; candidates: Readonly<Awaited<ReturnType<typeof listSkuMergeTargets>>>;
   records:{id:string;otherSkuId:string;label:string}[];
+  priceImpact: CorrectionPriceImpact;
 }) {
   const router = useRouter();
   const [targetSkuId, setTargetSkuId] = useState("");
@@ -53,6 +56,7 @@ export function SkuMergeForm({ sourceSkuId, candidates, records }: {
             <option value="TARGET">{t("merge.target_listing")} · {t(store.targetEnabled ? "merge.listing_on" : "merge.listing_off")}</option>
           </select>
         </label>)}
+        <CorrectionPriceImpactPanel impact={priceImpact} targets={targetSkuId ? [{ id: targetSkuId, label: candidates.find((row) => row.id === targetSkuId)?.internalSku ?? "" }] : []} />
         <label><input type="checkbox" name="identityConfirmed" required /> {t("merge.confirm_identity")}</label>
         <label>{t("merge.identity_basis")} <input name="reason" required maxLength={4000} /></label>
         <button>{t("merge.submit")}</button>

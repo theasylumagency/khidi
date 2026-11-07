@@ -1,0 +1,22 @@
+import { expect, it, vi } from "vitest";
+import { getDb } from "@khidi/db";
+import { loadPrincipalByUserId, webauthnConfig, type AuthenticatedPrincipal } from "@khidi/auth";
+import { createUuidV7 } from "@khidi/shared";
+import { POST } from "./route.ts";
+const session = vi.hoisted(() => ({ principal: null as AuthenticatedPrincipal | null }));
+vi.mock("../../../lib/session.ts", () => ({ getCurrentPrincipal: async () => session.principal }));
+it("restricts storefront creation to admins and replays the same stored key without creating another store", async () => {
+  const db = getDb(), origin = webauthnConfig().origin;
+  const admin = (await db.query.users.findFirst({ where: (row, { eq }) => eq(row.role, "ADMIN") }))!;
+  const operator = (await db.query.users.findFirst({ where: (row, { eq }) => eq(row.role, "OPERATOR") }))!;
+  const seller = (await db.query.legalEntities.findFirst())!;
+  const input = { key: "store-" + createUuidV7(), name: "Fixture", domain: createUuidV7() + ".example", sellerEntityId: seller.id, mediaBaseUrl: "https://media.example" };
+  const key = createUuidV7();
+  const send = () => POST(new Request(origin + "/api/storefronts", { method: "POST", headers: { Origin: origin, "Content-Type": "application/json", "Idempotency-Key": key }, body: JSON.stringify(input) }));
+  session.principal = null; expect((await send()).status).toBe(401);
+  session.principal = await loadPrincipalByUserId(db, operator.id); expect((await send()).status).toBe(403);
+  session.principal = await loadPrincipalByUserId(db, admin.id);
+  const first = await send(); expect(first.status).toBe(201);
+  expect(await (await send()).json()).toEqual(await first.json());
+  expect((await db.query.storefronts.findMany()).filter((row) => row.key === input.key)).toHaveLength(1);
+});

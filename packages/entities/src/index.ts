@@ -5,6 +5,7 @@ import {
   type DbExecutor,
   type ReservationPolicyConfig,
   legalEntities,
+  users,
   storefronts,
   entityRelationships
 } from "@khidi/db";
@@ -115,6 +116,8 @@ export async function createStorefront(
   const input = createStorefrontSchema.parse(rawInput);
 
   return withDomainTransaction(db, actor, async (ctx) => {
+    const [admin] = actor.userId ? await ctx.tx.select().from(users).where(and(eq(users.id, actor.userId), eq(users.active, true), eq(users.role, "ADMIN"))) : [];
+    if (!admin) throw new AppError("FORBIDDEN", "Storefront creation requires an admin.");
     const [seller] = await ctx.tx
       .select()
       .from(legalEntities)
@@ -165,6 +168,8 @@ export async function createStorefront(
       }
     });
 
+    await ctx.emitOutboxEvent({ eventType: "STOREFRONT_CREATED", storefrontId: created.id, aggregateType: "storefront", aggregateId: created.id,
+      payload: { storefrontId: created.id }, consumers: [] });
     return created;
   });
 }

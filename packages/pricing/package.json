@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./format": "./src/format.ts",
+    "./csv": "./src/csv.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -12,9 +14,12 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@khidi/db": "workspace:*",
     "@khidi/domain": "workspace:*",
     "@khidi/entities": "workspace:*",
     "@khidi/products": "workspace:*",
-    "@khidi/shared": "workspace:*"
+    "@khidi/shared": "workspace:*",
+    "drizzle-orm": "0.40.0",
+    "zod": "3.24.2"
   }
 }

@@ -1,0 +1,2 @@
+# The existing CSP source assertion expects LF on every platform.
+apps/hub/next.config.ts text eol=lf

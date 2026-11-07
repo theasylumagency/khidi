@@ -863,3 +863,14 @@ export const imagePublications = pgTable("image_publications", {
   objectKey: text("object_key").notNull(), width: integer("width").notNull(), format: text("format").notNull(), sha256: text("sha256").notNull(),
   status: text("status").notNull(), publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(), withdrawnAt: timestamp("withdrawn_at", { withTimezone: true })
 });
+
+export const storefrontPrices = pgTable("storefront_prices", {
+  id: uuid("id").primaryKey(),
+  skuId: uuid("sku_id").notNull().references(() => skus.id, { onDelete: "restrict" }),
+  storefrontId: uuid("storefront_id").notNull().references(() => storefronts.id, { onDelete: "restrict" }),
+  kind: text("kind").$type<"SET" | "WITHDRAWN">().notNull(),
+  basePriceMinor: integer("base_price_minor"), currency: text("currency").notNull(),
+  vatIncluded: boolean("vat_included").notNull(), setBy: uuid("set_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  setAt: timestamp("set_at", { withTimezone: true }).notNull().defaultNow(), reason: text("reason"),
+  batchId: uuid("batch_id"), source: text("source").$type<"MANUAL" | "BULK" | "CSV_IMPORT">().notNull()
+});

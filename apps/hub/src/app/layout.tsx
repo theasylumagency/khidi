@@ -26,7 +26,7 @@ export const viewport: Viewport = {
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const principal = await getCurrentPrincipal();
-  const navItems = principal ? getNavigationForRole(principal.role) : [];
+  const navItems = principal ? getNavigationForRole(principal.role, principal.permissions) : [];
 
   return (
     <html lang="ka">
