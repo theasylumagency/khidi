@@ -81,6 +81,20 @@ larger imports must be split. Bulk commits accept up to 1,000 selected price row
 
 ## Gaps and business decisions
 
+## Review corrections
+
+1. VAT defaults to the latest row's flag after the first price, including re-entry after
+   withdrawal. Non-admin editors may preserve that flag explicitly or implicitly; only
+   ADMIN changes it. Focused pricing tests passed, including an operator retaining `false`.
+2. Archived SKUs reject price edits/previews. `0032_archived_sku_price_guard.sql` also
+   rejects direct SET inserts for archived SKUs. Merge/split append MANUAL withdrawals
+   with a shared batch ID, exact reasons `SKU merged` / `SKU split`, audit and PRICE_CHANGED
+   in the correction transaction. Prices are never copied. Shared transaction effects in
+   `packages/domain/price-effects` preserve dependency boundaries. SKU row locks precede
+   price locks to serialize correction against edits. Confirmation screens list withdrawals
+   and warn about unpriced targets with the old amount labeled as information only.
+   Fifteen focused correction and regression tests and affected typechecks passed.
+
 The M8 allocation-owner blocker remains deliberately unmet. Promotions, VAT calculation,
 scheduled prices, public storefront transport and deployment remain outside M7. No business
 decision is awaiting approval and no Proposed ADR was needed for the explicitly approved scope.

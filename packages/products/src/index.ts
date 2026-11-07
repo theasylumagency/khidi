@@ -31,6 +31,7 @@ import {
   users
 } from "@khidi/db";
 import { type DomainActor, withDomainTransaction } from "@khidi/domain";
+import { withdrawArchivedSkuPrices } from "@khidi/domain/price-effects";
 import { compareApprovedContentFacts, getContentFactFields, hasVerifiedDifference, lockIdentityCatalog, recomputeSkuIdentity, requireMergeSameness, UNIVERSAL_EVIDENCE_FIELDS, withDefaultObservableAttributes } from "@khidi/evidence";
 import { queueMediaJob } from "@khidi/media";
 import { AppError, createUuidV7 } from "@khidi/shared";
@@ -1712,7 +1713,7 @@ export async function mergeSkus(db: DbExecutor, actor: DomainActor, raw: unknown
     if (!admin) throw new AppError("FORBIDDEN", "SKU merge requires an active admin.");
     if (!identityConfirmed) throw new AppError("PRECONDITION_FAILED", "Confirm that both SKUs represent the same physical variant.");
     if (!samenessEvidenceId) throw new AppError("PRECONDITION_FAILED","An accepted sameness inspection is required.");
-    const pair = await ctx.tx.select().from(skus).where(inArray(skus.id, [sourceSkuId, targetSkuId]));
+    const pair = await ctx.tx.select().from(skus).where(inArray(skus.id, [sourceSkuId, targetSkuId])).orderBy(asc(skus.id)).for("update");
     const source = pair.find((sku) => sku.id === sourceSkuId), target = pair.find((sku) => sku.id === targetSkuId);
     if (!source || !target) throw new AppError("NOT_FOUND", "Both SKUs must exist.");
     if (pair.some((sku) => sku.lifecycleState === "ARCHIVED" || sku.mergedIntoSkuId) || source.productTypeId !== target.productTypeId) {
@@ -1752,6 +1753,7 @@ export async function mergeSkus(db: DbExecutor, actor: DomainActor, raw: unknown
         kept: !existing || choice === "SOURCE" ? "SOURCE" : "TARGET" });
     }
     await transitionSkuLifecycle(ctx.tx, actor, sourceSkuId, "ARCHIVED", { reason });
+    await withdrawArchivedSkuPrices(ctx, sourceSkuId, "SKU merged");
     await ctx.tx.update(skus).set({ mergedIntoSkuId: targetSkuId, updatedAt: new Date() }).where(eq(skus.id, sourceSkuId));
     if (source.canonicalSlug) {
       const [existing] = await ctx.tx.select().from(skuSlugHistory).where(eq(skuSlugHistory.oldSlug, source.canonicalSlug));

@@ -22,6 +22,7 @@ import { getSkuPublicationReview } from "@khidi/publishing";
 import { getSkuCorrectionContext } from "@khidi/products/corrections";
 import { SkuAttributionForm, SkuSplitForm } from "../../../components/sku-correction-forms.tsx";
 import { canViewPrices } from "@khidi/auth";
+import { getCorrectionPriceImpact } from "@khidi/pricing";
 import { PriceHistory } from "../../../components/price-history.tsx";
 import "../../../components/pricing.css";
 
@@ -86,6 +87,8 @@ export default async function SkuDetailPage({
   const canUseKaForReady = !!approvedKa && approvedKa.changedFields.length === 0 &&
     contentReview?.versions.find((version) => version.id === approvedKa.id)?.issues.length === 0;
   const correction=principal.role==="ADMIN"?await getSkuCorrectionContext(db,skuId):null;
+  const priceImpact = correction ? await getCorrectionPriceImpact(db, { userId: principal.userId }, skuId,
+    [...new Set([...mergeTargets.map((row) => row.id), ...correction.targets.map((row) => row.id)])]) : { sourcePrices: [], pricedStorefrontsBySku: {} };
   const sourceEvidence=correction?.evidenceItems.map((item)=>({id:item.id,claimSkuId:item.claimSkuId??item.skuId,
     label:t(`evidence.type.${item.type}` as TranslationKey)+" · "+Object.entries(item.claims).map(([key,value])=>key+": "+String(value)).join(", ")
       +" · "+t(`evidence.status.${item.status}` as TranslationKey)}))??[];
@@ -284,11 +287,11 @@ export default async function SkuDetailPage({
       {sku.mergedUndeterminedFields.length?<p role="status">{t("correction.merged_unknowns")}: {sku.mergedUndeterminedFields.map((key)=>
         evidenceFieldOptions(productType).find((field)=>field.key===key)?.label??key).join(", ")}</p>:null}
       {sku.splitBasisUnverified?<p role="status">{t("correction.split_unverified")}</p>:null}
-      {correction?<SkuMergeForm sourceSkuId={skuId} candidates={mergeTargets} records={correction.samenessRecords.map((record)=>({
+      {correction?<SkuMergeForm sourceSkuId={skuId} candidates={mergeTargets} priceImpact={priceImpact} records={correction.samenessRecords.map((record)=>({
         id:record.id,otherSkuId:record.skuId===skuId?record.comparisonSkuId!:record.skuId,
         label:record.createdAt.toLocaleString("ka-GE",{timeZone:"Asia/Tbilisi"})+" · "+record.notes
       }))}/>:null}
-      {correction && productType && sku.lifecycleState!=="ARCHIVED"?<SkuSplitForm sourceSkuId={skuId}
+      {correction && productType && sku.lifecycleState!=="ARCHIVED"?<SkuSplitForm sourceSkuId={skuId} priceImpact={priceImpact}
         targets={correction.targets.map((target)=>({id:target.id,label:target.internalSku}))}
         fields={evidenceFieldOptions(productType).filter((field)=>field.observable||productType.distinguishingAttributes.includes(field.key))}
         evidence={sourceEvidence} locales={[...new Set(contentReview?.versions.map((version)=>version.locale)??[])]}

@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { legalEntities, skus, storefrontPrices, storefronts, userPermissions, users, type DbExecutor } from "@khidi/db";
 import { withDomainTransaction, type DomainActor } from "@khidi/domain";
+import { appendStorefrontPrice } from "@khidi/domain/price-effects";
 import { AppError, CURRENCY_GEL, createUuidV7 } from "@khidi/shared";
 
 export const DEFAULT_PRICE_CURRENCY = CURRENCY_GEL;
@@ -57,9 +58,10 @@ export async function getCurrentPrice(db: DbExecutor, skuId: string, storefrontI
   const row = await getLatestPriceRow(db, skuId, storefrontId);
   return row?.kind === "SET" ? row : null;
 }
-export async function listLatestPrices(db: DbExecutor, filter: { skuId?: string; storefrontId?: string } = {}) {
+export async function listLatestPrices(db: DbExecutor, filter: { skuId?: string; skuIds?: readonly string[]; storefrontId?: string } = {}) {
   return db.selectDistinctOn([storefrontPrices.skuId, storefrontPrices.storefrontId]).from(storefrontPrices)
-    .where(and(filter.skuId ? eq(storefrontPrices.skuId, filter.skuId) : undefined, filter.storefrontId ? eq(storefrontPrices.storefrontId, filter.storefrontId) : undefined))
+    .where(and(filter.skuId ? eq(storefrontPrices.skuId, filter.skuId) : undefined, filter.skuIds ? inArray(storefrontPrices.skuId, [...filter.skuIds]) : undefined,
+      filter.storefrontId ? eq(storefrontPrices.storefrontId, filter.storefrontId) : undefined))
     .orderBy(asc(storefrontPrices.skuId), asc(storefrontPrices.storefrontId), desc(storefrontPrices.setAt), desc(storefrontPrices.id));
 }
 export async function getPriceHistory(db: DbExecutor, actor: DomainActor, skuId: string, storefrontId?: string) {
@@ -77,17 +79,19 @@ async function prepare(db: DbExecutor, actor: DomainActor, input: ReturnType<typ
   const skuIds = [...new Set(input.changes.map((row) => row.skuId))];
   const [stores, products, latest] = await Promise.all([
     db.select({ store: storefronts, seller: legalEntities }).from(storefronts).innerJoin(legalEntities, eq(legalEntities.id, storefronts.sellerEntityId)).where(inArray(storefronts.id, storeIds)),
-    db.select({ id: skus.id }).from(skus).where(inArray(skus.id, skuIds)),
+    db.select({ id: skus.id, state: skus.lifecycleState }).from(skus).where(inArray(skus.id, skuIds)),
     db.selectDistinctOn([storefrontPrices.skuId, storefrontPrices.storefrontId]).from(storefrontPrices)
       .where(and(inArray(storefrontPrices.skuId, skuIds), inArray(storefrontPrices.storefrontId, storeIds)))
       .orderBy(asc(storefrontPrices.skuId), asc(storefrontPrices.storefrontId), desc(storefrontPrices.setAt), desc(storefrontPrices.id))
   ]);
   const byStore = new Map(stores.map((row) => [row.store.id, row]));
   const existingSkus = new Set(products.map((row) => row.id));
+  const archivedSkus = new Set(products.filter((row) => row.state === "ARCHIVED").map((row) => row.id));
   const byPair = new Map(latest.map((row) => [`${row.storefrontId}:${row.skuId}`, row]));
   return input.changes.map((change) => {
     const target = byStore.get(change.storefrontId);
     if (!target || !existingSkus.has(change.skuId)) throw new AppError("NOT_FOUND", "SKU or storefront not found.");
+    if (archivedSkus.has(change.skuId)) throw new AppError("PRECONDITION_FAILED", "Archived SKUs cannot have price changes.");
     const previous = byPair.get(`${change.storefrontId}:${change.skuId}`) ?? null;
     if (change.expectedPriceId !== undefined && change.expectedPriceId !== (previous?.id ?? null)) throw new AppError("CONFLICT", "Price changed after preview. Refresh the preview.");
     const defaultVat = previous?.vatIncluded ?? target.seller.pricesIncludeVat;
@@ -108,6 +112,9 @@ export async function commitPriceChanges(db: DbExecutor, actor: DomainActor, raw
   const input = parseBatch(raw);
   return withDomainTransaction(db, actor, async (ctx) => {
     await assertPriceAccess(ctx.tx, actor, true);
+    // Lock SKUs before price pairs, matching catalog correction lock order.
+    await ctx.tx.select({ id: skus.id }).from(skus).where(inArray(skus.id, [...new Set(input.changes.map((row) => row.skuId))]))
+      .orderBy(asc(skus.id)).for("update");
     // Sorted pair locks serialize first inserts and avoid deadlocks across overlapping batches.
     for (const key of input.changes.map((row) => `${row.storefrontId}:${row.skuId}`).sort()) {
       await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${"price:" + key}, 0))`);
@@ -118,15 +125,10 @@ export async function commitPriceChanges(db: DbExecutor, actor: DomainActor, raw
     const batchId = input.source === "MANUAL" ? null : createUuidV7();
     const rows: PriceRow[] = [];
     for (const change of preview.filter((row) => !row.unchanged)) {
-      const [row] = await ctx.tx.insert(storefrontPrices).values({ id: createUuidV7(), skuId: change.skuId, storefrontId: change.storefrontId, kind: change.kind,
+      const row = await appendStorefrontPrice(ctx, { skuId: change.skuId, storefrontId: change.storefrontId, kind: change.kind,
         basePriceMinor: change.basePriceMinor ?? null, currency: change.currency, vatIncluded: change.vatIncluded,
-        setBy: actor.userId!, reason: input.reason ?? null, batchId, source: input.source }).returning();
-      await ctx.recordAudit({ action: "STOREFRONT_PRICE_" + (row!.kind === "SET" ? "SET" : "WITHDRAWN"), entityType: "storefront_price", entityId: row!.id,
-        before: change.previous, after: row!, reason: input.reason });
-      await ctx.emitOutboxEvent({ eventType: "PRICE_CHANGED", storefrontId: row!.storefrontId, aggregateType: "sku", aggregateId: row!.skuId,
-        payload: { priceId: row!.id, skuId: row!.skuId, storefrontId: row!.storefrontId, kind: row!.kind, amount: row!.basePriceMinor,
-          currency: row!.currency, vatIncluded: row!.vatIncluded, batchId }, consumers: ["storefront:" + row!.storefrontId] });
-      rows.push(row!);
+        setBy: actor.userId!, reason: input.reason ?? null, batchId, source: input.source }, change.previous);
+      rows.push(row);
     }
     return { batchId, rows };
   });
@@ -138,6 +140,20 @@ export async function withdrawPrice(db: DbExecutor, actor: DomainActor, change: 
   return commitPriceChanges(db, actor, { changes: [{ skuId: change.skuId, storefrontId: change.storefrontId,
     expectedPriceId: change.expectedPriceId, kind: "WITHDRAWN" }], reason, source: "MANUAL" });
 }
+
+export async function getCorrectionPriceImpact(db: DbExecutor, actor: DomainActor, sourceSkuId: string, targetSkuIds: string[]) {
+  await assertPriceAccess(db, actor);
+  const [prices, stores] = await Promise.all([
+    listLatestPrices(db, { skuIds: [sourceSkuId, ...targetSkuIds] }), db.select({ id: storefronts.id, name: storefronts.name }).from(storefronts)
+  ]);
+  const current = prices.filter((row) => row.kind === "SET");
+  return {
+    sourcePrices: current.filter((row) => row.skuId === sourceSkuId).map((row) => ({ storefrontId: row.storefrontId,
+      storefrontName: stores.find((store) => store.id === row.storefrontId)?.name ?? "", amount: row.basePriceMinor!, vatIncluded: row.vatIncluded })),
+    pricedStorefrontsBySku: Object.fromEntries(targetSkuIds.map((skuId) => [skuId, current.filter((row) => row.skuId === skuId).map((row) => row.storefrontId)]))
+  };
+}
+export type CorrectionPriceImpact = Awaited<ReturnType<typeof getCorrectionPriceImpact>>;
 
 export async function copyPricePreview(db: DbExecutor, actor: DomainActor, sourceStorefrontId: string, targetStorefrontId: string, skuIds: string[]) {
   await assertPriceAccess(db, actor, true);

@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { t } from "@khidi/i18n";
 import { createUuidV7 } from "@khidi/shared/uuid";
 import type { EvidenceFieldOption } from "@khidi/evidence";
+import type { CorrectionPriceImpact } from "@khidi/pricing";
+import { CorrectionPriceImpactPanel } from "./correction-price-impact.tsx";
 type Choice = {
     id: string;
     label: string;
@@ -22,13 +24,14 @@ async function sendCorrection(action: string, input: unknown) {
     if (!result.ok)
         throw new Error();
 }
-export function SkuSplitForm({ sourceSkuId, targets, fields, photos, evidence, locales }: {
+export function SkuSplitForm({ sourceSkuId, targets, fields, photos, evidence, locales, priceImpact }: {
     sourceSkuId: string;
     targets: Choice[];
     fields: EvidenceFieldOption[];
     photos: Photo[];
     evidence: Source[];
     locales: string[];
+    priceImpact: CorrectionPriceImpact;
 }) {
     const router = useRouter();
     const [rows, setRows] = useState([{ key: 0, skuId: "" }, { key: 1, skuId: "" }]);
@@ -105,6 +108,8 @@ export function SkuSplitForm({ sourceSkuId, targets, fields, photos, evidence, l
       </fieldset>)}
       {rows.length < 10 ? <button type="button" onClick={() => { setRows([...rows, { key: nextKey, skuId: "" }]); setNextKey(nextKey + 1); }}>{t("correction.add_target")}</button> : null}
       <label>{t("evidence.reason")}<textarea name="reason" required maxLength={4000}/></label>
+      <CorrectionPriceImpactPanel impact={priceImpact} targets={rows.map((row, index) => ({ id: row.skuId || undefined,
+        label: targets.find((target) => target.id === row.skuId)?.label ?? `${t("correction.new_draft")} ${index + 1}` }))} />
       <button disabled={!selected.length}>{t("correction.split")}</button>
     </fieldset><p role="status">{message}</p></form>
   </details>;

@@ -737,6 +737,8 @@ const SCANNING_LABELS = {
 } as const;
 
 const PRICING_LABELS = {
+  "correction.prices_withdrawn": "ეს ფასები გაუქმდება", "correction.prices_not_copied": "ძველი ფასები ისტორიაში დარჩება. მიმღებ პროდუქტებზე ფასი ავტომატურად არ გადავა.",
+  "correction.target_no_price": "მიმღებ პროდუქტს ამ მაღაზიაში ფასი არ აქვს.", "correction.old_price_info": "ძველი ფასი მხოლოდ ინფორმაციისთვის",
   "storefront.create": "მაღაზიის დამატება", "storefront.created": "მაღაზია დამატებულია.", "storefront.key": "მაღაზიის მუდმივი კოდი",
   "storefront.key_help": "კოდი შექმნის შემდეგ აღარ იცვლება. ის შიდა ფაილებში გამოჩნდება — აირჩიეთ ნეიტრალური კოდი, მაგალითად store-a.",
   "storefront.name": "დასახელება", "storefront.domain": "დომენი", "storefront.seller": "გამყიდველი იურიდიული პირი",

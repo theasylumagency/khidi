@@ -2,6 +2,7 @@ import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { evidence, evidenceAttributions, getSkuImages, getSkuLineageIds, imageAttributions, imageBelongsToSku, productIntakes, productTypes, skuContentVersions, skuSlugHistory, skuSplitBasis, skuSplitTargets, skus, storefrontListings, users, resolveActiveSku, type DbExecutor } from "@khidi/db";
 import { withDomainTransaction, type DomainActor, type DomainTransactionContext } from "@khidi/domain";
+import { withdrawArchivedSkuPrices } from "@khidi/domain/price-effects";
 import { evidenceValuesDiffer, loadSkuEvidenceSources, lockIdentityCatalog, recomputeSkuIdentity, reviewSkuEvidence, submitSkuEvidence, UNIVERSAL_EVIDENCE_FIELDS } from "@khidi/evidence";
 import { queueMediaJob } from "@khidi/media";
 import { AppError, createUuidV7 } from "@khidi/shared";
@@ -138,6 +139,7 @@ export async function splitSku(db: DbExecutor, actor: DomainActor, raw: unknown)
                 pairs.push({ a, b, fields });
             }
         await transitionSkuLifecycle(ctx.tx, actor, source.id, "ARCHIVED", { reason: input.reason });
+        await withdrawArchivedSkuPrices(ctx, source.id, "SKU split");
         const listings = await ctx.tx.select().from(storefrontListings).where(and(eq(storefrontListings.skuId, source.id), eq(storefrontListings.enabled, true)));
         for (const listing of listings)
             await setStorefrontListing(ctx.tx, actor, { skuId: source.id, storefrontId: listing.storefrontId, enabled: false, reason: input.reason });
