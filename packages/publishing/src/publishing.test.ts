@@ -11,7 +11,8 @@ describe("@khidi/publishing — Sellability Evaluator [C5, C8, C9, C18]", () => 
       hasActiveOwnerAccountingMapping: true,
       hasCurrentBasePrice: true,
       hasVerifiedPublicMainImage: true,
-      isStorefrontListingEnabled: true
+      isStorefrontListingEnabled: true,
+      hasApprovedLocaleContent: true
     });
 
     expect(res.sellable).toBe(true);
@@ -27,7 +28,8 @@ describe("@khidi/publishing — Sellability Evaluator [C5, C8, C9, C18]", () => 
       hasActiveOwnerAccountingMapping: false,
       hasCurrentBasePrice: false,
       hasVerifiedPublicMainImage: true,
-      isStorefrontListingEnabled: false
+      isStorefrontListingEnabled: false,
+      hasApprovedLocaleContent: true
     });
 
     expect(res.sellable).toBe(false);

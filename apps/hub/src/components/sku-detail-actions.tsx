@@ -23,6 +23,7 @@ export function SkuDetailActions({
   lifecycleState,
   identityConfidence,
   identityKind,
+  canUseKaForReady,
   nextStates,
   canonicalSlug,
   entities,
@@ -32,6 +33,7 @@ export function SkuDetailActions({
   lifecycleState: string;
   identityConfidence: string;
   identityKind: string;
+  canUseKaForReady: boolean;
   nextStates: string[];
   canonicalSlug: string | null;
   entities: LegalEntityOption[];
@@ -247,6 +249,7 @@ export function SkuDetailActions({
         </div>
 
         <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+          {lifecycleState === "CONTENT_REVIEW" && !canUseKaForReady ? <p>{t("content.ready_requires_ka")}</p> : null}
           {lifecycleState === "CONTENT_REVIEW" && identityConfidence === "MEDIUM" && <label>
             <input type="checkbox" checked={confirmMedium} onChange={(event) => setConfirmMedium(event.target.checked)} /> {t("evidence.confirm_medium")}
           </label>}
@@ -257,7 +260,7 @@ export function SkuDetailActions({
           {lifecycleState === "CONTENT_REVIEW" && (
             <button
               type="button"
-              disabled={loading || (identityConfidence === "MEDIUM" && !confirmMedium)}
+              disabled={loading || !canUseKaForReady || (identityConfidence === "MEDIUM" && !confirmMedium)}
               onClick={handleTransitionReady}
               style={{
                 padding: "0.5rem 0.9rem",

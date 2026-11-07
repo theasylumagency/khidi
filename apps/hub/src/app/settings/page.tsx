@@ -1,13 +1,19 @@
 import { t } from "@khidi/i18n";
+import { getDb } from "@khidi/db";
+import { getTechnicalSynonyms, listTechnicalTermGroups } from "@khidi/products";
 import { requirePageAuth } from "../../lib/session.ts";
+import { TechnicalSynonymsForm } from "../../components/technical-synonyms-form.tsx";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
   await requirePageAuth({ allowedRoles: ["ADMIN"] });
+  const terms = listTechnicalTermGroups(await getTechnicalSynonyms(getDb()))
+    .map(({ group, unit, aliases }) => ({ group, unit, aliases }));
 
   return (
     <div style={{ display: "grid", gap: "1.5rem" }}>
+      <TechnicalSynonymsForm terms={terms} />
       <section
         style={{
           background: "#ffffff",

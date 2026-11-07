@@ -11,9 +11,11 @@ import {
 } from "@khidi/db";
 import {
   attachSkuIdentifier,
+  approveCanonicalVersion,
   createProductFamily,
   createSkuDraft,
   registerLegacyUrl,
+  saveCanonicalVersion,
   seedTaxonomyAndProductTypes,
   setComposedBundleComponents,
   setStorefrontListing,
@@ -166,6 +168,10 @@ export async function runProductsSeed() {
   await transitionSkuLifecycle(db, actor, skuRubber.id, "CONTENT_REVIEW");
 
   // Transition KH-000001 to READY — assigns canonical_slug = 'hiromiki-d178e-df900q-9-hp-rubber-wheels' ([C8])
+  for (const locale of ["ka", "en"]) {
+    const { version } = await saveCanonicalVersion(db, actor, { skuId: skuRubber.id, locale });
+    await approveCanonicalVersion(db, actor, { skuId: skuRubber.id, versionId: version.id });
+  }
   await transitionSkuToReady(db, actor, skuRubber.id);
 
   // Enable Storefront Listing on agrotrade-ge (§4.5)

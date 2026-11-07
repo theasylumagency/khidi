@@ -1,6 +1,6 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
-import { type AppDatabase, type DbExecutor, labelEvents, productIntakes, scanTasks, skus } from "@khidi/db";
+import { type AppDatabase, type DbExecutor, getSkuLineageIds, labelEvents, productIntakes, scanTasks, skus } from "@khidi/db";
 import { executeIdempotent, withDomainTransaction } from "@khidi/domain";
 import { AppError, createUuidV7, sha256Hex } from "@khidi/shared";
 import { intakeInputSchema, type IntakeResult, type ReviewReason } from "./contracts.ts";
@@ -53,17 +53,22 @@ export async function receiveIntake(db: AppDatabase | DbExecutor, principal: Aut
           isNull(productIntakes.duplicateOfIntakeId), isNull(productIntakes.reviewReason)
         )).orderBy(asc(productIntakes.createdAt)).limit(1);
       }
-      if (first) identity = { ...identity, skuId: first.matchedSkuId, resultState: first.resultState as IntakeResult["resultState"] };
+      if (first) identity = { ...identity, skuId: normalized?.internal && identity.skuId ? identity.skuId : first.matchedSkuId,
+        resultState: first.resultState as IntakeResult["resultState"] };
       else if (!reviewReason && !identity.skuId) identity = await resolveScanIdentity(ctx.tx, ctx.actor, normalized, { allowCreate: true, productTypeId: task?.productTypeId });
       reviewReason ??= identity.reviewReason;
       if (!reviewReason && normalized?.internal && task && !first && identity.skuId) {
+        const lineage = await getSkuLineageIds(ctx.tx, identity.skuId);
         [first] = await ctx.tx.select().from(productIntakes).where(and(
-          eq(productIntakes.taskId, task.id), eq(productIntakes.matchedSkuId, identity.skuId),
-          eq(productIntakes.isNoBarcode, true), isNull(productIntakes.reviewReason)
+          eq(productIntakes.taskId, task.id), inArray(productIntakes.matchedSkuId, lineage),
+          or(eq(productIntakes.isNoBarcode, true),
+            lineage.length > 1 ? inArray(productIntakes.scannedIdentifierType, ["INTERNAL_SKU", "INTERNAL_QR"]) : undefined),
+          isNull(productIntakes.duplicateOfIntakeId), isNull(productIntakes.reviewReason)
         )).orderBy(asc(productIntakes.createdAt)).limit(1);
       }
       const body: IntakeResult = { id: createUuidV7(), matchedSkuId: identity.skuId, resultState: identity.resultState,
-        duplicateOfIntakeId: first?.id ?? null, labelStatus: input.isNoBarcode && !reviewReason ? "TO_PRINT" : "NOT_REQUIRED", reviewReason };
+        duplicateOfIntakeId: first?.id ?? null, labelStatus: input.isNoBarcode && !reviewReason ? "TO_PRINT" : "NOT_REQUIRED", reviewReason,
+        ...(identity.scannedSkuId ? { scannedSkuId: identity.scannedSkuId } : {}) };
       if (identity.skuId && !reviewReason) {
         const [sku] = await ctx.tx.select({ internalSku: skus.internalSku }).from(skus).where(eq(skus.id, identity.skuId)).limit(1);
         if (sku) body.internalSku = sku.internalSku;
@@ -73,7 +78,7 @@ export async function receiveIntake(db: AppDatabase | DbExecutor, principal: Aut
         deviceId: principal.deviceId, clientDeviceId: input.deviceId, scannedAt: new Date(input.scannedAt),
         scannedIdentifiersJson: input.isNoBarcode ? [] : [input.scannedValue], normalizedIdentifier: normalized?.key ?? null,
         scannedIdentifierType: normalized?.canonicalType ?? null,
-        isNoBarcode: input.isNoBarcode, matchedSkuId: body.matchedSkuId, duplicateOfIntakeId: body.duplicateOfIntakeId,
+        isNoBarcode: input.isNoBarcode, matchedSkuId: body.matchedSkuId, scannedSkuId: body.scannedSkuId, duplicateOfIntakeId: body.duplicateOfIntakeId,
         labelStatus: body.labelStatus, resultState: body.resultState, idempotencyKey: input.idempotencyKey, requestHash,
         reviewReason, reviewOriginalReason: reviewReason, reviewReferenceSkuId: identity.referenceSkuId, acceptanceResponseJson: body
       });
@@ -83,7 +88,7 @@ export async function receiveIntake(db: AppDatabase | DbExecutor, principal: Aut
       });
       if (!reviewReason && normalized?.internal && identity.skuId) {
         const awaiting = await ctx.tx.select().from(productIntakes).where(and(
-          eq(productIntakes.matchedSkuId, identity.skuId), eq(productIntakes.labelStatus, "PRINTED")
+          eq(productIntakes.matchedSkuId, identity.scannedSkuId ?? identity.skuId), eq(productIntakes.labelStatus, "PRINTED")
         )).orderBy(asc(productIntakes.id)).for("update");
         for (const original of awaiting) {
           if (principal.role !== "ADMIN" && original.taskId !== input.taskId) continue;

@@ -3,7 +3,7 @@ import { expect, it } from "vitest";
 import { auditLogs, evidence, getDb, legalEntities, outboxEvents, productImages, skuFieldProvenance, skus, users } from "@khidi/db";
 import { decideSkuEvidenceField, getStorefrontIdentityFacts, registerObservableAttribute, reviewSkuEvidence, submitSkuEvidence } from "@khidi/evidence";
 import { createUuidV7 } from "@khidi/shared";
-import { createSkuDraft, getProductTypeByKey, transitionSkuLifecycle, transitionSkuToReady, upsertAccountingMapping, upsertProductType } from "./index.ts";
+import { approveCanonicalVersion, createSkuDraft, getProductTypeByKey, mergeSkus, saveCanonicalVersion, transitionSkuLifecycle, transitionSkuToReady, upsertAccountingMapping, upsertProductType } from "./index.ts";
 
 it("retains the original reading, freezes decisions in PostgreSQL and supersedes evidence atomically", async () => {
   const db = getDb();
@@ -77,6 +77,8 @@ it("promotes a document-free SKU with explicit MEDIUM confirmation and flags a l
     return sku;
   }
   const first = await createCandidate();
+  const firstContent = await saveCanonicalVersion(db, actor, { skuId: first.id, locale: "ka" });
+  await approveCanonicalVersion(db, actor, { skuId: first.id, versionId: firstContent.version.id });
   await expect(transitionSkuToReady(db, actor, first.id)).rejects.toThrow(/explicit human confirmation/);
   const ready = await transitionSkuToReady(db, actor, first.id, { humanConfirmedMediumConfidence: true });
   expect(ready).toMatchObject({ identityKind: "HOUSE_DEFINED", identityConfidence: "MEDIUM", brand: null, modelCode: null, lifecycleState: "READY" });
@@ -114,6 +116,8 @@ it("promotes a document-free SKU with explicit MEDIUM confirmation and flags a l
     expect.objectContaining({ skuId: first.id, value: "Straight", status: "VERIFIED", evidenceIds: [observed.id] }),
     expect.objectContaining({ skuId: second.id, value: "Curved", status: "VERIFIED", evidenceIds: [observed.id] })
   ]));
+  const secondContent = await saveCanonicalVersion(db, actor, { skuId: second.id, locale: "ka" });
+  await approveCanonicalVersion(db, actor, { skuId: second.id, versionId: secondContent.version.id });
   expect(await transitionSkuToReady(db, actor, second.id, { humanConfirmedMediumConfidence: true, customCanonicalSlug: "mount-b" }))
     .toMatchObject({ lifecycleState: "READY", identityConfidence: "MEDIUM" });
 
@@ -121,11 +125,18 @@ it("promotes a document-free SKU with explicit MEDIUM confirmation and flags a l
   const [flagged] = await db.select().from(skus).where(eq(skus.id, first.id));
   expect(flagged).toMatchObject({ lifecycleState: "READY", canonicalSlug: ready.canonicalSlug, identityConfidence: "CONFLICT", reverificationRequired: true });
   expect(await getStorefrontIdentityFacts(db, first.id)).toEqual({ identityConflict: true, fields: { mounting_pattern: "Straight" } });
-  expect(await db.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, first.id), eq(outboxEvents.eventType, "PRODUCT_REVIEW_REQUIRED"))))
-    .toHaveLength(1);
+  const notices = await db.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, first.id), eq(outboxEvents.eventType, "PRODUCT_REVIEW_REQUIRED")));
+  expect(notices.filter((notice) => notice.payloadJson.reason === "IDENTITY_REVERIFICATION")).toHaveLength(1);
+  expect(notices.filter((notice) => notice.payloadJson.reason === "CONTENT_FACT_CHANGED")).toHaveLength(1);
   await reviewSkuEvidence(db, actor, { evidenceId: contradictory.id, status: "REJECTED", reason: "Observed rubber wheels" });
   expect(await getStorefrontIdentityFacts(db, first.id)).toEqual({ identityConflict: false, fields: { wheel_type: "RUBBER", mounting_pattern: "Straight" } });
   await reviewSkuEvidence(db, actor, { evidenceId: observed.id, status: "REJECTED", reason: "Comparison requires a new inspection." });
   expect((await getStorefrontIdentityFacts(db, first.id)).fields).toEqual({ wheel_type: "RUBBER" });
   expect((await getStorefrontIdentityFacts(db, second.id)).fields).toEqual({ wheel_type: "RUBBER" });
+  await db.update(productImages).set({ status: "UNVERIFIED" })
+    .where(and(eq(productImages.skuId, first.id), eq(productImages.slot, "SECONDARY")));
+  await mergeSkus(db, actor, { sourceSkuId: second.id, targetSkuId: first.id,
+    identityConfirmed: true, reason: "Compared the fixtures again and confirmed matching mounting plates and wheels." });
+  const [survivor] = await db.select().from(skus).where(eq(skus.id, first.id));
+  expect(survivor).toMatchObject({ lifecycleState: "READY", identityConfidence: "MEDIUM", reverificationRequired: false });
 });

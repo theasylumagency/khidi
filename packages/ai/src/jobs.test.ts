@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { expect, it, vi } from "vitest";
-import { aiJobLogs, aiJobs, auditLogs, evidence, getDb, imageMasterVersions, productImages, users } from "@khidi/db";
+import { aiJobLogs, aiJobs, auditLogs, evidence, getDb, imageMasterVersions, productImages, skuContentVersions, users } from "@khidi/db";
 import { withDomainTransaction } from "@khidi/domain";
 import { createHash } from "node:crypto";
 import { createUuidV7 } from "@khidi/shared";
@@ -9,7 +9,7 @@ import { getStorefrontIdentityFacts, reviewSkuEvidence, submitSkuEvidence } from
 import type { MediaStorage } from "@khidi/media/storage";
 import { fixturePhoto } from "../../media/src/test-fixtures.ts";
 import { executeAiJob, queueAiJob } from "./jobs.ts";
-import type { AiProvider } from "./provider.ts";
+import { configuredAiProvider, type AiProvider } from "./provider.ts";
 
 async function fixture() {
   const db = getDb();
@@ -89,4 +89,21 @@ it("reserves the daily budget atomically across two concurrent jobs", async () =
   expect(provider.run).toHaveBeenCalledOnce();
   const rows = await db.select().from(aiJobs).where(and(sql`${aiJobs.id} IN (${a}, ${b})`));
   expect(rows.map((row) => row.status).sort()).toEqual(["BUDGET_BLOCKED", "SUCCEEDED"]);
+});
+
+it("saves synthetic content per locale as proposals using only verified readings", async () => {
+  const { db, sku, actor, create } = await fixture();
+  const claims = { power_kw: 5 };
+  const item = await submitSkuEvidence(db, actor, { skuId: sku.id, type: "FACTORY_SPEC_SHEET", claims });
+  await reviewSkuEvidence(db, actor, { evidenceId: item.id, status: "ACCEPTED", reason: "Read the synthetic sheet", claims });
+  await submitSkuEvidence(db, actor, { skuId: sku.id, type: "STAFF_STATEMENT", claims: { brand: "UNVERIFIED" } });
+  const job = await create("generate-canonical-content");
+  const provider = configuredAiProvider({ AI_PROVIDER: "synthetic" })!;
+  const run = vi.spyOn(provider, "run");
+  await executeAiJob(db, storageWith(), provider, job, 0, 0);
+  expect(run).toHaveBeenCalledWith(expect.objectContaining({ fieldNames: ["power_kw"] }));
+  const versions = await db.select().from(skuContentVersions).where(eq(skuContentVersions.skuId, sku.id));
+  expect(versions).toEqual(expect.arrayContaining(["ka", "en"].map((locale) => expect.objectContaining({
+    locale, aiJobId: job, origin: "AI_PROPOSAL", verifiedFacts: { power_kw: 5 }
+  }))));
 });

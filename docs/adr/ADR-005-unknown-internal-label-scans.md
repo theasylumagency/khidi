@@ -33,12 +33,17 @@ later, through an administrator's review resolution.
 | Condition | Stored as | Counts toward task progress | Duplicate detection |
 | --- | --- | --- | --- |
 | Unknown internal label (`KH-…` not allocated) | `MANUAL_IDENTIFICATION_REQUIRED`, review reason `UNKNOWN_INTERNAL_LABEL` | No | Excluded |
-| Internal label of an ARCHIVED SKU | `MANUAL_IDENTIFICATION_REQUIRED`, review reason `ARCHIVED_INTERNAL_LABEL`, archived SKU id kept for reference only | No | Excluded |
+| Internal label of an ARCHIVED SKU without a surviving merge target | `MANUAL_IDENTIFICATION_REQUIRED`, review reason `ARCHIVED_INTERNAL_LABEL`, archived SKU id kept for reference only | No | Excluded |
 | Identifier collision (several SKUs match) | `MANUAL_IDENTIFICATION_REQUIRED`, review reason `IDENTIFIER_COLLISION` (existing behaviour, now with a reason) | No | Excluded |
 | Task completed or cancelled before the scan arrived | Existing match → `MATCHED_EXISTING` (reference only); no match → `MANUAL_IDENTIFICATION_REQUIRED`, no draft. Review reason `TASK_NOT_ACCEPTING` | No | Excluded |
 | Task no longer assigned to this user or role | Same as the row above, review reason `TASK_NOT_ASSIGNED` | No | Excluded |
 
 Rules:
+
+- A label of a merged SKU resolves to the active survivor, following `merged_into_sku_id`
+  with cycle protection. The intake keeps both `scanned_sku_id` and `matched_sku_id`.
+  A broken chain or a terminal archive without a successor goes to Class A review.
+  Task assignment and availability checks still apply.
 
 - `review_reason` is a new nullable column with the values above; `reviewed_at`,
   `reviewed_by`, `review_resolution` and `review_note` record the outcome.

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   type AppDatabase,
@@ -11,19 +11,24 @@ import {
   accountingMappings,
   bundleComponents,
   categories,
+  getSkuLineageIds,
   legalEntities,
   legacyUrls,
   productFamilies,
+  productIntakes,
   productTypes,
   skuIdentifiers,
   skuSlugHistory,
+  resolveActiveSku,
+  skuContentApprovals,
+  skuContentVersions,
   skus,
   storefrontListings,
   storefronts,
   users
 } from "@khidi/db";
 import { type DomainActor, withDomainTransaction } from "@khidi/domain";
-import { lockIdentityCatalog, recomputeSkuIdentity, UNIVERSAL_EVIDENCE_FIELDS, withDefaultObservableAttributes } from "@khidi/evidence";
+import { compareApprovedContentFacts, getContentFactFields, hasVerifiedDifference, lockIdentityCatalog, recomputeSkuIdentity, UNIVERSAL_EVIDENCE_FIELDS, withDefaultObservableAttributes } from "@khidi/evidence";
 import { queueMediaJob } from "@khidi/media";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import {
@@ -38,6 +43,7 @@ import {
   normalizeLegacyUrlPath
 } from "./naming.ts";
 import { buildThermalLabelSpec } from "./labels.ts";
+import { requireCurrentValidCanonicalContent } from "./content.ts";
 import {
   buildCandidateLookupValues,
   normalizeIdentifierOnWrite
@@ -48,6 +54,7 @@ export * from "./units.ts";
 export * from "./naming.ts";
 export * from "./labels.ts";
 export * from "./identifiers.ts";
+export * from "./content.ts";
 
 export const SKU_LIFECYCLE_STATES = [
   "INTAKE",
@@ -870,6 +877,8 @@ export async function transitionSkuToReady(
       );
     }
 
+    await requireCurrentValidCanonicalContent(ctx.tx, sku.id, "ka");
+
     // Check if this SKU is part of a multi-SKU Product Family or shares (brand, model_code) with another SKU
     let shouldIncludeDifferentiator = false;
     if (!houseDefined && sku.productFamilyId) {
@@ -934,25 +943,6 @@ export async function transitionSkuToReady(
       });
     }
 
-    const names = houseDefined ? {
-      displayNameKa: [[brand, productType.nameKa].filter(Boolean).join(" "), ...verifiedAttributes].join(", "),
-      displayNameEn: [[brand, productType.nameEn].filter(Boolean).join(" "), ...verifiedAttributes].join(", ")
-    } : generateDeterministicDisplayNames({
-      brand,
-      modelCode,
-      productTypeNameKa: productType.nameKa,
-      productTypeNameEn: productType.nameEn,
-      keyDifferentiatorKa: sku.keyDifferentiatorKa,
-      keyDifferentiatorEn: sku.keyDifferentiatorEn
-    });
-
-    if (!names.displayNameKa || !names.displayNameEn) {
-      throw new AppError(
-        "PRECONDITION_FAILED",
-        "Deterministic KA and EN display names are required before transitioning to READY (§5.10)."
-      );
-    }
-
     const [updated] = await ctx.tx
       .update(skus)
       .set({
@@ -961,8 +951,6 @@ export async function transitionSkuToReady(
         modelCode: houseDefined ? null : modelCode,
         reverificationRequired: false,
         canonicalSlug: finalSlug,
-        displayNameKa: names.displayNameKa,
-        displayNameEn: names.displayNameEn,
         approvedBy: actor.userId,
         approvedAt: new Date(),
         updatedAt: new Date()
@@ -1070,10 +1058,11 @@ export async function updateSkuCanonicalSlug(
 }
 
 export async function listSkuSlugHistory(db: AppDatabase | DbExecutor, skuId: string) {
+  const lineage = await getSkuLineageIds(db, skuId);
   return db
     .select()
     .from(skuSlugHistory)
-    .where(eq(skuSlugHistory.skuId, skuId))
+    .where(inArray(skuSlugHistory.skuId, lineage))
     .orderBy(desc(skuSlugHistory.changedAt));
 }
 
@@ -1194,7 +1183,8 @@ async function recomputeIdentifierCollisionState(
     .select({
       identifierId: skuIdentifiers.id,
       skuId: skuIdentifiers.skuId,
-      lifecycleState: skus.lifecycleState
+      lifecycleState: skus.lifecycleState,
+      mergedIntoSkuId: skus.mergedIntoSkuId
     })
     .from(skuIdentifiers)
     .innerJoin(skus, eq(skuIdentifiers.skuId, skus.id))
@@ -1205,13 +1195,10 @@ async function recomputeIdentifierCollisionState(
       )
     );
 
-  const activeSkuIds = Array.from(
-    new Set(
-      rowsWithSku
-        .filter((r) => r.lifecycleState !== "ARCHIVED")
-        .map((r) => r.skuId)
-    )
-  );
+  const activeSkuIds = [...new Set((await Promise.all(rowsWithSku.map(async (row) => {
+    if (row.lifecycleState !== "ARCHIVED") return row.skuId;
+    return row.mergedIntoSkuId ? (await resolveActiveSku(tx, row.skuId))?.id : undefined;
+  }))).filter((id): id is string => !!id))];
   const collisionDetected = activeSkuIds.length > 1;
 
   await tx
@@ -1388,10 +1375,11 @@ export async function removeSkuIdentifier(
 }
 
 export async function listSkuIdentifiers(db: AppDatabase | DbExecutor, skuId: string) {
+  const lineage = await getSkuLineageIds(db, skuId);
   return db
     .select()
     .from(skuIdentifiers)
-    .where(eq(skuIdentifiers.skuId, skuId))
+    .where(inArray(skuIdentifiers.skuId, lineage))
     .orderBy(desc(skuIdentifiers.isPrimary), asc(skuIdentifiers.identifierType));
 }
 
@@ -1410,11 +1398,6 @@ export async function resolveSkuByScannedIdentifier(
     return { matches: [], uniqueSkuIds: [], isAmbiguousCollision: false };
   }
 
-  const conditions = [inArray(skuIdentifiers.value, candidates)];
-  if (!options?.includeArchived) {
-    conditions.push(ne(skus.lifecycleState, "ARCHIVED"));
-  }
-
   const rows = await db
     .select({
       identifierId: skuIdentifiers.id,
@@ -1424,15 +1407,23 @@ export async function resolveSkuByScannedIdentifier(
       skuId: skus.id,
       internalSku: skus.internalSku,
       displayNameKa: skus.displayNameKa,
-      lifecycleState: skus.lifecycleState
+      lifecycleState: skus.lifecycleState,
+      mergedIntoSkuId: skus.mergedIntoSkuId
     })
     .from(skuIdentifiers)
     .innerJoin(skus, eq(skuIdentifiers.skuId, skus.id))
-    .where(and(...conditions));
+    .where(inArray(skuIdentifiers.value, candidates));
 
-  const uniqueSkuIds = Array.from(new Set(rows.map((r) => r.skuId)));
+  const matches = (await Promise.all(rows.map(async (row) => {
+    const { mergedIntoSkuId, ...match } = row;
+    if (options?.includeArchived || row.lifecycleState !== "ARCHIVED") return { ...match, scannedSkuId: row.skuId };
+    const survivor = mergedIntoSkuId ? await resolveActiveSku(db, row.skuId) : null;
+    return survivor ? { ...match, scannedSkuId: row.skuId, skuId: survivor.id, internalSku: survivor.internalSku,
+      lifecycleState: survivor.lifecycleState, displayNameKa: survivor.displayNameKa } : null;
+  }))).filter((match) => match !== null);
+  const uniqueSkuIds = Array.from(new Set(matches.map((r) => r.skuId)));
   return {
-    matches: rows,
+    matches,
     uniqueSkuIds,
     isAmbiguousCollision: uniqueSkuIds.length > 1
   };
@@ -1571,6 +1562,11 @@ export async function setStorefrontListing(
   }
 ) {
   return withDomainTransaction(db, actor, async (ctx) => {
+    await lockIdentityCatalog(ctx.tx);
+    if (input.enabled) {
+      const [sku] = await ctx.tx.select({ state: skus.lifecycleState }).from(skus).where(eq(skus.id, input.skuId));
+      if (!sku || sku.state === "ARCHIVED") throw new AppError("PRECONDITION_FAILED", "Only active SKUs can be listed.");
+    }
     const [existing] = await ctx.tx
       .select()
       .from(storefrontListings)
@@ -1669,6 +1665,114 @@ export async function listStorefrontListingsForSku(
     .innerJoin(storefronts, eq(storefrontListings.storefrontId, storefronts.id))
     .where(eq(storefrontListings.skuId, skuId))
     .orderBy(asc(storefronts.key));
+}
+
+const mergeSkuInput = z.object({
+  sourceSkuId: z.string().uuid(), targetSkuId: z.string().uuid(),
+  identityConfirmed: z.boolean().default(false),
+  reason: z.string().trim().min(1).max(4000),
+  listingChoices: z.record(z.string().uuid(), z.enum(["SOURCE", "TARGET"])).default({})
+}).strict();
+
+export async function mergeSkus(db: DbExecutor, actor: DomainActor, raw: unknown) {
+  const parsed = mergeSkuInput.safeParse(raw);
+  if (!parsed.success || parsed.data.sourceSkuId === parsed.data.targetSkuId) {
+    throw new AppError("VALIDATION_ERROR", "Choose two different SKUs and give a reason.");
+  }
+  const { sourceSkuId, targetSkuId, identityConfirmed, reason, listingChoices } = parsed.data;
+  return withDomainTransaction(db, actor, async (ctx) => {
+    await lockIdentityCatalog(ctx.tx);
+    const [admin] = actor.userId ? await ctx.tx.select({ id: users.id }).from(users)
+      .where(and(eq(users.id, actor.userId), eq(users.role, "ADMIN"), eq(users.active, true))) : [];
+    if (!admin) throw new AppError("FORBIDDEN", "SKU merge requires an active admin.");
+    if (!identityConfirmed) throw new AppError("PRECONDITION_FAILED", "Confirm that both SKUs represent the same physical variant.");
+    const pair = await ctx.tx.select().from(skus).where(inArray(skus.id, [sourceSkuId, targetSkuId]));
+    const source = pair.find((sku) => sku.id === sourceSkuId), target = pair.find((sku) => sku.id === targetSkuId);
+    if (!source || !target) throw new AppError("NOT_FOUND", "Both SKUs must exist.");
+    if (pair.some((sku) => sku.lifecycleState === "ARCHIVED" || sku.mergedIntoSkuId) || source.productTypeId !== target.productTypeId) {
+      throw new AppError("PRECONDITION_FAILED", "Only active SKUs of the same Product Type can be merged.");
+    }
+    const needsApprovedTarget = source.lifecycleState === "READY" || source.canonicalSlug !== null;
+    if (needsApprovedTarget && target.lifecycleState !== "READY") {
+      throw new AppError("PRECONDITION_FAILED", "A SKU with a canonical slug can only merge into a READY SKU.");
+    }
+    const [sourceFacts, targetFacts, listings, sourceLineage] = await Promise.all([
+      getContentFactFields(ctx.tx, sourceSkuId), getContentFactFields(ctx.tx, targetSkuId),
+      ctx.tx.select().from(storefrontListings).where(inArray(storefrontListings.skuId, [sourceSkuId, targetSkuId])),
+      getSkuLineageIds(ctx.tx, sourceSkuId)
+    ]);
+    if (pair.some((sku) => sku.identityConfidence === "CONFLICT") || hasVerifiedDifference(sourceFacts, targetFacts)) {
+      throw new AppError("CONFLICT", "Resolve identity conflicts and verified differences before merging.");
+    }
+    const targetContent = needsApprovedTarget ? await requireCurrentValidCanonicalContent(ctx.tx, targetSkuId, "ka") : null;
+    const decisions = [];
+    for (const listing of listings.filter((row) => row.skuId === sourceSkuId)) {
+      const existing = listings.find((row) => row.skuId === targetSkuId && row.storefrontId === listing.storefrontId);
+      const choice = listingChoices[listing.storefrontId];
+      if (existing && source.lifecycleState === "READY" && target.lifecycleState === "READY" && !choice) {
+        throw new AppError("PRECONDITION_FAILED", "Choose the surviving listing on each shared storefront.", { storefrontId: listing.storefrontId });
+      }
+      if (!existing || choice === "SOURCE") {
+        await setStorefrontListing(ctx.tx, actor, { skuId: targetSkuId, storefrontId: listing.storefrontId, enabled: listing.enabled, reason });
+      }
+      if (listing.enabled) await setStorefrontListing(ctx.tx, actor, { skuId: sourceSkuId, storefrontId: listing.storefrontId, enabled: false, reason });
+      decisions.push({ storefrontId: listing.storefrontId, sourceListingId: listing.id, targetListingId: existing?.id ?? null,
+        kept: !existing || choice === "SOURCE" ? "SOURCE" : "TARGET" });
+    }
+    await transitionSkuLifecycle(ctx.tx, actor, sourceSkuId, "ARCHIVED", { reason });
+    await ctx.tx.update(skus).set({ mergedIntoSkuId: targetSkuId, updatedAt: new Date() }).where(eq(skus.id, sourceSkuId));
+    if (source.canonicalSlug) {
+      const [existing] = await ctx.tx.select().from(skuSlugHistory).where(eq(skuSlugHistory.oldSlug, source.canonicalSlug));
+      if (!existing) await ctx.tx.insert(skuSlugHistory).values({ id: createUuidV7(), skuId: targetSkuId, oldSlug: source.canonicalSlug });
+    }
+    const identifiers = await ctx.tx.selectDistinct({ type: skuIdentifiers.identifierType, value: skuIdentifiers.value }).from(skuIdentifiers)
+      .where(inArray(skuIdentifiers.skuId, sourceLineage)).orderBy(asc(skuIdentifiers.identifierType), asc(skuIdentifiers.value));
+    for (const identifier of identifiers) await recomputeIdentifierCollisionState(ctx.tx, identifier.type, identifier.value);
+    const identity = await recomputeSkuIdentity(ctx, targetSkuId);
+    if (identity.level === "CONFLICT" || (targetContent && compareApprovedContentFacts(targetContent.verifiedFacts, identity.fields).changedFields.length)) {
+      throw new AppError("CONFLICT", "The combined evidence would invalidate the surviving SKU's identity or approved content.");
+    }
+    await queueMediaJob(ctx, "publish-sku-media", { skuId: targetSkuId });
+    await ctx.recordAudit({ action: "SKU_MERGED", entityType: "sku", entityId: sourceSkuId,
+      before: { sourceState: source.lifecycleState, targetState: target.lifecycleState, sourceSlug: source.canonicalSlug },
+      after: { mergedIntoSkuId: targetSkuId, identityConfirmed, sourceLineage, decisions }, reason });
+    await ctx.emitOutboxEvent({ eventType: "PRODUCT_UPDATED", aggregateType: "sku", aggregateId: targetSkuId,
+      payload: { skuId: targetSkuId, mergedSkuId: sourceSkuId }, consumers: [] });
+    return { sourceSkuId, targetSkuId };
+  });
+}
+
+export async function listSkuMergeTargets(db: DbExecutor, sourceSkuId: string) {
+  const [source] = await db.select().from(skus).where(eq(skus.id, sourceSkuId));
+  if (!source || source.lifecycleState === "ARCHIVED") return [];
+  const needsApprovedTarget = source.lifecycleState === "READY" || source.canonicalSlug !== null;
+  const approvedKa = db.select({ id: skuContentApprovals.versionId }).from(skuContentApprovals)
+    .where(and(eq(skuContentApprovals.skuId, skus.id), eq(skuContentApprovals.locale, "ka")));
+  const candidates = await db.select({ id: skus.id, internalSku: skus.internalSku, name: skus.displayNameKa, state: skus.lifecycleState })
+    .from(skus).where(and(ne(skus.id, sourceSkuId), ne(skus.lifecycleState, "ARCHIVED"),
+      needsApprovedTarget ? and(eq(skus.lifecycleState, "READY"), exists(approvedKa)) : undefined,
+      source.productTypeId ? eq(skus.productTypeId, source.productTypeId) : sql`${skus.productTypeId} IS NULL`))
+    .orderBy(asc(skus.internalSku));
+  if (!candidates.length || source.lifecycleState !== "READY") return candidates.map((candidate) => ({ ...candidate, sharedListings: [] }));
+  const rows = await db.select({ skuId: storefrontListings.skuId, storefrontId: storefrontListings.storefrontId,
+    name: storefronts.name, enabled: storefrontListings.enabled }).from(storefrontListings)
+    .innerJoin(storefronts, eq(storefronts.id, storefrontListings.storefrontId))
+    .where(inArray(storefrontListings.skuId, [sourceSkuId, ...candidates.map((row) => row.id)]));
+  const sourceRows = rows.filter((row) => row.skuId === sourceSkuId);
+  return candidates.map((candidate) => ({ ...candidate, sharedListings: candidate.state === "READY" ? sourceRows.flatMap((sourceRow) => {
+    const other = rows.find((row) => row.skuId === candidate.id && row.storefrontId === sourceRow.storefrontId);
+    return other ? [{ id: other.storefrontId, name: other.name, sourceEnabled: sourceRow.enabled, targetEnabled: other.enabled }] : [];
+  }) : [] }));
+}
+
+export async function resolveSkuSlug(db: DbExecutor, slug: string) {
+  const [current] = await db.select({ skuId: skus.id }).from(skus).where(eq(skus.canonicalSlug, slug));
+  const [history] = current ? [] : await db.select({ skuId: skuSlugHistory.skuId }).from(skuSlugHistory).where(eq(skuSlugHistory.oldSlug, slug));
+  const id = current?.skuId ?? history?.skuId;
+  const sku = id ? await resolveActiveSku(db, id) : null;
+  if (!sku) return null;
+  const [target] = await db.select({ canonicalSlug: skus.canonicalSlug }).from(skus).where(eq(skus.id, sku.id));
+  return target?.canonicalSlug ? { skuId: sku.id, canonicalSlug: target.canonicalSlug, redirected: target.canonicalSlug !== slug } : null;
 }
 
 export const registerLegacyUrlSchema = z.object({
@@ -1774,9 +1878,13 @@ export async function getSkuWithDetails(db: AppDatabase | DbExecutor, skuId: str
   const listings = await listStorefrontListingsForSku(db, sku.id);
   const slugHistory = await listSkuSlugHistory(db, sku.id);
   const components = sku.isComposedBundle ? await getBundleComponents(db, sku.id) : [];
+  const lineage = await getSkuLineageIds(db, sku.id);
+  const intakeHistory = await db.select({ id: productIntakes.id, skuId: productIntakes.matchedSkuId,
+    scannedSkuId: productIntakes.scannedSkuId, scannedAt: productIntakes.scannedAt }).from(productIntakes)
+    .where(inArray(productIntakes.matchedSkuId, lineage)).orderBy(desc(productIntakes.scannedAt)).limit(50);
 
   const qrIdentifier =
-    identifiers.find((i) => i.identifierType === "INTERNAL_QR")?.value ??
+    identifiers.find((i) => i.identifierType === "INTERNAL_QR" && i.skuId === sku.id)?.value ??
     `khidi://sku/${sku.internalSku}`;
 
   const labelSpec = buildThermalLabelSpec({
@@ -1797,12 +1905,16 @@ export async function getSkuWithDetails(db: AppDatabase | DbExecutor, skuId: str
     storefrontListings: listings,
     slugHistory,
     bundleComponents: components,
-    labelSpec
+    labelSpec, intakeHistory
   };
 }
 
 export async function listSkusWorkspace(db: AppDatabase | DbExecutor) {
-  const allSkus = await db.select().from(skus).orderBy(asc(skus.internalSku));
+  const allSkus = await db.select({ sku: skus, enApproved: skuContentApprovals.versionId,
+    enDraftExists: sql<boolean>`exists (select 1 from ${skuContentVersions}
+      where ${skuContentVersions.skuId} = ${skus.id} and ${skuContentVersions.locale} = 'en')`
+  }).from(skus).leftJoin(skuContentApprovals, and(eq(skuContentApprovals.skuId, skus.id), eq(skuContentApprovals.locale, "en")))
+    .orderBy(asc(skus.internalSku));
   const allCategories = await db.select().from(categories);
   const allTypes = await db.select().from(productTypes);
   const allMappings = await db
@@ -1830,7 +1942,7 @@ export async function listSkusWorkspace(db: AppDatabase | DbExecutor) {
   const catMap = new Map(allCategories.map((c) => [c.id, c]));
   const typeMap = new Map(allTypes.map((t) => [t.id, t]));
 
-  return allSkus.map((s) => {
+  return allSkus.map(({ sku: s, enApproved, enDraftExists }) => {
     const cat = catMap.get(s.categoryId);
     const pt = s.productTypeId ? typeMap.get(s.productTypeId) : undefined;
     const skuMappings = allMappings.filter((m) => m.skuId === s.id);
@@ -1839,6 +1951,7 @@ export async function listSkusWorkspace(db: AppDatabase | DbExecutor) {
 
     return {
       ...s,
+      englishContentStatus: enApproved ? "approved" as const : enDraftExists ? "pending" as const : "missing" as const,
       categoryNameKa: cat?.nameKa ?? "—",
       categoryKey: cat?.key ?? "UNCLASSIFIED",
       productTypeNameKa: pt?.nameKa ?? "—",

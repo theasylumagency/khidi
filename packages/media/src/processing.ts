@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { and, eq, ne, sql } from "drizzle-orm";
-import { type MediaDerivative, imageMasterVersions, productImages } from "@khidi/db";
+import { type MediaDerivative, imageMasterVersions, productImages, resolveActiveSku } from "@khidi/db";
 import type { DomainTransactionContext } from "@khidi/domain";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import { digest, StorageExistsError, type MediaStorage } from "./storage.ts";
@@ -62,7 +62,7 @@ export async function processImage(ctx: DomainTransactionContext, storage: Media
   await ctx.emitOutboxEvent({ eventType: "IMAGE_PROCESSED", aggregateType: "product_image", aggregateId: imageId,
     payload: { imageId, skuId: image.skuId, version }, consumers: image.skuId ? ["ai-discovery"] : [] });
   await queueMediaJob(ctx, "tier2-image-check", { imageId, imageVersion: version }, `tier2:${imageId}:${version}`);
-  if (image.skuId) await queueMediaJob(ctx, "publish-sku-media", { skuId: image.skuId });
+  if (image.skuId) await queueMediaJob(ctx, "publish-sku-media", { skuId: (await resolveActiveSku(ctx.tx, image.skuId))?.id ?? image.skuId });
 }
 export async function perceptualHash(bytes: Uint8Array) {
   const pixels = await sharp(bytes).resize(9, 8, { fit: "fill" }).greyscale().raw().toBuffer();

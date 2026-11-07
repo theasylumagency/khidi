@@ -2,7 +2,9 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { loadPrincipalByUserId, type AuthenticatedPrincipal } from "@khidi/auth";
 import { auditLogs, getDb, idempotencyKeys, outboxEvents, productIntakes, scanTasks, skuIdentifiers, skus, users } from "@khidi/db";
-import { attachSkuIdentifier, computeGs1CheckDigit, createSkuDraft, transitionSkuLifecycle } from "@khidi/products";
+import { approveCanonicalVersion, attachSkuIdentifier, computeGs1CheckDigit, createSkuDraft, getSkuWithDetails,
+  listSkuMergeTargets, mergeSkus, resolveSkuSlug, saveCanonicalVersion, setStorefrontListing, transitionSkuLifecycle } from "@khidi/products";
+import { getStorefrontIdentityFacts, reviewSkuEvidence, submitSkuEvidence } from "@khidi/evidence";
 import { createUuidV7 } from "@khidi/shared";
 import { receiveIntake } from "./index.ts";
 import type { IntakeInput } from "./contracts.ts";
@@ -102,5 +104,81 @@ describe("M3 S2 intake transactions", () => {
     expect((await receiveIntake(db, warehouse, input({ userId: warehouse.userId, sourceMode: "TASK", taskId: assigned.id }))).body.reviewReason).toBe("TASK_NOT_ASSIGNED");
     await expect(receiveIntake(db, { ...warehouse, authMethod: "WAREHOUSE_PIN", deviceId: key() }, input({ userId: warehouse.userId, sourceMode: "TASK", taskId: assigned.id }))).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(receiveIntake(db, { ...warehouse, role: "ADMIN" }, input({ userId: warehouse.userId }))).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+  it("follows an audited merge chain, preserves the scanned label and redirects the old slug", async () => {
+    const actor = { userId: admin.userId };
+    const source = await createSkuDraft(db, actor, {});
+    const middle = await createSkuDraft(db, actor, {});
+    const survivor = await createSkuDraft(db, actor, {});
+    const draft = await createSkuDraft(db, actor, {});
+    const original = await receiveIntake(db, admin, input({ scannedValue: source.internalSku }));
+    const slug = `retired-${key().slice(-10)}`;
+    const survivorSlug = `survivor-${key().slice(-10)}`;
+    for (const [sku, canonicalSlug] of [[source, slug], [middle, `middle-${key().slice(-10)}`], [survivor, survivorSlug]] as const) {
+      await db.update(skus).set({ lifecycleState: "READY", canonicalSlug, reverificationRequired: true }).where(eq(skus.id, sku.id));
+    }
+    const claims = { weight_kg: 40 };
+    const proof = await submitSkuEvidence(db, actor, { skuId: source.id, type: "FACTORY_SPEC_SHEET", claims });
+    await reviewSkuEvidence(db, actor, { evidenceId: proof.id, status: "ACCEPTED", claims, reason: "Synthetic sheet" });
+    const store = (await db.query.storefronts.findFirst())!;
+    await setStorefrontListing(db, actor, { skuId: source.id, storefrontId: store.id, enabled: true });
+    await setStorefrontListing(db, actor, { skuId: middle.id, storefrontId: store.id, enabled: false });
+    const firstMerge = { sourceSkuId: source.id, targetSkuId: middle.id, identityConfirmed: true,
+      reason: "Compared the fixture labels and verified matching build and markings." };
+    await expect(mergeSkus(db, actor, { ...firstMerge, identityConfirmed: undefined })).rejects.toThrow(/same physical variant/);
+    await expect(mergeSkus(db, actor, { ...firstMerge, targetSkuId: draft.id })).rejects.toThrow(/only merge into a READY SKU/);
+    await expect(mergeSkus(db, actor, firstMerge)).rejects.toThrow(/Approved KA canonical content is required/);
+    expect((await listSkuMergeTargets(db, source.id)).map(({ id }) => id)).not.toContain(middle.id);
+    expect(await resolveSkuSlug(db, slug)).toMatchObject({ skuId: source.id, redirected: false });
+
+    const middleProof = await submitSkuEvidence(db, actor, { skuId: middle.id, type: "FACTORY_SPEC_SHEET", claims });
+    await reviewSkuEvidence(db, actor, { evidenceId: middleProof.id, status: "ACCEPTED", claims, reason: "Synthetic sheet" });
+    const title = "საწყობის საცდელი ხელსაწყო";
+    for (const sku of [middle, survivor]) {
+      const { version } = await saveCanonicalVersion(db, actor, { skuId: sku.id, locale: "ka",
+        draft: { displayName: title, shortDescription: title, fullDescription: sku.id === middle.id ? "წონა 40 კგ" : title, searchAliases: [] } });
+      await approveCanonicalVersion(db, actor, { skuId: sku.id, versionId: version.id });
+    }
+    expect((await listSkuMergeTargets(db, source.id)).map(({ id }) => id)).toContain(middle.id);
+    await expect(mergeSkus(db, actor, firstMerge)).rejects.toThrow(/surviving listing/);
+    const pending = await submitSkuEvidence(db, actor, { skuId: source.id, type: "STAFF_STATEMENT", claims: { weight_kg: 41 } });
+    await expect(mergeSkus(db, actor, { ...firstMerge, listingChoices: { [store.id]: "SOURCE" } }))
+      .rejects.toThrow(/combined evidence would invalidate/);
+    expect(await resolveSkuSlug(db, slug)).toMatchObject({ skuId: source.id, redirected: false });
+    expect((await getSkuWithDetails(db, source.id)).storefrontListings).toContainEqual(expect.objectContaining({ storefrontId: store.id, enabled: true }));
+    await reviewSkuEvidence(db, actor, { evidenceId: pending.id, status: "REJECTED", reason: "Compared both fixture sheets" });
+
+    await mergeSkus(db, actor, { ...firstMerge, listingChoices: { [store.id]: "SOURCE" } });
+    await mergeSkus(db, actor, { ...firstMerge, sourceSkuId: middle.id, targetSkuId: survivor.id });
+    expect(await db.select().from(auditLogs).where(and(eq(auditLogs.entityId, source.id), eq(auditLogs.action, "SKU_MERGED"))))
+      .toEqual([expect.objectContaining({ reason: firstMerge.reason, afterJson: expect.objectContaining({ identityConfirmed: true }) })]);
+    const result = await receiveIntake(db, admin, input({ scannedValue: source.internalSku }));
+    expect(result.body).toMatchObject({ scannedSkuId: source.id, matchedSkuId: survivor.id, reviewReason: null });
+    expect(await db.query.productIntakes.findFirst({ where: (row, { eq }) => eq(row.id, result.body.id) }))
+      .toMatchObject({ scannedSkuId: source.id, matchedSkuId: survivor.id });
+    expect(await resolveSkuSlug(db, slug)).toEqual({ skuId: survivor.id, canonicalSlug: survivorSlug, redirected: true });
+    const details = await getSkuWithDetails(db, survivor.id);
+    expect(details.identifiers).toEqual(expect.arrayContaining([expect.objectContaining({ skuId: source.id, value: source.internalSku })]));
+    expect(details.intakeHistory).toEqual(expect.arrayContaining([expect.objectContaining({ id: original.body.id, skuId: source.id })]));
+    expect(details.slugHistory).toEqual(expect.arrayContaining([expect.objectContaining({ oldSlug: slug })]));
+    expect(details.storefrontListings).toEqual(expect.arrayContaining([expect.objectContaining({ storefrontId: store.id, enabled: true })]));
+    expect((await getStorefrontIdentityFacts(db, survivor.id)).fields).toEqual(claims);
+    await transitionSkuLifecycle(db, actor, survivor.id, "ARCHIVED");
+    expect((await receiveIntake(db, admin, input({ scannedValue: source.internalSku }))).body)
+      .toMatchObject({ scannedSkuId: source.id, matchedSkuId: null, reviewReason: "ARCHIVED_INTERNAL_LABEL" });
+  });
+
+  it("guards against corrupt merge cycles and keeps normal archives in Class A review", async () => {
+    const actor = { userId: admin.userId };
+    const source = await createSkuDraft(db, actor, {});
+    const next = await createSkuDraft(db, actor, {});
+    await db.update(skus).set({ lifecycleState: "ARCHIVED", mergedIntoSkuId: next.id }).where(eq(skus.id, source.id));
+    await db.update(skus).set({ lifecycleState: "ARCHIVED", mergedIntoSkuId: source.id }).where(eq(skus.id, next.id));
+    expect((await receiveIntake(db, admin, input({ scannedValue: source.internalSku }))).body)
+      .toMatchObject({ scannedSkuId: source.id, matchedSkuId: null, reviewReason: "ARCHIVED_INTERNAL_LABEL" });
+    const archived = await createSkuDraft(db, actor, {});
+    await transitionSkuLifecycle(db, actor, archived.id, "ARCHIVED");
+    expect((await receiveIntake(db, admin, input({ scannedValue: archived.internalSku }))).body)
+      .toMatchObject({ scannedSkuId: archived.id, matchedSkuId: null, reviewReason: "ARCHIVED_INTERNAL_LABEL" });
   });
 });

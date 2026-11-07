@@ -65,7 +65,8 @@ export const DOMAIN_EVENT_TYPES = [
   "PRODUCT_REVIEW_REQUIRED",
   "EVIDENCE_UPDATED",
   "AI_JOB_REQUESTED",
-  "AI_JOB_UPDATED"
+  "AI_JOB_UPDATED",
+  "PRODUCT_CONTENT_RULES_UPDATED"
 ] as const;
 
 export type DomainEventType = (typeof DOMAIN_EVENT_TYPES)[number];

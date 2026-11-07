@@ -1,11 +1,12 @@
-import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
-  evidence, productImages, productTypes, scanTasks, skuFieldProvenance, skus, users,
+  evidence, getSkuLineageIds, productImages, productTypes, resolveActiveSku, scanTasks, skuFieldProvenance, skus, users,
   type DbExecutor, type EvidenceClaimSource, type EvidenceValue, type ProductTypeAttributeFieldDef
 } from "@khidi/db";
 import { withDomainTransaction, type DomainActor, type DomainTransactionContext } from "@khidi/domain";
 import { AppError, createUuidV7 } from "@khidi/shared";
+import { refreshSkuContentReview } from "./content-review.ts";
 import {
   allowsEvidencePdf, computeIdentity, evidenceSensitivity, evidenceStrength, evidenceValuesDiffer, EVIDENCE_TYPES, hasVerifiedDifference,
   IDENTITY_KINDS, isDocumentAnchor, resolveEvidenceField, type IdentityKind, type ResolvedField
@@ -142,29 +143,32 @@ async function findIndistinguishable(tx: DbExecutor, sku: CatalogSku, productTyp
       .map((field) => [field.fieldName, field]))));
 }
 
-async function loadSkuEvidenceSources(tx: DbExecutor, skuId: string) {
-  const items = await tx.select().from(evidence).where(or(eq(evidence.skuId, skuId), eq(evidence.comparisonSkuId, skuId)));
+async function loadSkuEvidenceSources(tx: DbExecutor, ids: string[]) {
+  const lineage = new Set(ids);
+  const items = await tx.select().from(evidence).where(or(inArray(evidence.skuId, ids), inArray(evidence.comparisonSkuId, ids)));
   const photoIds = items.flatMap((item) => item.comparisonClaims && item.imageId && item.comparisonImageId
     ? [item.imageId, item.comparisonImageId] : []);
   const photos = photoIds.length ? await tx.select({ id: productImages.id, skuId: productImages.skuId }).from(productImages)
     .where(and(inArray(productImages.id, photoIds), eq(productImages.status, "VERIFIED"))) : [];
   const owners = new Map(photos.map((photo) => [photo.id, photo.skuId]));
   return items.flatMap((item) => {
-    if (!item.comparisonClaims) return item.skuId === skuId ? [item] : [];
+    const own = lineage.has(item.skuId);
+    if (!item.comparisonClaims) return own ? [item] : [];
+    if (own && item.comparisonSkuId && lineage.has(item.comparisonSkuId)) return [];
     if (!item.imageId || !item.comparisonImageId || owners.get(item.imageId) !== item.skuId
       || owners.get(item.comparisonImageId) !== item.comparisonSkuId) return [];
-    return item.skuId === skuId ? [item] : [{ ...item, claims: item.comparisonClaims, imageId: item.comparisonImageId }];
+    return own ? [item] : [{ ...item, claims: item.comparisonClaims, imageId: item.comparisonImageId }];
   });
 }
 
 async function projectSkuIdentity(ctx: DomainTransactionContext, skuId: string) {
-  const sku = await loadSku(ctx.tx, skuId);
+  const [sku, lineage] = await Promise.all([loadSku(ctx.tx, skuId), getSkuLineageIds(ctx.tx, skuId)]);
   const [productType, items, priorFields, photos] = await Promise.all([
     loadType(ctx.tx, sku),
-    loadSkuEvidenceSources(ctx.tx, skuId),
+    loadSkuEvidenceSources(ctx.tx, lineage),
     ctx.tx.select().from(skuFieldProvenance).where(eq(skuFieldProvenance.skuId, skuId)),
     ctx.tx.select({ slot: productImages.slot }).from(productImages)
-      .where(and(eq(productImages.skuId, skuId), eq(productImages.status, "VERIFIED"), inArray(productImages.slot, ["MAIN", "SECONDARY"])))
+      .where(and(inArray(productImages.skuId, lineage), eq(productImages.status, "VERIFIED"), inArray(productImages.slot, ["MAIN", "SECONDARY"])))
   ]);
   const decisions = new Map(priorFields.map((field) => [field.fieldName, field]));
   const distinguishingAttributes = productType?.distinguishingAttributes ?? [];
@@ -192,11 +196,11 @@ async function projectSkuIdentity(ctx: DomainTransactionContext, skuId: string) 
       .onConflictDoUpdate({ target: [skuFieldProvenance.skuId, skuFieldProvenance.fieldName], set: nowVerified
         ? { ...projection, notDeterminableReason: null, decidedBy: null, decidedAt: null } : projection });
   }
-  return { sku, productType, items, photos, decisions, distinguishingAttributes, fields };
+  return { sku, productType, items, photos, decisions, distinguishingAttributes, fields, previousFields: new Map(priorFields.map((field) => [field.fieldName, field])) };
 }
 
 async function saveSkuIdentity(ctx: DomainTransactionContext, projection: Awaited<ReturnType<typeof projectSkuIdentity>>) {
-  const { sku, productType, items, photos, decisions, distinguishingAttributes, fields } = projection;
+  const { sku, productType, items, photos, decisions, distinguishingAttributes, fields, previousFields } = projection;
   const skuId = sku.id;
   const duplicates = await findIndistinguishable(ctx.tx, sku, productType, fields);
   const result = computeIdentity({
@@ -218,13 +222,16 @@ async function saveSkuIdentity(ctx: DomainTransactionContext, projection: Awaite
         ...(reverificationRequired ? { severity: "ACTION_REQUIRED", reason: "IDENTITY_REVERIFICATION" } : {}) },
       consumers: reverificationRequired ? ["notifications"] : [] });
   }
+  await refreshSkuContentReview(ctx, skuId, previousFields);
   return { ...result, fields, decisions, productType, duplicates, reverificationRequired };
 }
 
 async function recomputeSkuIdentities(ctx: DomainTransactionContext, ids: (string | null | undefined)[]) {
   await lockIdentityCatalog(ctx.tx);
+  const roots = new Set<string>();
+  for (const id of ids) if (id) roots.add((await resolveActiveSku(ctx.tx, id))?.id ?? id);
   const projections = [];
-  for (const id of new Set(ids.filter((id): id is string => !!id))) projections.push(await projectSkuIdentity(ctx, id));
+  for (const id of roots) projections.push(await projectSkuIdentity(ctx, id));
   // Write both sets of fields before evaluating whether either SKU has a verified difference.
   const results = [];
   for (const projection of projections) results.push(await saveSkuIdentity(ctx, projection));
@@ -509,8 +516,9 @@ export async function setSkuIdentityKind(db: DbExecutor, actor: DomainActor, sku
 export async function listSkuEvidence(db: DbExecutor, actor: DomainActor, skuId: string) {
   await requireEvidenceAdmin(db, actor);
   const sku = await loadSku(db, skuId);
+  const lineage = await getSkuLineageIds(db, skuId);
   const [items, fields, productType] = await Promise.all([
-    db.select().from(evidence).where(eq(evidence.skuId, skuId)),
+    db.select().from(evidence).where(inArray(evidence.skuId, lineage)),
     db.select().from(skuFieldProvenance).where(eq(skuFieldProvenance.skuId, skuId)),
     loadType(db, sku)
   ]);
@@ -522,7 +530,7 @@ export async function listSkuEvidence(db: DbExecutor, actor: DomainActor, skuId:
     .where(and(eq(skus.productTypeId, productType.id), ne(skus.id, skuId), ne(skus.lifecycleState, "ARCHIVED"),
       eq(productImages.status, "VERIFIED"))) : [];
   const incomingComparisons = await db.select({ id: evidence.id, skuId: evidence.skuId }).from(evidence)
-    .where(eq(evidence.comparisonSkuId, skuId));
+    .where(and(inArray(evidence.comparisonSkuId, lineage), notInArray(evidence.skuId, lineage)));
   return { sku, items, fields, productType, comparisons, comparisonPhotos, incomingComparisons };
 }
 
