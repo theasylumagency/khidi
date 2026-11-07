@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { allocationBalances, poolSkuBalances, stockLedger } from "@khidi/db";
 import { inventoryFixture } from "./test-fixture.ts";
 import type { StockMovement } from "./types.ts";
+import { verifyInventoryBalances } from "./rebuild.ts";
 
 it("random valid sequences preserve all C2 invariants and ledger reconstruction",async()=>{
   await fc.assert(fc.asyncProperty(fc.array(fc.record({action:fc.integer({min:0,max:11}),quantity:fc.integer({min:1,max:5})}),{minLength:10,maxLength:28}),async(operations)=>{
@@ -42,5 +43,6 @@ it("random valid sequences preserve all C2 invariants and ledger reconstruction"
     const ledger=await f.db.select().from(stockLedger).where(eq(stockLedger.skuId,f.sku.id));
     const sum=ledger.reduce((v,r)=>v.map((n,i)=>n+[r.shelfDelta,r.stagingDelta,r.allocTotalDelta,r.allocatedDelta,r.reservedDelta,r.committedDelta][i]!),[0,0,0,0,0,0]);
     expect(sum).toEqual([shelf,staging,allocated,allocated,reserved,committed]);
+    expect(await verifyInventoryBalances(f.db,f.sku.id)).toMatchObject({ok:true,differences:[]});
   }),{numRuns:16,seed:82173});
 },30000);

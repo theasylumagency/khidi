@@ -895,13 +895,13 @@ export const poolSkuBalances = pgTable("pool_sku_balances", {
   poolId: uuid("pool_id").notNull().references(() => stockPools.id, { onDelete: "restrict" }),
   skuId: uuid("sku_id").notNull().references(() => skus.id, { onDelete: "restrict" }),
   shelf: integer("shelf").notNull().default(0), staging: integer("staging").notNull().default(0), allocatedTotal: integer("allocated_total").notNull().default(0),
-  unallocated: integer("unallocated").generatedAlwaysAs(sql` shelf + staging - allocated_total `),
+  unallocated: integer("unallocated").notNull().generatedAlwaysAs(sql` shelf + staging - allocated_total `),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (t) => [primaryKey({ columns: [t.poolId, t.skuId] })]);
 export const allocationBalances = pgTable("allocation_balances", {
   allocationId: uuid("allocation_id").primaryKey().references(() => allocations.id, { onDelete: "restrict" }),
   allocated: integer("allocated").notNull().default(0), reserved: integer("reserved").notNull().default(0), committed: integer("committed").notNull().default(0),
-  availableToSell: integer("available_to_sell").generatedAlwaysAs(sql` allocated - reserved - committed `),
+  availableToSell: integer("available_to_sell").notNull().generatedAlwaysAs(sql` allocated - reserved - committed `),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 });
 export const stockLedger = pgTable("stock_ledger", {

@@ -53,3 +53,17 @@ The shared lock helper is introduced for the engine here; I4 adopts it in existi
 [release notes](https://github.com/dubzzz/fast-check/releases/tag/v4.3.0)).
 The bounded property test uses 16 runs with 10–28 random operations and checks invariants,
 independent expected quantities and reconstruction from all six ledger deltas.
+
+I2 verification: 31 focused schema/engine/property tests passed, including the two last-unit
+races, all matrix variants, paired transfer history, COD atomic handover, transactional
+workflow-proof rejection, role scope, idempotency and both append-only protections.
+
+## I3 — Reconstruction and read-only verification
+
+`rebuildBalancesFromLedger()` groups all six deltas from one ledger snapshot.
+`verifyInventoryBalances()` compares that reconstruction with stored balances inside a
+read-only, repeatable-read transaction. It reports per-field differences and missing
+materializations; zero initialization rows without ledger history are valid. It never repairs.
+`pnpm inventory:verify` requires an explicit `DATABASE_URL`, prints the result and exits
+0 for agreement, 1 for differences and 2 for a failed verification. No fallback target.
+Reconstruction and deliberate-drift tests passed; the property test also runs the verifier.

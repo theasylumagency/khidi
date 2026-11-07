@@ -23,7 +23,8 @@
     "media:restore": "node --env-file-if-exists=.env --import tsx ops/media-restore.ts",
     "ops:bootstrap-admin": "node --env-file-if-exists=.env --import tsx ops/bootstrap-admin.ts",
     "ops:recover-user": "node --env-file-if-exists=.env --import tsx ops/recover-user.ts",
-    "ops:check-config": "node --env-file-if-exists=.env --import tsx ops/check-production-config.ts"
+    "ops:check-config": "node --env-file-if-exists=.env --import tsx ops/check-production-config.ts",
+    "inventory:verify": "node --env-file-if-exists=.env --import tsx ops/inventory-verify.ts"
   },
   "devDependencies": {
     "@types/node": "24.0.0",
