@@ -249,7 +249,6 @@ const SCANNING_LABELS = {
   "publishing.blocker.MISSING_CANONICAL_SLUG": "საჯარო მისამართი აკლია ან შესასწორებელია.",
   "publishing.blocker.MISSING_SELLER_ACCOUNTING_MAPPING": "გამყიდველის ბუღალტრული მიბმა აკლია.",
   "publishing.blocker.MISSING_OWNER_ACCOUNTING_MAPPING": "მარაგის მფლობელის ბუღალტრული მიბმა აკლია.",
-  "publishing.blocker.ALLOCATION_OWNERS_UNAVAILABLE_M8": "გამოყოფილი მარაგის მფლობელი ხელმისაწვდომი იქნება M8-ში.",
   "publishing.blocker.MISSING_STOREFRONT_BASE_PRICE": "მაღაზიას მოქმედი საბაზო ფასი არ აქვს.",
   "publishing.blocker.MISSING_VERIFIED_PUBLIC_MAIN_IMAGE": "დამტკიცებული საჯარო მთავარი ფოტო აკლია.",
   "publishing.blocker.STOREFRONT_LISTING_DISABLED": "ამ მაღაზიაში გამოქვეყნება გამორთულია.",

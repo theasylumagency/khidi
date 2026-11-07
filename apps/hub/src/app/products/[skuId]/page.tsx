@@ -275,11 +275,12 @@ export default async function SkuDetailPage({
         <h2>{t("publishing.title")}</h2>
         {publicationReview.length ? <table>
           <thead><tr><th scope="col">{t("publishing.storefront")}</th><th scope="col">{t("content.locale")}</th>
-            <th scope="col">{t("publishing.publish_ready")}</th><th scope="col">{t("publishing.sellable")}</th></tr></thead>
+            <th scope="col">{t("publishing.publish_ready")}</th><th scope="col">{t("publishing.sellable")}</th><th scope="col">{t("inventory.free")}</th></tr></thead>
           <tbody>{publicationReview.map((row) => <tr key={`${row.storefrontId}:${row.locale}`}>
             <th scope="row">{row.storefrontName}</th><td>{row.locale.toUpperCase()}</td>
             <td>{row.publishReady ? t("publishing.eligible") : <ul>{row.publicationBlockers.map((reason) => <li key={reason}>{t(`publishing.blocker.${reason}` as TranslationKey)}</li>)}</ul>}</td>
             <td>{row.sellable ? t("publishing.eligible") : <ul>{row.blockingReasons.map((reason) => <li key={reason}>{t(`publishing.blocker.${reason}` as TranslationKey)}</li>)}</ul>}</td>
+            <td><Link href={`/inventory?storefrontId=${row.storefrontId}&skuId=${skuId}`}>{row.availableToSell}</Link></td>
           </tr>)}</tbody>
         </table> : <p>{t("publishing.no_storefronts")}</p>}
       </section> : null}

@@ -190,3 +190,15 @@ Requests are work items only: creation, acknowledgement and decline leave the le
 and balances unchanged. A set-availability action may reference an open request and
 fulfill it in the same transaction. Focused tests cover the thresholds, transition
 deduplication, recipient scope, request lifecycle and unchanged stock.
+
+## I8 — Actual allocation ownership and separate availability
+
+Publishing now reads allocation owners from inventory instead of accepting caller-supplied
+commerce facts. A storefront needs an allocation, the seller mapping and every applicable
+owner mapping. The SKU review shows these blockers and the free-to-sell quantity; the
+storefront projection exposes only the separate `available_to_sell` value, without pool or
+owner identifiers. Zero availability does not remove sellability.
+
+Focused publishing tests cover a real CONSIGNMENT allocation, missing/active/inactive owner
+mapping, a forged caller override, and a fully drained allocation that remains sellable
+with availability zero. Existing locale, content and media eligibility coverage remains.

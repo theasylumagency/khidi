@@ -1,5 +1,7 @@
 import { expect, it } from "vitest";
-import { getDb, productImages } from "../../db/src/index.ts";
+import { getDb, getAppPool, productImages, legalEntities } from "../../db/src/index.ts";
+import { setEntityRelationship } from "@khidi/entities";
+import { applyAdvancedStockOperation, createStockPool } from "@khidi/inventory";
 import { getApprovedContent, getContentFactFields, reviewSkuEvidence, setSkuIdentityKind, submitSkuEvidence } from "@khidi/evidence";
 import { approveCanonicalVersion, createSkuDraft, getProductTypeByKey, listSkusWorkspace, normalizePowerToKw, saveCanonicalVersion, setStorefrontListing,
   transitionSkuLifecycle, transitionSkuToReady, upsertAccountingMapping } from "@khidi/products";
@@ -48,17 +50,17 @@ it("suspends only locales whose approved content cites a conflicting, changed or
   expect(await project("en")).toBeNull();
   const first = await project("ka");
   expect(first).toMatchObject({ locale: "ka", sellable: false, blockingReasons: [
-    "ALLOCATION_OWNERS_UNAVAILABLE_M8", "MISSING_STOREFRONT_BASE_PRICE"
+    "MISSING_STOREFRONT_ALLOCATION", "MISSING_STOREFRONT_BASE_PRICE"
   ], fields: { ...claims, wheel_type: "RUBBER" } });
-  expect(Object.keys(first!)).toEqual(["slug", "locale", "displayName", "shortDescription", "fullDescription", "fields", "media", "sellable", "blockingReasons"]);
+  expect(Object.keys(first!)).toEqual(["slug", "locale", "displayName", "shortDescription", "fullDescription", "fields", "media", "sellable", "blockingReasons", "available_to_sell"]);
   expect(JSON.stringify(first)).not.toMatch(/KH-\d|khidi\.app|supplier|accountingItem|raw\//i);
 
   expect(first).not.toHaveProperty("basePrice");
   const priced = await setPrice(db, actor, { skuId: sku.id, storefrontId: storefront!.id, basePriceMinor: 123450, vatIncluded: false });
-  expect(await project("ka")).toMatchObject({ sellable: false, blockingReasons: ["ALLOCATION_OWNERS_UNAVAILABLE_M8"],
+  expect(await project("ka")).toMatchObject({ sellable: false, blockingReasons: ["MISSING_STOREFRONT_ALLOCATION"],
     basePrice: { amount: 123450, currency: "GEL", vat_included: false } });
   expect(await getSkuPublicationReview(db, sku.id)).toContainEqual(expect.objectContaining({ storefrontId: storefront!.id, locale: "ka",
-    publishReady: true, sellable: false, blockingReasons: ["ALLOCATION_OWNERS_UNAVAILABLE_M8"] }));
+    publishReady: true, sellable: false, blockingReasons: ["MISSING_STOREFRONT_ALLOCATION"] }));
   await withdrawPrice(db, actor, { skuId: sku.id, storefrontId: storefront!.id, expectedPriceId: priced.rows[0]!.id }, "Recheck fixture price");
   expect(await project("ka")).toEqual(first);
 
@@ -114,4 +116,21 @@ it("suspends only locales whose approved content cites a conflicting, changed or
     documentNumber: "PROJECTION-CONFIDENTIAL-FIXTURE", lineText: "Synthetic supplier reference" });
   expect(await project("ka")).toBeNull();
   expect(await project("en")).toMatchObject({ locale: "en", fullDescription: title });
+  // Real owner/mapping facts replace the former M8 placeholder; availability remains separate.
+  const [owner]=await db.insert(legalEntities).values({id:createUuidV7(),key:"OWNER_"+createUuidV7(),legalName:"Fixture owner "+createUuidV7(),taxId:createUuidV7(),pricesIncludeVat:false}).returning();
+  const pool=await createStockPool(db,actor,{ownerEntityId:owner!.id,name:"Projection pool"});
+  await setEntityRelationship(db,actor,{fromEntityId:owner!.id,toEntityId:storefront!.sellerEntityId,mode:"CONSIGNMENT"});
+  await applyAdvancedStockOperation(db,actor,{operation:"STOCK_IN",poolId:pool.id,skuId:sku.id,quantity:7,reason:"Projection stock"});
+  await applyAdvancedStockOperation(db,actor,{operation:"ALLOCATE",poolId:pool.id,skuId:sku.id,storefrontId:storefront!.id,quantity:7,reason:"Projection allocation"});
+  await setPrice(db,actor,{skuId:sku.id,storefrontId:storefront!.id,basePriceMinor:123450});
+  expect(await project("en")).toMatchObject({sellable:false,blockingReasons:["MISSING_OWNER_ACCOUNTING_MAPPING"],available_to_sell:7});
+  await upsertAccountingMapping(db,actor,{skuId:sku.id,legalEntityId:owner!.id,accountingItemId:createUuidV7(),accountingName:"Owner mapping"});
+  expect(await project("en")).toMatchObject({sellable:true,blockingReasons:[],available_to_sell:7});
+  await applyAdvancedStockOperation(db,actor,{operation:"DEALLOCATE",poolId:pool.id,skuId:sku.id,storefrontId:storefront!.id,quantity:7,reason:"Drain"});
+  await applyAdvancedStockOperation(db,actor,{operation:"STOCK_OUT",poolId:pool.id,skuId:sku.id,quantity:7,reason:"Drain"});
+  expect(await project("en")).toMatchObject({sellable:true,available_to_sell:0});
+  await getAppPool().query("UPDATE accounting_mappings SET active=false WHERE sku_id=$1 AND legal_entity_id=$2",[sku.id,owner!.id]);
+  const forged={skuId:sku.id,storefrontId:storefront!.id,locale:"en",commerce:{allocatedOwnerEntityIds:[]}};
+  expect(await getStorefrontProductProjection(db,forged)).toMatchObject({sellable:false,blockingReasons:["MISSING_OWNER_ACCOUNTING_MAPPING"],available_to_sell:0});
+  expect(await getSkuPublicationReview(db,sku.id)).toContainEqual(expect.objectContaining({storefrontId:storefront!.id,locale:"en",sellable:false,availableToSell:0}));
 });
