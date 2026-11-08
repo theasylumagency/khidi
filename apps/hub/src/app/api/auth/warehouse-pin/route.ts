@@ -1,11 +1,13 @@
-import { readBoundedJson } from "@khidi/shared/input-limits";
+import { readBoundedJson } from "../../../../lib/request-body.ts";
 import { assertHubRequestHost } from "../../../../lib/host-isolation.ts";
 import { NextResponse, type NextRequest } from "next/server";
 import { getDb } from "@khidi/db";
 import { loginWithWarehousePin } from "@khidi/auth";
+import { t } from "@khidi/i18n";
 import { AppError } from "@khidi/shared";
 import { KHIDI_DEVICE_COOKIE, KHIDI_SESSION_COOKIE } from "../../../../lib/session.ts";
 
+const json: typeof NextResponse.json = (body,init) => NextResponse.json(body,{...init,headers:{...init?.headers,"Cache-Control":"no-store"}});
 export async function POST(request: NextRequest) {
   try {
     assertHubRequestHost(request);
@@ -16,7 +18,7 @@ export async function POST(request: NextRequest) {
 
     const rawDeviceToken = request.cookies.get(KHIDI_DEVICE_COOKIE)?.value;
     if (!rawDeviceToken) {
-      return NextResponse.json(
+      return json(
         {
           error: "UNAUTHORIZED",
           message: "ეს მოწყობილობა არ არის რეგისტრირებული საწყობის ტერმინალად (საჭიროა ADMIN-ის მიერ რეგისტრაცია)."
@@ -26,7 +28,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!body.userId || !body.pin) {
-      return NextResponse.json(
+      return json(
         { error: "VALIDATION_ERROR", message: "აირჩიეთ თანამშრომელი და შეიყვანეთ PIN კოდი." },
         { status: 400 }
       );
@@ -41,7 +43,7 @@ export async function POST(request: NextRequest) {
       userAgent: request.headers.get("user-agent") ?? undefined
     });
 
-    const response = NextResponse.json({
+    const response = json({
       ok: true,
       principal: {
         userId: principal.userId,
@@ -62,10 +64,10 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (err) {
     if (err instanceof AppError) {
-      const status = err.code === "UNAUTHORIZED" ? 401 : err.code === "FORBIDDEN" ? 403 : 400;
-      return NextResponse.json({ error: err.code, message: err.message }, { status });
+      const status = err.code === "UNAUTHORIZED" ? 401 : err.code === "FORBIDDEN" ? 403 : err.code === "PAYLOAD_TOO_LARGE" ? 413 : 400;
+      return json({ error: err.code, message: t("auth.pin_invalid") }, { status });
     }
-    return NextResponse.json(
+    return json(
       { error: "INTERNAL_ERROR", message: "PIN ავტორიზაციისას დაფიქსირდა შეცდომა." },
       { status: 500 }
     );

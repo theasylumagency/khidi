@@ -30,5 +30,5 @@ export async function runBootstrapConsole() {
   } finally { terminal.close(); await closeAppPool(); }
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  runBootstrapConsole().catch((error) => { console.error(error instanceof Error ? error.message : "Admin bootstrap failed."); process.exitCode = 1; });
+  runBootstrapConsole().catch((error) => { console.error("Khidi admin bootstrap failed; verify configuration and that no users exist."); process.exitCode = 1; });
 }

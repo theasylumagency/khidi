@@ -1,4 +1,4 @@
-import { readBoundedJson, CSV_BODY_BYTES } from "@khidi/shared/input-limits";
+import { readBoundedJson, CSV_BODY_BYTES } from "../../../../lib/request-body.ts";
 import { NextResponse } from "next/server";
 import { canEditPrices, canViewPrices } from "@khidi/auth";
 import { getDb } from "@khidi/db";

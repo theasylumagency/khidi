@@ -67,6 +67,14 @@ describe("P6 retained deterministic processing and durable queue execution", () 
     await markMediaJobDeadLetter(db, image.job.id, 0); await executeMediaJob(db, broken, image.job.id, {}, 0);
     [job] = await db.select().from(mediaJobs).where(eq(mediaJobs.id, image.job.id)); expect(job).toMatchObject({ status: "PENDING", attempts: 0, generation: 1 });
   });
+  it("never stores or forwards wrapped database query parameters in a failed job",async()=>{
+    const sku=await createSkuDraft(db,{userId:admin.userId},{}),image=await upload(sku.id);
+    const driver=Object.assign(new Error("Synthetic database failure"),{code:"23514"});
+    const broken={...storage,readPrivate:async()=>{throw new Error("Failed query: private-supplier password=synthetic-secret",{cause:driver});}} as unknown as FilesystemMediaStorage;
+    await expect(executeMediaJob(db,broken,image.job.id)).rejects.toThrow("Khidi media database operation failed");
+    const [job]=await db.select().from(mediaJobs).where(eq(mediaJobs.id,image.job.id));
+    expect(job!.lastError).toBe("DATABASE_ERROR:23514");expect(job!.lastError).not.toMatch(/private-supplier|synthetic-secret|query/);
+  });
   it("installs queues only through migrator, runs as hub_app without CREATE and enqueues with its outbox transaction", async () => {
     await deployMediaJobs(); const boss = await createMediaJobRuntime();
     try {

@@ -1,7 +1,7 @@
 import { lookup } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
 import { request as httpRequest } from "node:http";
-import { isIP } from "node:net";
+import { isPublicNetworkAddress } from "@khidi/shared/public-address";
 import { AppError } from "@khidi/shared";
 export type WebhookTransport=(url:string,body:string,headers:Record<string,string>)=>Promise<{status:number;durationMs:number}>;
 export function webhookUrl(raw:string,production=process.env.NODE_ENV==="production") {
@@ -10,24 +10,21 @@ export function webhookUrl(raw:string,production=process.env.NODE_ENV==="product
   if(/(^|\.)khidi\.app$/i.test(url.hostname))throw new AppError("VALIDATION_ERROR","Webhook must target the storefront.");
   return url;
 }
-function publicIp(address:string) {
-  if(isIP(address)===6)return /^[23][0-9a-f]{3}:/i.test(address); // Global unicast; excludes mapped/private/link-local addresses.
-  if(isIP(address)!==4)return false;
-  const parts=address.split(".").map(Number),a=parts[0]!,b=parts[1]!;
-  return a!==0 && a!==10 && a!==127 && a<224 && !(a===169&&b===254) && !(a===172&&b>=16&&b<=31) && !(a===192&&b===168) && !(a===100&&b>=64&&b<=127) && !(a===198&&(b===18||b===19));
-}
 /** Resolve once and pin the address. Never follow redirects or store response bodies. */
 export const sendWebhook:WebhookTransport=async(raw,body,headers)=>{
-  const url=webhookUrl(raw),addresses=await lookup(url.hostname.replace(/^\[|\]$/g,""),{all:true});
+  const url=webhookUrl(raw),started=Date.now();let dnsTimer:ReturnType<typeof setTimeout>|undefined;
+  const addresses=await Promise.race([lookup(url.hostname.replace(/^\[|\]$/g,""),{all:true}),
+    new Promise<never>((_r,reject)=>{dnsTimer=setTimeout(()=>reject(new Error("WEBHOOK_DNS_TIMEOUT")),5000);})]).finally(()=>clearTimeout(dnsTimer));
   const local=process.env.NODE_ENV!=="production" && ["localhost","127.0.0.1","[::1]"].includes(url.hostname);
-  if(!addresses.length || (!local && addresses.some((r)=>!publicIp(r.address))))throw new Error("WEBHOOK_DESTINATION_REFUSED");
-  const address=addresses.find((r)=>r.family===4)??addresses[0]!,started=Date.now();
+  if(!addresses.length || (!local && addresses.some((r)=>!isPublicNetworkAddress(r.address))))throw new Error("WEBHOOK_DESTINATION_REFUSED");
+  const address=addresses.find((r)=>r.family===4)??addresses[0]!;
   return new Promise((resolve,reject)=>{
     const req=(url.protocol==="https:" ? httpsRequest : httpRequest)(url,{method:"POST",headers:{...headers,"Content-Type":"application/json","Content-Length":Buffer.byteLength(body)},
       lookup:(_hostname,options,callback)=>options.all ? callback(null,[address]) : callback(null,address.address,address.family)},(res)=>{
-      res.resume();res.on("end",()=>{clearTimeout(timer);resolve({status:res.statusCode??0,durationMs:Date.now()-started});});
+      let bytes=0;res.on("data",chunk=>{bytes+=chunk.length;if(bytes>65536)req.destroy(new Error("WEBHOOK_RESPONSE_TOO_LARGE"));});
+      res.on("end",()=>{clearTimeout(timer);resolve({status:res.statusCode??0,durationMs:Date.now()-started});});
     });
-    const timer=setTimeout(()=>req.destroy(new Error("WEBHOOK_TIMEOUT")),5000);
+    const timer=setTimeout(()=>req.destroy(new Error("WEBHOOK_TIMEOUT")),Math.max(1,5000-(Date.now()-started)));
     req.on("error",()=>{clearTimeout(timer);reject(new Error("WEBHOOK_NETWORK_ERROR"));});req.end(body);
   });
 };

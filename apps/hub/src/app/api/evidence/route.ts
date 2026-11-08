@@ -1,4 +1,4 @@
-import { readBoundedJson, parseBoundedObjectJson } from "@khidi/shared/input-limits";
+import { readBoundedJson, parseBoundedObjectJson } from "../../../lib/request-body.ts";
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { getDb } from "@khidi/db";

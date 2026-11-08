@@ -30,13 +30,13 @@ describe("P3 photo upload HTTP boundary", () => {
   it("rejects an oversized actual stream even without Content-Length", async () => {
     const admin = await getDb().query.users.findFirst({ where: (user, { eq }) => eq(user.role, "ADMIN") });
     session.principal = await loadPrincipalByUserId(getDb(), admin!.id);
-    const response = await upload(new Request("http://localhost/api/media/uploads", { method: "POST", headers: { "Content-Type": "multipart/form-data; boundary=limit" }, body: new Uint8Array(MAX_PHOTO_BYTES + 65537) }));
+    const response = await upload(new Request("http://localhost/api/media/uploads", { method: "POST", headers: { Origin: "http://localhost:3100", "Content-Type": "multipart/form-data; boundary=limit" }, body: new Uint8Array(MAX_PHOTO_BYTES + 65537) }));
     expect(response.status).toBe(413); expect((await response.json()).error).toContain("15 მბ");
   });
   it("bounds multipart metadata and requires the same header/body idempotency key", async () => {
     const form = new FormData(); form.set("metadata", JSON.stringify({ idempotencyKey: createUuidV7() }));
     form.set("file", new File([new Uint8Array([1])], "photo.jpg", { type: "image/jpeg" }));
-    await expect(parsePhotoUpload(new Request("http://localhost/api/media/uploads", { method: "POST", headers: { "Idempotency-Key": createUuidV7() }, body: form }))).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(parsePhotoUpload(new Request("http://localhost/api/media/uploads", { method: "POST", headers: { Origin: "http://localhost:3100", "Idempotency-Key": createUuidV7() }, body: form }))).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
   it("refuses job administration to a warehouse session before reading a retry body", async () => {
     const user = await getDb().query.users.findFirst({ where: (user, { eq }) => eq(user.role, "WAREHOUSE") });

@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
-import { type DbExecutor, mediaJobs, productImages } from "@khidi/db";
+import { getPostgresError,type DbExecutor, mediaJobs, productImages } from "@khidi/db";
 import { executeIdempotent, withDomainTransaction, type DomainTransactionContext } from "@khidi/domain";
 import { AppError, sha256Hex } from "@khidi/shared";
 import { z } from "zod";
@@ -59,12 +59,13 @@ export async function executeMediaJob(db: DbExecutor, storage: MediaStorage, id:
       const [current] = await ctx.tx.select().from(mediaJobs).where(eq(mediaJobs.id, id)).for("update");
       if (!current || current.status === "COMPLETED" || current.attempts !== job.attempts || current.generation !== job.generation) return;
       const status = dead ? "DEAD_LETTER" : "RETRY";
-      const description = error instanceof Error ? `${error.name}: ${error.message}` : "Image processing failed.";
-      await ctx.tx.update(mediaJobs).set({ status, lastError: description.replace(/(https?:\/\/)[^/\s@]+@/g, "$1[redacted]@").slice(0, 2000), nextAttemptAt: new Date(Date.now() + 1000 * 2 ** (job.attempts - 1)), updatedAt: new Date() }).where(eq(mediaJobs.id, id));
+      const databaseError=getPostgresError(error);
+      const description=databaseError?`DATABASE_ERROR:${databaseError.code}`:error instanceof AppError?error.code:"IMAGE_PROCESSING_FAILED";
+      await ctx.tx.update(mediaJobs).set({ status, lastError: description, nextAttemptAt: new Date(Date.now() + 1000 * 2 ** (job.attempts - 1)), updatedAt: new Date() }).where(eq(mediaJobs.id, id));
       if (job.imageId && job.jobType === "process-image") await ctx.tx.update(productImages).set({ processingStatus: status, updatedAt: new Date() }).where(and(eq(productImages.id, job.imageId), eq(productImages.requestedVersion, job.imageVersion!)));
       await auditJob(ctx, id, status, job.attempts);
     });
-    if (!dead) throw error;
+    if (!dead) {if(getPostgresError(error))throw new Error("Khidi media database operation failed; retry scheduled.");throw error;}
     // The final failure is returned to pg-boss as deadletter by its worker handler.
     return { deadLetter: true };
   }

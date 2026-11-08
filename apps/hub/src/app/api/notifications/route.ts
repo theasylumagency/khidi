@@ -1,4 +1,4 @@
-import { readBoundedText, parseBoundedObjectJson } from "@khidi/shared/input-limits";
+import { readBoundedText, parseBoundedObjectJson } from "../../../lib/request-body.ts";
 import { getDb } from "@khidi/db";
 import { listNotifications,notificationUnreadCount,updateNotification,setInstallmentReminderLead } from "@khidi/notifications";
 import { AppError } from "@khidi/shared";

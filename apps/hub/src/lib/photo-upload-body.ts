@@ -1,8 +1,10 @@
 import { AppError } from "@khidi/shared";
 import { MAX_PHOTO_BYTES } from "@khidi/media/contracts";
 import { readBoundedForm,parseBoundedObjectJson } from "@khidi/shared/input-limits";
+import { assertSameSecurityOrigin } from "./security-origin.ts";
 /** Bound the actual stream too: Content-Length is optional and untrusted. */
 export async function readPhotoFormData(request: Request) {
+  assertSameSecurityOrigin(request);
   const limit = MAX_PHOTO_BYTES + 65536;
   if (Number(request.headers.get("content-length")) > limit) throw new AppError("VALIDATION_ERROR", "Upload exceeds size limit.", { mediaReason: "FILE_TOO_LARGE" });
   if (!request.headers.get("content-type")?.startsWith("multipart/form-data;") || !request.body) throw new AppError("VALIDATION_ERROR", "Multipart upload required.");

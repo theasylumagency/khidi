@@ -1,4 +1,4 @@
-import { readBoundedJson } from "@khidi/shared/input-limits";
+import { readBoundedJson } from "../../../../lib/request-body.ts";
 import { NextResponse, type NextRequest } from "next/server";
 import { renewSessionActivity } from "@khidi/auth";
 import { getDb } from "@khidi/db";

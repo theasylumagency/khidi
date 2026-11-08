@@ -1,4 +1,4 @@
-import { readBoundedJson } from "@khidi/shared/input-limits";
+import { readBoundedJson } from "../../../../lib/request-body.ts";
 import { NextResponse } from "next/server";
 import { assertRoleAllowed } from "@khidi/auth";
 import { getDb } from "@khidi/db";

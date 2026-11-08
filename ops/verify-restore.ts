@@ -70,5 +70,5 @@ export async function verifyRestore(env: NodeJS.ProcessEnv = process.env) {
   console.log(`Restore verified; report: ${reportPath}`);
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  verifyRestore().catch((error: Error) => { console.error(error.message); process.exitCode = 1; });
+  verifyRestore().catch((error: Error) => { console.error("Khidi operation failed; inspect configuration and service health."); process.exitCode = 1; });
 }

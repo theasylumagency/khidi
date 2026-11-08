@@ -1,4 +1,4 @@
-import { readBoundedText, parseBoundedObjectJson } from "@khidi/shared/input-limits";
+import { readBoundedText, parseBoundedObjectJson } from "../../../lib/request-body.ts";
 import { getDb } from "@khidi/db";
 import { assertRecentStrongAuth, assertRoleAllowed } from "@khidi/auth";
 import { withDomainTransaction } from "@khidi/domain";
