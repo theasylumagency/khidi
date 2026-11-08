@@ -20,10 +20,11 @@ One commit per H1–H9; Draft PR only, no shared database access, merge or deplo
 
 ## Verification budget
 
-Focused tests during work; the full suite once at final acceptance on a fresh isolated
+Focused tests during work; the full suite at final acceptance on a fresh isolated
 `_test` database, plus typecheck, lint, boundaries, build, production audit and the local
 MinIO/pgBackRest restore drill. H6 scenarios run on a clone of the restored state; they
 do not run seeds or arbitrary background deliveries from restored production data.
+Repeat the full suite only for a demonstrated failure or changed test infrastructure.
 
 ## H1 — dependency security and input limits
 
@@ -70,3 +71,87 @@ See user-management.md for operation, lost responses, explicit account switching
 Thirteen domain lifecycle tests passed; HTTP authorization/setup and the existing recovery
 regression tests passed (16/16). Other focused authentication/report tests passed before the
 two discovered integration issues were corrected. Auth/report/Hub typechecks and boundaries pass.
+
+Client retries retain the command's idempotency key until the response body is received;
+lost headers or truncated JSON cannot duplicate a warehouse account. HTTP regression checks
+both losses. A replay returns metadata only; issue a new link when its original response was lost.
+Setup account switching also pauses the old session monitor after successful logout so it
+cannot race the token-preserving redirect. Its two client regressions pass.
+
+## H4 — ordered deployment and recovery runbook
+
+The runbook covers separate app/API DNS, TLS and Access boundaries; trusted proxy headers,
+IP/body/time limits; PostgreSQL roles; protected storage and encrypted backups; migrations and
+queue deployment; interactive bootstrap and H9 second ADMIN; production service commands,
+health/log rotation; backup-first upgrades and restore-based rollback. App binds loopback;
+both app and worker launchers preflight runtime configuration without migrator credentials.
+No gateway configuration, shared service or environment file was changed.
+
+## H5 — real local restore drill
+
+`pnpm ops:restore-drill` passed with PostgreSQL 18.4, pgBackRest 2.60.0 and separate MinIO
+source/recovery storage. An encrypted full backup plus WAL was restored into clean PGDATA.
+All 54 migration checksums and 98 table counts matched. All 37 copied objects matched SHA-256;
+25 private database references, including raw, masters, derivatives, PDF evidence and reports,
+were readable and correct, including two raw samples. Inventory verification and A–D passed.
+The recovered original's counts stayed unchanged while H6 ran on a separate writable clone.
+See `m11-restore-result.json`. The local root-group mapping warning is recorded there.
+This is synthetic local evidence, not certification of the owner's shared-server backup.
+
+Restore review found that copied objects receive new version IDs. A missing recorded version
+may fall back to the immutable key only with the recorded SHA-256 check; authorization failure
+and corruption never fall back. Focused storage/restore safeguards: 13/13 passed.
+
+## H6 — scenarios A–D
+
+Service/real HTTP scenarios cover no-barcode identity and photos through both-store sellability,
+declared own/consignment availability, low-stock/replenishment isolation, CARD and one-call
+COD/pickup, signed AUTO_ASSUMED provenance, idempotency, last-unit concurrency and expiry,
+snapshot reports and documented cross-entity purchase transfer. Existing controlled workflow
+tests remain. The full-suite scenario passed in 9.2 seconds; the restore drill also passed it.
+Only scenario-owned events are consumed; restored background deliveries never run arbitrarily.
+
+## H7/H8 — maintenance and human acceptance
+
+`docs/CURRENT-STATE.md` maps ADR-001–014 to superseded specification/plan text and records the
+remaining decisions. AGENTS now describes maintenance with bounded fixes and frozen migrations.
+The owner checklist covers real recovery, keys/protection, a second ADMIN, phones/gateway,
+camera/offline/push, labels, API-key handover and the accepted declared-stock/automatic-handover
+risks. No real-device or shared-server box is marked complete by local tests.
+
+## Final acceptance
+
+- Full suite on fresh `khidi_m11_acceptance_test`: **114 files, 628 tests passed**, no skips,
+  including real MinIO S3 integration, in 399.47 seconds.
+- After the final client response-loss refinement: user HTTP tests **4/4 passed** (including
+  truncated body). Expanded promotion/office↔warehouse lifecycle assertions: **13/13 passed**.
+  The full suite was not repeated for this local client refinement/test expansion.
+- Production audit: **0 critical, 1 high, 0 moderate, 0 low**. The remaining Zod finding and
+  bounded-input mitigations are explicit in `docs/security/dependency-audit.md`; Proposed ADR-015
+  tracks the separate Zod 4 migration. No advisory is suppressed.
+- `pnpm typecheck`, `pnpm lint`, `pnpm check:boundaries` and `pnpm build`: **passed**.
+  Production build used temporary synthetic configuration and a dedicated local test database;
+  no filled environment file or shared configuration was changed.
+
+The first full attempt exposed Drizzle 0.45's wrapped PostgreSQL errors, a task test that
+inadvertently included new pending-TOTP setup accounts, and a property-test timeout while heavy
+build/check/restore processes competed. Domain error translators now inspect a bounded SQLSTATE
+cause chain without logging query parameters; assertions still check the original database
+invariants. Task-role fixtures explicitly cover valid accounts for every role. The original
+property-test seed passed independently in 42.7 seconds with its unchanged 75-second limit.
+The final fresh-database run above followed these demonstrated fixes; no test was weakened.
+
+## Deviations and unresolved decisions
+
+- H9 is the owner's explicit M11 scope addition; there are no existing staff accounts requiring
+  a migration/backfill. New office setup always requires TOTP.
+- Zod remains at 3.24.2 under the task's explicit mitigation path, pending ADR-015 approval.
+- pnpm 12 overrides live in `pnpm-workspace.yaml`, where the ExcelJS UUID override is effective.
+- H6 uses a writable clone of the recovered state so the recovered original remains unchanged.
+- A completely empty production installation still lacks some ADMIN configuration forms for
+  legal entities/taxonomy/Product Types. The owner was asked whether to extend M11 or track this
+  separately; no answer has been received. It remains an explicit pilot blocker, not an
+  authorization to seed the shared server or silently add another management scope.
+- Existing open decisions (#2 operating ownership/contract, #8 component price allocation,
+  ADR-011 Part B) and deferred R8/physical counts/report email/live AI remain unchanged.
+- Real-server restore and all human pre-pilot checks remain the owner's responsibility.

@@ -49,7 +49,7 @@ If two sources conflict and this list does not resolve it, stop and ask. Do not 
 | M8 Inventory core | Merged to `main` (PR #15); I6 disabled by Accepted ADR-013 |
 | M9 Reservations and fulfillment | Merged to `main` (PR #16), owner-reviewed; R8 deferred under ADR-014 |
 | M10 Reports, notifications and audit | Merged to `main` (PR #17) |
-| M11 Hardening, restore, E2E and user management | Implemented on `m11-hardening`; final verification / Draft PR closeout |
+| M11 Hardening, restore, E2E and user management | Implemented and locally verified on `m11-hardening`; Draft PR review, human pilot gates pending |
 
 Working mode: maintenance; no new milestone is assigned. M11 is the final planned candidate,
 under Draft PR review; see [current state](docs/CURRENT-STATE.md) and
