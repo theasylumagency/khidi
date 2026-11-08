@@ -1,4 +1,3 @@
-import { webauthnConfig } from "../packages/auth/src/webauthn-config.ts";
-if (process.env.NODE_ENV !== "production") throw new Error("CRITICAL: Production preflight requires NODE_ENV=production.");
-webauthnConfig();
-console.log("Production WebAuthn configuration verified. No credentials were printed.");
+import { assertProductionConfiguration } from "../packages/shared/src/production-config.ts";
+assertProductionConfiguration(process.env,"deployment");
+console.log("Khidi production configuration verified. Live backup/storage checks remain required; no credentials were printed.");

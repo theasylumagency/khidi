@@ -11,7 +11,8 @@
     "./uuid": "./src/uuid.ts",
     "./errors": "./src/errors.ts",
     "./input-limits": "./src/input-limits.ts",
-    "./public-address": "./src/public-address.ts"
+    "./public-address": "./src/public-address.ts",
+    "./production-config": "./src/production-config.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
