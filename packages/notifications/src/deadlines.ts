@@ -42,7 +42,7 @@ export async function emitDeadlineNotifications(db:DbExecutor,onlyReservationId?
 }
 export async function setInstallmentReminderLead(db:DbExecutor,userId:string,key:string,raw:unknown){
  const input=z.object({action:z.literal("LEAD"),hours:z.number().int().min(1).max(8760)}).strict().safeParse(raw);
- if(!input.success||!z.string().uuid().safeParse(key).success)throw new AppError("VALIDATION_ERROR","Invalid reminder setting.");
+ if(!input.success||!z.string().max(36).uuid().safeParse(key).success)throw new AppError("VALIDATION_ERROR","Invalid reminder setting.");
  const requireAdmin=async(tx:DbExecutor)=>{const [user]=await tx.select().from(users).where(and(eq(users.id,userId),eq(users.active,true),eq(users.role,"ADMIN")));if(!user)throw new AppError("FORBIDDEN","Only ADMIN manages reminder policy.");};
  await requireAdmin(db);
  return executeIdempotent(db,{scope:"notification-lead:"+userId,idempotencyKey:key,payload:input.data},tx=>withDomainTransaction(tx,{userId},async(ctx)=>{

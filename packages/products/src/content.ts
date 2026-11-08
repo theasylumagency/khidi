@@ -20,8 +20,8 @@ const contentDraft = z.object({
   fullDescription: z.string().trim().max(12_000),
   searchAliases: z.array(z.string().trim().min(1).max(160)).max(60)
 }).strict();
-const versionRequest = z.object({ skuId: z.string().uuid(), locale: contentLocale, draft: contentDraft.optional() }).strict();
-const approvalRequest = z.object({ skuId: z.string().uuid(), versionId: z.string().uuid() }).strict();
+const versionRequest = z.object({ skuId: z.string().max(36).uuid(), locale: contentLocale, draft: contentDraft.optional() }).strict();
+const approvalRequest = z.object({ skuId: z.string().max(36).uuid(), versionId: z.string().max(36).uuid() }).strict();
 const factLabels: Record<string, [string, string]> = {
   brand: ["ბრენდი", "Brand"], model_code: ["მოდელი", "Model"], manufacturer: ["მწარმოებელი", "Manufacturer"],
   product_type: ["პროდუქტის ტიპი", "Product type"], power_kw: ["სიმძლავრე", "Power"],

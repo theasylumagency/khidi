@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@khidi/shared/input-limits";
 import { NextResponse } from "next/server";
 import { assertRoleAllowed } from "@khidi/auth";
 import { getDb } from "@khidi/db";
@@ -10,7 +11,7 @@ export async function POST(request: Request) {
     const principal = await getCurrentPrincipal();
     if (!principal) throw new AppError("UNAUTHORIZED", "Authentication required.");
     assertRoleAllowed(principal, ["ADMIN", "WAREHOUSE", "OPERATOR", "STOCK_MANAGER", "ORDER_MANAGER"]);
-    const result = await reportPhotoAttention(getDb(), principal, await request.json());
+    const result = await reportPhotoAttention(getDb(), principal, await readBoundedJson(request));
     return NextResponse.json({ ...result.body, replayed: result.replayed }, { status: result.status });
   } catch (error) { return mediaErrorResponse(error); }
 }

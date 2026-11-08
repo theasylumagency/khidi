@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@khidi/shared/input-limits";
 import { NextResponse } from "next/server";
 import { assertRoleAllowed } from "@khidi/auth";
 import { getDb } from "@khidi/db";
@@ -14,7 +15,7 @@ export async function POST(request: Request) {
     if (!principal) throw new AppError("UNAUTHORIZED", "Authentication required.");
     assertRoleAllowed(principal, ["ADMIN"]);
     assertSecurityOrigin(request);
-    const input = createStorefrontSchema.strict().safeParse(await request.json());
+    const input = createStorefrontSchema.strict().safeParse(await readBoundedJson(request));
     const key = request.headers.get("Idempotency-Key") ?? "";
     if (!input.success || !/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) throw new AppError("VALIDATION_ERROR", "Invalid storefront request.");
     const actor = { userId: principal.userId };

@@ -23,7 +23,7 @@ describe("P2 media database invariants", () => {
     expect(image).toMatchObject({ skuId: null, usage: "INTERNAL_EVIDENCE", role: "IDENTITY", masterVersion: 0, status: "UNVERIFIED" });
     await expect(db.insert(productImages).values({ ...data, id: createUuidV7(), skuId: null, intakeId: null })).rejects.toThrow();
     await expect(db.insert(productImages).values({ ...data, id: createUuidV7(), rawSha256: "bad" })).rejects.toThrow();
-    await expect(db.update(productImages).set({ rawSha256: "c".repeat(64) }).where(eq(productImages.id, image!.id))).rejects.toThrow(/immutable/);
+    await expect(db.update(productImages).set({ rawSha256: "c".repeat(64) }).where(eq(productImages.id, image!.id))).rejects.toMatchObject({cause:{message:expect.stringMatching(/immutable/)}});
     await expect(db.delete(productImages).where(eq(productImages.id, image!.id))).rejects.toThrow();
   });
   it("preserves immutable master versions and grants no deletion of media history", async () => {

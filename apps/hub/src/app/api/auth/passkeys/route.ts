@@ -1,3 +1,4 @@
+import { readBoundedText, parseBoundedObjectJson } from "@khidi/shared/input-limits";
 import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { getDb } from "@khidi/db";
@@ -42,9 +43,9 @@ export async function POST(request: NextRequest) {
   let publicSignIn = false, finishing = false;
   try {
     assertSecurityOrigin(request);
-    const text = await request.text();
+    const text = await readBoundedText(request, 65536);
     if (Buffer.byteLength(text) > 65536) throw new AppError("VALIDATION_ERROR", "Request too large.");
-    const body = JSON.parse(text) as Record<string, unknown>;
+    const body = parseBoundedObjectJson(text) as Record<string, unknown>;
     const action = body?.action;
     if (typeof action !== "string") throw new AppError("VALIDATION_ERROR", "Action required.");
     publicSignIn = action.startsWith("sign-in-");

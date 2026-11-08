@@ -127,6 +127,7 @@ export function formatStaffName(fullName: string): string {
 }
 
 const SCANNING_LABELS = {
+ "scanning.error.PAYLOAD_TOO_LARGE":"მოთხოვნა დასაშვებ ზომას აღემატება. შეამცირეთ მონაცემები და სცადეთ ხელახლა.",
  "history.audit":"აუდიტის ჟურნალი","history.inventory":"მარაგის მოძრაობის ისტორია",
  "history.audit_hint":"უცვლელი ჩანაწერები: ვინ, როდის და რა შეცვალა. საიდუმლო მონაცემები დამალულია. დრო — თბილისი.",
  "history.inventory_hint":"აქ ჩანს მხოლოდ თქვენი იურიდიული პირის მარაგი. ცვლილებები: თარო / მოსამზადებელი / გამოყოფილი / რეზერვი / დადასტურებული.",

@@ -1,3 +1,4 @@
+import { boundedRecord } from "@khidi/shared/input-limits";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { systemSettings, users, type DbExecutor } from "@khidi/db";
@@ -24,8 +25,8 @@ type TermGroup = keyof typeof technicalTerms;
 export type TechnicalSynonyms = Partial<Record<TermGroup, string[]>>;
 const groupNames = Object.keys(technicalTerms) as [TermGroup, ...TermGroup[]];
 const settingsKey = "canonical_content_technical_synonyms";
-const synonymsSchema = z.record(z.enum(groupNames), z.array(z.string().trim().min(1).max(60)
-  .regex(/^[\p{L}\p{M}\p{N} ./-]*\p{L}[\p{L}\p{M}\p{N} ./-]*$/u)).max(30));
+const synonymsSchema = boundedRecord(z.enum(groupNames), z.array(z.string().trim().min(1).max(60)
+  .regex(/^[\p{L}\p{M}\p{N} ./-]*\p{L}[\p{L}\p{M}\p{N} ./-]*$/u)).max(30), 1000);
 
 export function normalizeContentText(text: string) {
   return text.normalize("NFKC").replace(/[\u2010-\u2015\u2212]/g, "-").replace(/[^\S\r\n]+/g, " ");

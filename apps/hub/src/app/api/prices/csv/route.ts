@@ -1,3 +1,4 @@
+import { readBoundedJson, CSV_BODY_BYTES } from "@khidi/shared/input-limits";
 import { NextResponse } from "next/server";
 import { canEditPrices, canViewPrices } from "@khidi/auth";
 import { getDb } from "@khidi/db";
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
     assertSecurityOrigin(request);
     const db = getDb(), actor = { userId: principal.userId };
     await assertPriceAccess(db, actor, true);
-    const body = await request.json() as { action?: string; input: CsvPriceInput; expectedPriceIds?: Record<string, string | null>; reason?: string; confirmLargeChanges?: boolean };
+    const body = await readBoundedJson(request, CSV_BODY_BYTES) as { action?: string; input: CsvPriceInput; expectedPriceIds?: Record<string, string | null>; reason?: string; confirmLargeChanges?: boolean };
     if (body.action === "preview") return NextResponse.json(await previewCsvImport(db, actor, body.input));
     const key = request.headers.get("Idempotency-Key") ?? "";
     if (body.action !== "commit" || !/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) throw new AppError("VALIDATION_ERROR", "Invalid import request.");

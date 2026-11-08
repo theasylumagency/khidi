@@ -63,12 +63,12 @@ export async function issueStorefrontApiKey(
   return { id, keyPrefix, rawApiKey };
 }
 
-const keySettings={name:z.string().trim().min(1).max(100),allowedIps:z.array(z.string().refine((s)=>isIP(s)!==0)).max(50).default([]),
-  expiresAt:z.string().datetime({offset:true}).optional(),rateLimitPerMinute:z.number().int().min(1).max(10000).default(120)};
+const keySettings={name:z.string().trim().min(1).max(100),allowedIps:z.array(z.string().max(45).refine((s)=>isIP(s)!==0)).max(50).default([]),
+  expiresAt:z.string().max(128).datetime({offset:true}).optional(),rateLimitPerMinute:z.number().int().min(1).max(10000).default(120)};
 export const serviceKeyCommandSchema=z.discriminatedUnion("action",[
-  z.object({action:z.literal("ISSUE"),storefrontId:z.string().uuid(),...keySettings}).strict(),
-  z.object({action:z.literal("ROTATE"),keyId:z.string().uuid(),...keySettings}).strict(),
-  z.object({action:z.literal("REVOKE"),keyId:z.string().uuid()}).strict()
+  z.object({action:z.literal("ISSUE"),storefrontId:z.string().max(36).uuid(),...keySettings}).strict(),
+  z.object({action:z.literal("ROTATE"),keyId:z.string().max(36).uuid(),...keySettings}).strict(),
+  z.object({action:z.literal("REVOKE"),keyId:z.string().max(36).uuid()}).strict()
 ]);
 export async function listStorefrontServiceKeys(db:DbExecutor,p:AuthenticatedPrincipal) {
   const [admin]=await db.select().from(users).where(and(eq(users.id,p.userId),eq(users.active,true),eq(users.role,"ADMIN")));
@@ -80,7 +80,7 @@ export async function listStorefrontServiceKeys(db:DbExecutor,p:AuthenticatedPri
 /** Idempotency stores metadata only. A replay never recovers a raw credential. */
 export async function manageStorefrontServiceKey(db:DbExecutor,p:AuthenticatedPrincipal,key:string,raw:unknown) {
   const parsed=serviceKeyCommandSchema.safeParse(raw);
-  if(!parsed.success || !z.string().uuid().safeParse(key).success) throw new AppError("VALIDATION_ERROR","Invalid service key command.");
+  if(!parsed.success || !z.string().max(36).uuid().safeParse(key).success) throw new AppError("VALIDATION_ERROR","Invalid service key command.");
   await listStorefrontServiceKeys(db,p);await assertRecentStrongAuth(db,p);
   let rawApiKey:string|undefined;
   const result=await executeIdempotent(db,{scope:"service-key:"+p.userId,idempotencyKey:key,payload:parsed.data},async(tx)=>withDomainTransaction(tx,{userId:p.userId},async(ctx)=>{

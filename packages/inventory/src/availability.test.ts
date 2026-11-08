@@ -89,7 +89,7 @@ it("creates the configured allocation on first use, enforces drained/CONSIGNMENT
   await setOnlineAvailability(f.db,f.actor,{skuId:f.sku.id,storefrontId:second.id,target:2,idempotencyKey:createUuidV7()});
   expect(await f.db.select().from(allocations).where(and(eq(allocations.skuId,f.sku.id),eq(allocations.storefrontId,second.id)))).toHaveLength(1);
   await expect(configureAvailabilityPool(f.db,f.actor,{storefrontId:second.id,poolId:f.pools[1]!.id})).rejects.toMatchObject({details:{blockedReason:"AVAILABILITY_POOL_NOT_DRAINED"}});
-  await expect(f.db.update(storefronts).set({availabilityPoolId:f.pools[1]!.id}).where(eq(storefronts.id,second.id))).rejects.toThrow(/AVAILABILITY_POOL_NOT_DRAINED/);
+  await expect(f.db.update(storefronts).set({availabilityPoolId:f.pools[1]!.id}).where(eq(storefronts.id,second.id))).rejects.toMatchObject({cause:{message:expect.stringMatching(/AVAILABILITY_POOL_NOT_DRAINED/)}});
   for(const role of ["STOCK_MANAGER","WAREHOUSE"]){
     const [user]=await f.db.insert(users).values({id:createUuidV7(),role,fullName:"Inventory scope"}).returning();
     await f.db.insert(userEntityMemberships).values({userId:user!.id,legalEntityId:f.entities[0]!.id});
@@ -114,7 +114,7 @@ it("changes a drained storefront's pool to zero without touching shared-pool sto
   await expect(configureAvailabilityPool(f.db,f.actor,{storefrontId:foreign.id,poolId:f.pools[1]!.id})).rejects.toMatchObject({details:{blockedReason:"AVAILABILITY_POOL_NOT_DRAINED"}});
   await f.apply([{...f.line,allocationId:first.body.allocationId,type:"RETURN_TO_SHELF",quantity:1,scanConfirmed:true},{...f.line,allocationId:first.body.allocationId,type:"COMMIT_RELEASE",quantity:1}]);await foreignSet(0);
   await expect(setEntityRelationship(f.db,f.actor,{...pair,mode:"PURCHASE"})).rejects.toMatchObject({details:{blockedReason:"RELATIONSHIP_POOL_BINDING"}});
-  await expect(f.db.insert(entityRelationships).values({id:createUuidV7(),...pair,mode:"PURCHASE",effectiveFrom:new Date()})).rejects.toThrow(/RELATIONSHIP_POOL_BINDING/);
+  await expect(f.db.insert(entityRelationships).values({id:createUuidV7(),...pair,mode:"PURCHASE",effectiveFrom:new Date()})).rejects.toMatchObject({cause:{message:expect.stringMatching(/RELATIONSHIP_POOL_BINDING/)}});
   const otherBefore=await f.balance(),ledgerBefore=await f.db.select().from(stockLedger).where(eq(stockLedger.skuId,f.sku.id));
   await configureAvailabilityPool(f.db,f.actor,{storefrontId:foreign.id,poolId:f.pools[1]!.id});
   expect(await f.balance()).toEqual(otherBefore);

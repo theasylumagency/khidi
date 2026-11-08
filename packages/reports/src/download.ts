@@ -6,7 +6,7 @@ import { mediaSigningSecret } from "@khidi/media/signing";
 import { AppError } from "@khidi/shared";
 import { z } from "zod";
 import { dailyReportDetails } from "./daily.ts";
-const input=z.object({id:z.string().uuid(),format:z.enum(["CSV","XLSX"]),expires:z.coerce.number().int(),signature:z.string().regex(/^[a-f0-9]{64}$/)}).strict();
+const input=z.object({id:z.string().max(36).uuid(),format:z.enum(["CSV","XLSX"]),expires:z.coerce.number().int(),signature:z.string().max(64).regex(/^[a-f0-9]{64}$/)}).strict();
 const signature=(userId:string,id:string,format:string,expires:number,key:string)=>createHmac("sha256",key).update(JSON.stringify(["khidi-report-v1",userId,id,format,expires])).digest("hex");
 export function signReportDownload(userId:string,id:string,format:"CSV"|"XLSX",now=Date.now(),key=mediaSigningSecret()) {
  const expires=Math.floor(now/1000)+300;return "/api/reports/daily?"+new URLSearchParams({id,format,expires:String(expires),signature:signature(userId,id,format,expires,key)});

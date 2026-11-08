@@ -13,13 +13,13 @@ import { authorizeWorkflowMovements, type WorkflowPrincipal } from "./workflow-a
 import { refreshAllocationStockStatus } from "./replenishment.ts";
 
 const movementSchema = z.object({
-  type: z.enum(LEDGER_MOVEMENT_TYPES), poolId: z.string().uuid(), skuId: z.string().uuid(),
-  quantity: z.number().int().positive().max(2_147_483_647), variant: z.string().optional(), allocationId: z.string().uuid().optional(),
-  reason: z.string().trim().min(1).max(4000).optional(), documentRef: z.string().trim().min(1).max(1000).optional(), transferKey: z.string().min(1).optional(),
-  reservationId: z.string().uuid().optional(), fulfillmentRequestId: z.string().uuid().optional(),
-  reservationLineId: z.string().uuid().optional(), unitConfirmationIds: z.array(z.string().uuid()).max(1000).optional(),
+  type: z.enum(LEDGER_MOVEMENT_TYPES), poolId: z.string().max(36).uuid(), skuId: z.string().max(36).uuid(),
+  quantity: z.number().int().positive().max(2_147_483_647), variant: z.string().max(65536).optional(), allocationId: z.string().max(36).uuid().optional(),
+  reason: z.string().trim().min(1).max(4000).optional(), documentRef: z.string().trim().min(1).max(1000).optional(), transferKey: z.string().max(65536).min(1).optional(),
+  reservationId: z.string().max(36).uuid().optional(), fulfillmentRequestId: z.string().max(36).uuid().optional(),
+  reservationLineId: z.string().max(36).uuid().optional(), unitConfirmationIds: z.array(z.string().max(36).uuid()).max(1000).optional(),
   paymentMethod: z.enum(["CARD", "BANK_INSTALLMENT", "CASH_ON_DELIVERY", "PAY_ON_PICKUP"]).optional(),
-  approvedCountLineId: z.string().uuid().optional(), scanConfirmed: z.boolean().optional(), cancelLostLine: z.boolean().optional()
+  approvedCountLineId: z.string().max(36).uuid().optional(), scanConfirmed: z.boolean().optional(), cancelLostLine: z.boolean().optional()
 }).strict();
 type PoolBalance = { shelf: number; staging: number; allocatedTotal: number };
 type AllocationBalance = { allocated: number; reserved: number; committed: number };

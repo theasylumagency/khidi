@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@khidi/shared/input-limits";
 import { NextResponse } from "next/server";
 import { assertRoleAllowed } from "@khidi/auth";
 import { queueAiJob } from "@khidi/ai";
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) {
       throw new AppError("VALIDATION_ERROR", "Invalid request key.");
     }
-    const body = await request.json() as { action?: string; skuId?: string; locale?: string; versionId?: string; draft?: unknown; synonyms?: unknown };
+    const body = await readBoundedJson(request) as { action?: string; skuId?: string; locale?: string; versionId?: string; draft?: unknown; synonyms?: unknown };
     const actor = { userId: principal.userId };
     const result = await executeIdempotent<unknown, { id: string }>(getDb(),
       { scope: "m6:canonical-content", idempotencyKey: key, payload: { ...body, ...actor } }, async (tx) => {

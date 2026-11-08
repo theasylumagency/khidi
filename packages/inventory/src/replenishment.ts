@@ -39,7 +39,7 @@ export async function refreshAllocationStockStatus(ctx:DomainTransactionContext,
   if(next!=="NORMAL") await openRequest(ctx,allocationId,Math.max(1,row.allocation.minimumStock+1-row.balance.availableToSell));
 }
 export async function setAllocationMinimum(db:DbExecutor,actor:DomainActor,raw:{allocationId:string;minimum:number}) {
-  const parsed=z.object({allocationId:z.string().uuid(),minimum:z.number().int().min(0).max(2_147_483_646)}).strict().safeParse(raw);
+  const parsed=z.object({allocationId:z.string().max(36).uuid(),minimum:z.number().int().min(0).max(2_147_483_646)}).strict().safeParse(raw);
   if(!parsed.success) throw new AppError("VALIDATION_ERROR","Invalid stock minimum.");
   return withDomainTransaction(db,actor,async(ctx)=>{
     await allocationContext(ctx.tx,actor,parsed.data.allocationId);
@@ -53,7 +53,7 @@ export async function setAllocationMinimum(db:DbExecutor,actor:DomainActor,raw:{
   });
 }
 export async function requestReplenishment(db:DbExecutor,actor:DomainActor,raw:{allocationId:string;quantity:number;note?:string}) {
-  const parsed=z.object({allocationId:z.string().uuid(),quantity:z.number().int().positive().max(2_147_483_647),note:z.string().trim().max(1000).optional()}).strict().safeParse(raw);
+  const parsed=z.object({allocationId:z.string().max(36).uuid(),quantity:z.number().int().positive().max(2_147_483_647),note:z.string().trim().max(1000).optional()}).strict().safeParse(raw);
   if(!parsed.success) throw new AppError("VALIDATION_ERROR","Invalid replenishment request.");
   return withDomainTransaction(db,actor,async(ctx)=>{
     await allocationContext(ctx.tx,actor,parsed.data.allocationId);
@@ -62,7 +62,7 @@ export async function requestReplenishment(db:DbExecutor,actor:DomainActor,raw:{
   });
 }
 export async function respondToReplenishment(db:DbExecutor,actor:DomainActor,raw:{requestId:string;status:"ACKNOWLEDGED"|"DECLINED";note?:string}) {
-  const parsed=z.object({requestId:z.string().uuid(),status:z.enum(["ACKNOWLEDGED","DECLINED"]),note:z.string().trim().max(1000).optional()}).strict().safeParse(raw);
+  const parsed=z.object({requestId:z.string().max(36).uuid(),status:z.enum(["ACKNOWLEDGED","DECLINED"]),note:z.string().trim().max(1000).optional()}).strict().safeParse(raw);
   if(!parsed.success) throw new AppError("VALIDATION_ERROR","Invalid replenishment response.");
   return withDomainTransaction(db,actor,async(ctx)=>{
     const [initial]=await ctx.tx.select().from(replenishmentRequests).where(eq(replenishmentRequests.id,parsed.data.requestId));

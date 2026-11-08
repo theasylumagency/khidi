@@ -85,7 +85,7 @@ it("Rule B rejects unpaired legs, invalid directions, missing documents and abse
   await f.db.insert(entityRelationships).values({id:createUuidV7(),fromEntityId:f.entities[0]!.id,toEntityId:f.entities[1]!.id,mode:"PURCHASE",effectiveFrom:new Date(0)});
   await expect(f.apply([{...f.base,type:"TRANSFER_OUT",variant:"CROSS_POOL",quantity:2,transferKey:"x"},{...f.base,poolId:f.pools[1]!.id,type:"TRANSFER_IN",variant:"CROSS_POOL",quantity:2,transferKey:"x"}])).rejects.toThrow(/document/);
   await cross();
-  await expect(f.db.insert(allocations).values({id:createUuidV7(),...f.base,storefrontId:f.stores[2]!.id})).rejects.toThrow(/CONSIGNMENT/);
+  await expect(f.db.insert(allocations).values({id:createUuidV7(),...f.base,storefrontId:f.stores[2]!.id})).rejects.toMatchObject({cause:{message:expect.stringMatching(/CONSIGNMENT/)}});
   await f.db.insert(entityRelationships).values({id:createUuidV7(),fromEntityId:f.entities[0]!.id,toEntityId:f.entities[1]!.id,mode:"CONSIGNMENT",effectiveFrom:new Date(1)});
   const [a]=await f.db.insert(allocations).values({id:createUuidV7(),...f.base,storefrontId:f.stores[2]!.id}).returning();
   const moved=await f.apply([{...f.base,allocationId:a!.id,type:"ALLOCATE",quantity:3}]);

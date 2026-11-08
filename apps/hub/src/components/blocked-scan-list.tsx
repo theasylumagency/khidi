@@ -7,7 +7,7 @@ import { PendingPhotoList } from "./pending-photo-list.tsx";
 
 const errorKeys: Record<string, TranslationKey> = {
   UNAUTHORIZED: "scanning.error.UNAUTHORIZED", FORBIDDEN: "scanning.error.FORBIDDEN",
-  VALIDATION_ERROR: "scanning.error.VALIDATION_ERROR", IDEMPOTENCY_CONFLICT: "scanning.error.IDEMPOTENCY_CONFLICT",
+  VALIDATION_ERROR: "scanning.error.VALIDATION_ERROR", PAYLOAD_TOO_LARGE:"scanning.error.PAYLOAD_TOO_LARGE", IDEMPOTENCY_CONFLICT: "scanning.error.IDEMPOTENCY_CONFLICT",
   CONFLICT: "scanning.error.CONFLICT", NOT_FOUND: "scanning.error.NOT_FOUND",
   PRECONDITION_FAILED: "scanning.error.PRECONDITION_FAILED", SCAN_OWNER_MISMATCH: "scanning.blocked_owner",
   SCAN_DEVICE_MISMATCH: "scanning.blocked_device"

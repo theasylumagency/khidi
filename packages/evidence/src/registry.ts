@@ -1,3 +1,4 @@
+import { boundedRecord } from "@khidi/shared/input-limits";
 import { and, eq, inArray, ne, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -42,20 +43,20 @@ export function withDefaultObservableAttributes(fields: readonly ProductTypeAttr
   return fields.map((field) => field.observable === undefined && defaultObservableFields.has(field.key) ? { ...field, observable: true } : field);
 }
 const evidenceCaptureTypes = new Set(["PACKAGING_PHOTO", "PRODUCT_MARKING_PHOTO", "SUPPLIER_DOCUMENT", "MEASUREMENT"]);
-const uuid = z.string().uuid();
+const uuid = z.string().max(36).uuid();
 const valueSchema = z.union([z.string().trim().min(1).max(400), z.number().finite(), z.boolean()]);
-const fieldKeySchema = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/);
-const claimsSchema = z.record(fieldKeySchema, valueSchema);
+const fieldKeySchema = z.string().max(65536).regex(/^[a-z][a-z0-9_]{0,63}$/);
+const claimsSchema = boundedRecord(fieldKeySchema, valueSchema, 1000);
 const notesSchema = z.string().trim().min(1).max(4000);
 const evidenceInput = z.object({
   skuId: uuid, taskId: uuid.optional(), type: z.enum(EVIDENCE_TYPES), imageId: uuid.optional(),
-  capturedAt: z.string().datetime({ offset: true }).optional(), supplierName: z.string().trim().min(1).max(200).optional(),
+  capturedAt: z.string().max(128).datetime({ offset: true }).optional(), supplierName: z.string().trim().min(1).max(200).optional(),
   documentNumber: z.string().trim().min(1).max(200).optional(), lineText: notesSchema.optional(),
   quantity: z.number().int().min(1).max(2147483647).optional(), notes: notesSchema.optional(),
   measurementUnit: z.string().trim().min(1).max(40).optional(), measurementMethod: notesSchema.optional(),
   comparisonSkuId: uuid.optional(), comparisonImageId: uuid.optional(), comparisonClaims: claimsSchema.optional(),
   comparisonRelation: z.enum(["DIFFERS","MATCHES"]).default("DIFFERS"),
-  acknowledgedUnknowns: z.record(fieldKeySchema, notesSchema).default({}),
+  acknowledgedUnknowns: boundedRecord(fieldKeySchema, notesSchema, 1000).default({}),
   intakeId: uuid.optional(),
   supportingEvidenceIds: z.array(uuid).max(30).default([]),
   comparisonSupportingEvidenceIds: z.array(uuid).max(30).default([]),
@@ -495,7 +496,7 @@ export async function submitSkuEvidence(
 
 export async function reviewSkuEvidence(db: DbExecutor, actor: DomainActor, raw: unknown) {
   const parsed = z.object({ evidenceId: uuid, status: z.enum(["ACCEPTED", "REJECTED"]), reason: notesSchema,
-    claims: claimsSchema.optional(), comparisonClaims: claimsSchema.optional(), confirmedAiFields: z.array(z.string()).optional(),
+    claims: claimsSchema.optional(), comparisonClaims: claimsSchema.optional(), confirmedAiFields: z.array(z.string().max(65536)).max(1000).optional(),
     documentNumber: z.string().trim().min(1).max(200).optional(),
     lineText: notesSchema.optional(), quantity: z.number().int().min(1).max(2147483647).optional() }).strict().safeParse(raw);
   if (!parsed.success || (parsed.data.status === "ACCEPTED" && !parsed.data.claims)) {
@@ -573,7 +574,7 @@ export async function reviewSkuEvidence(db: DbExecutor, actor: DomainActor, raw:
 }
 
 export async function decideSkuEvidenceField(db: DbExecutor, actor: DomainActor, raw: unknown) {
-  const parsed = z.object({ skuId: uuid, field: z.string(), evidenceId: uuid.optional(), reason: notesSchema }).strict().safeParse(raw);
+  const parsed = z.object({ skuId: uuid, field: z.string().max(65536), evidenceId: uuid.optional(), reason: notesSchema }).strict().safeParse(raw);
   if (!parsed.success) throw new AppError("VALIDATION_ERROR", "A field and reason are required.");
   const input = parsed.data;
   return withDomainTransaction(db, actor, async (ctx) => {

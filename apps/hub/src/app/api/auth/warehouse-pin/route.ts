@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@khidi/shared/input-limits";
 import { assertHubRequestHost } from "../../../../lib/host-isolation.ts";
 import { NextResponse, type NextRequest } from "next/server";
 import { getDb } from "@khidi/db";
@@ -8,7 +9,7 @@ import { KHIDI_DEVICE_COOKIE, KHIDI_SESSION_COOKIE } from "../../../../lib/sessi
 export async function POST(request: NextRequest) {
   try {
     assertHubRequestHost(request);
-    const body = (await request.json()) as {
+    const body = (await readBoundedJson(request, 16384)) as {
       userId?: string;
       pin?: string;
     };

@@ -13,14 +13,14 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
-    "@khidi/notifications":"workspace:*",
     "@khidi/db": "workspace:*",
     "@khidi/domain": "workspace:*",
     "@khidi/inventory": "workspace:*",
+    "@khidi/notifications": "workspace:*",
     "@khidi/publishing": "workspace:*",
     "@khidi/shared": "workspace:*",
-    "drizzle-orm": "0.40.0",
-    "zod": "3.24.2",
-    "pg": "8.13.3"
+    "drizzle-orm": "0.45.4",
+    "pg": "8.13.3",
+    "zod": "3.24.2"
   }
 }

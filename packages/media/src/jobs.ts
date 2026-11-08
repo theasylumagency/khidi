@@ -86,7 +86,7 @@ export async function listMediaJobs(db: DbExecutor, principal: AuthenticatedPrin
 }
 export async function retryMediaJob(db: DbExecutor, principal: AuthenticatedPrincipal, raw: unknown) {
   await assertMediaPrincipal(db, principal, true);
-  const parsed = z.object({ idempotencyKey: uuidV7, jobId: z.string().uuid() }).strict().safeParse(raw);
+  const parsed = z.object({ idempotencyKey: uuidV7, jobId: z.string().max(36).uuid() }).strict().safeParse(raw);
   if (!parsed.success) throw new AppError("VALIDATION_ERROR", "Invalid media retry.");
   const input = parsed.data, hash = sha256Hex(JSON.stringify(input));
   return executeIdempotent(db, { scope: "media:retry", idempotencyKey: input.idempotencyKey, payload: { ...input, userId: principal.userId } }, (tx) => withDomainTransaction(tx, { userId: principal.userId }, async (ctx) => {

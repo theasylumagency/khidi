@@ -163,11 +163,11 @@ it("does not reuse a unit confirmation, within the same transaction or after it 
     await tx.insert(unitConfirmations).values({id:proofId,reservationId:r.body.reservationId!,reservationLineId:line!.reservationLineId,fulfillmentRequestId:id,
       skuId:f.sku.id,allocationId:f.as[0]!.id,action:"PICK_TO_STAGING",method:"SCAN",quantity:1,actorUserId:f.actor.userId,scannedIdentifier:f.sku.internalSku});
     const m={...base,unitConfirmationIds:[proofId]};await applyWorkflowStockMovements(tx,staff(f),[m,m]);
-  })).rejects.toThrow(/duplicate/);
+  })).rejects.toMatchObject({cause:{message:expect.stringMatching(/duplicate/)}});
   expect(await f.db.select().from(stockLedger).where(eq(stockLedger.reservationId,r.body.reservationId!))).toEqual(before);
   await unit(f,id,line!.id);
   const [proof]=await f.db.select().from(unitConfirmations).where(eq(unitConfirmations.fulfillmentRequestId,id));
-  await expect(applyWorkflowStockMovements(f.db,staff(f),[{...base,unitConfirmationIds:[proof!.id]}])).rejects.toThrow(/this transaction/);
+  await expect(applyWorkflowStockMovements(f.db,staff(f),[{...base,unitConfirmationIds:[proof!.id]}])).rejects.toMatchObject({cause:{message:expect.stringMatching(/this transaction/)}});
 });
 
 it("automatically expands and completes bundles for every payment method",async()=>{
@@ -194,7 +194,7 @@ it("fulfills the original bundle and accounting snapshots after composition, lis
   expect(await f.db.select().from(stockLedger).where(and(eq(stockLedger.reservationId,r.body.reservationId!),eq(stockLedger.movementType,"COMMIT"))))
     .toMatchObject([{sellerAccountingName:"M9 fixture"},{sellerAccountingName:"M9 fixture"}]);
   const [snapshot]=await f.db.select().from(reservationLines).where(eq(reservationLines.reservationId,r.body.reservationId!));
-  await expect(f.db.update(reservationLines).set({releasedQuantity:1}).where(eq(reservationLines.id,snapshot!.id))).rejects.toThrow(/Closed/);
+  await expect(f.db.update(reservationLines).set({releasedQuantity:1}).where(eq(reservationLines.id,snapshot!.id))).rejects.toMatchObject({cause:{message:expect.stringMatching(/Closed/)}});
   await expect(applyStockMovements(f.db,f.actor,[{poolId:f.pool.id,skuId:snapshot!.skuId,allocationId:snapshot!.allocationId,reservationId:r.body.reservationId!,type:"RESERVE",quantity:1,paymentMethod:"CARD"}])).rejects.toThrow(/Closed/);
 });
 it("fulfills overlapping bundle and ordinary lines without mixing their proofs or changing another storefront",async()=>{

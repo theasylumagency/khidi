@@ -39,7 +39,7 @@ it("rejects every price change and preview for an archived SKU", async () => {
   await expect(setPrice(db, f.actor, change)).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   await expect(withdrawPrice(db, f.actor, change, "Manual withdrawal")).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   await expect(previewPriceChanges(db, f.actor, { changes: [change] })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-  await expect(db.insert(storefrontPrices).values({ ...before[0]!.price, id: createUuidV7(), setAt: new Date() })).rejects.toThrow(/Archived/);
+  await expect(db.insert(storefrontPrices).values({ ...before[0]!.price, id: createUuidV7(), setAt: new Date() })).rejects.toMatchObject({cause:{message:expect.stringMatching(/Archived/)}});
   expect(await getPriceHistory(db, f.actor, f.source.id)).toEqual(before);
 });
 it("withdraws merge-source prices atomically without copying them to the survivor", async () => {

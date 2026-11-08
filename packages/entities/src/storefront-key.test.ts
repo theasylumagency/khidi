@@ -12,7 +12,7 @@ it("creates an audited storefront with an immutable key and leaves unrelated set
   const input = { key: "store-" + createUuidV7(), name: "Internal fixture store", domain: createUuidV7() + ".example", sellerEntityId: seller.id, mediaBaseUrl: "https://media.example" };
   await expect(createStorefront(db, { userId: operator.id }, input)).rejects.toMatchObject({ code: "FORBIDDEN" });
   const row = await createStorefront(db, { userId: admin.id }, input);
-  await expect(db.update(storefronts).set({ key: "renamed-" + createUuidV7() }).where(eq(storefronts.id, row.id))).rejects.toThrow(/immutable/);
+  await expect(db.update(storefronts).set({ key: "renamed-" + createUuidV7() }).where(eq(storefronts.id, row.id))).rejects.toMatchObject({cause:{message:expect.stringMatching(/immutable/)}});
   const pool = createMigratorPool();
   try { await expect(pool.query("UPDATE storefronts SET key=$1 WHERE id=$2", ["new-" + createUuidV7(), row.id])).rejects.toThrow(/immutable/); }
   finally { await pool.end(); }

@@ -4,7 +4,7 @@ import { executeIdempotent,withDomainTransaction,type DomainTransactionContext }
 import { AppError,createUuidV7,encryptSecretAes256Gcm,sha256Hex } from "@khidi/shared";
 import { z } from "zod";
 export type PushPrincipal={userId:string;sessionId?:string};
-const subscriptionSchema=z.object({endpoint:z.string().url().max(2048),expirationTime:z.number().nullable().optional(),keys:z.object({p256dh:z.string().regex(/^[A-Za-z0-9_-]{87}={0,2}$/),auth:z.string().regex(/^[A-Za-z0-9_-]{22}={0,2}$/)}).strict()}).strict();
+const subscriptionSchema=z.object({endpoint:z.string().url().max(2048),expirationTime:z.number().nullable().optional(),keys:z.object({p256dh:z.string().max(89).regex(/^[A-Za-z0-9_-]{87}={0,2}$/),auth:z.string().max(24).regex(/^[A-Za-z0-9_-]{22}={0,2}$/)}).strict()}).strict();
 function parse<T>(schema:z.ZodType<T>,raw:unknown):T{const p=schema.safeParse(raw);if(!p.success)throw new AppError("VALIDATION_ERROR","Invalid push subscription.");return p.data;}
 async function pushSession(db:DbExecutor,p:PushPrincipal) {
  const [row]=p.sessionId?await db.select({session:sessions,user:users}).from(sessions).innerJoin(users,eq(users.id,sessions.userId)).where(and(eq(sessions.id,p.sessionId),eq(sessions.userId,p.userId),eq(users.active,true),sql`${sessions.expiresAt}>clock_timestamp()`)):[];
@@ -13,7 +13,7 @@ async function pushSession(db:DbExecutor,p:PushPrincipal) {
  return row.session;
 }
 export async function pushSubscriptionStatus(db:DbExecutor,p:PushPrincipal,browserDeviceId:string) {
- parse(z.string().uuid(),browserDeviceId);await pushSession(db,p);
+ parse(z.string().max(36).uuid(),browserDeviceId);await pushSession(db,p);
  const [subscription]=await db.select({id:pushSubscriptions.id,infoOptIn:pushSubscriptions.infoOptIn}).from(pushSubscriptions).where(and(eq(pushSubscriptions.userId,p.userId),eq(pushSubscriptions.sessionId,p.sessionId!),eq(pushSubscriptions.browserDeviceId,browserDeviceId)));
  return {enabled:!!subscription,infoOptIn:subscription?.infoOptIn??false};
 }
@@ -24,11 +24,11 @@ export async function removePushSubscription(ctx:DomainTransactionContext,id:str
 }
 export async function managePushSubscription(db:DbExecutor,p:PushPrincipal,key:string,raw:unknown) {
  const input=parse(z.discriminatedUnion("action",[
-  z.object({action:z.literal("ENABLE"),browserDeviceId:z.string().uuid(),subscription:subscriptionSchema,infoOptIn:z.boolean().default(false)}).strict(),
-  z.object({action:z.literal("DISABLE"),browserDeviceId:z.string().uuid()}).strict(),
-  z.object({action:z.literal("INFO"),browserDeviceId:z.string().uuid(),infoOptIn:z.boolean()}).strict()
+  z.object({action:z.literal("ENABLE"),browserDeviceId:z.string().max(36).uuid(),subscription:subscriptionSchema,infoOptIn:z.boolean().default(false)}).strict(),
+  z.object({action:z.literal("DISABLE"),browserDeviceId:z.string().max(36).uuid()}).strict(),
+  z.object({action:z.literal("INFO"),browserDeviceId:z.string().max(36).uuid(),infoOptIn:z.boolean()}).strict()
  ]),raw);
- parse(z.string().uuid(),key);await pushSession(db,p);
+ parse(z.string().max(36).uuid(),key);await pushSession(db,p);
  if(input.action==="ENABLE") {
   const url=new URL(input.subscription.endpoint);
   if(url.protocol!=="https:"||url.username||url.password||url.hash)throw new AppError("VALIDATION_ERROR","HTTPS push endpoint required.");

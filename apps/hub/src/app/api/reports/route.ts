@@ -1,3 +1,4 @@
+import { readBoundedText, parseBoundedObjectJson } from "@khidi/shared/input-limits";
 import { getDb } from "@khidi/db";
 import { movementReport,exportReport,setReportAccess } from "@khidi/reports";
 import { AppError } from "@khidi/shared";
@@ -13,7 +14,7 @@ export async function GET(request:Request){try{
 }catch(e){return scanningErrorResponse(e);}}
 export async function POST(request:Request){try{
  const p=await getCurrentPrincipal();if(!p)throw new AppError("UNAUTHORIZED","Login required.");assertSecurityOrigin(request);
- const text=await request.text();if(text.length>4096)throw new AppError("VALIDATION_ERROR","Too large.");
- const result=await setReportAccess(getDb(),p.userId,request.headers.get("idempotency-key")??"",JSON.parse(text));
+ const text=await readBoundedText(request, 4096);if(text.length>4096)throw new AppError("VALIDATION_ERROR","Too large.");
+ const result=await setReportAccess(getDb(),p.userId,request.headers.get("idempotency-key")??"",parseBoundedObjectJson(text));
  return Response.json(result.body,{status:result.status,headers:{"Cache-Control":"private, no-store"}});
 }catch(e){return scanningErrorResponse(e);}}

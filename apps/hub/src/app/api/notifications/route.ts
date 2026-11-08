@@ -1,3 +1,4 @@
+import { readBoundedText, parseBoundedObjectJson } from "@khidi/shared/input-limits";
 import { getDb } from "@khidi/db";
 import { listNotifications,notificationUnreadCount,updateNotification,setInstallmentReminderLead } from "@khidi/notifications";
 import { AppError } from "@khidi/shared";
@@ -12,8 +13,8 @@ export async function GET(request:Request){try{
 }catch(e){return scanningErrorResponse(e);}}
 export async function POST(request:Request){try{
  const p=await getCurrentPrincipal();if(!p)throw new AppError("UNAUTHORIZED","Login required.");assertSecurityOrigin(request);
- const text=await request.text();if(text.length>4096)throw new AppError("VALIDATION_ERROR","Too large.");
- const raw=JSON.parse(text),key=request.headers.get("idempotency-key")??"";
+ const text=await readBoundedText(request, 4096);if(text.length>4096)throw new AppError("VALIDATION_ERROR","Too large.");
+ const raw=parseBoundedObjectJson(text),key=request.headers.get("idempotency-key")??"";
  const result=raw?.action==="LEAD"?await setInstallmentReminderLead(getDb(),p.userId,key,raw):await updateNotification(getDb(),p.userId,key,raw);
  return Response.json(result.body,{status:result.status,headers:{"Cache-Control":"private, no-store"}});
 }catch(e){return scanningErrorResponse(e);}}

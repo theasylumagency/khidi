@@ -162,6 +162,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  exceljs@4.4.0>uuid: 11.1.1
+
 importers:
 
   .:
@@ -324,8 +327,8 @@ importers:
         specifier: workspace:*
         version: link:../shared
       drizzle-orm:
-        specifier: 0.40.0
-        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+        specifier: 0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
       pg:
         specifier: 8.13.3
         version: 8.13.3
@@ -354,8 +357,8 @@ importers:
         specifier: 3.0.2
         version: 3.0.2
       drizzle-orm:
-        specifier: 0.40.0
-        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+        specifier: 0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
       otpauth:
         specifier: 9.3.6
         version: 9.3.6
@@ -372,8 +375,8 @@ importers:
         specifier: 3.0.2
         version: 3.0.2
       drizzle-orm:
-        specifier: 0.40.0
-        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+        specifier: 0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
       pg:
         specifier: 8.13.3
         version: 8.13.3
@@ -391,8 +394,8 @@ importers:
         specifier: workspace:*
         version: link:../shared
       drizzle-orm:
-        specifier: 0.40.0
-        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+        specifier: 0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
 
   packages/entities:
     dependencies:
@@ -406,8 +409,8 @@ importers:
         specifier: workspace:*
         version: link:../shared
       drizzle-orm:
-        specifier: 0.40.0
-        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+        specifier: 0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
       zod:
         specifier: 3.24.2
         version: 3.24.2
@@ -424,8 +427,8 @@ importers:
         specifier: workspace:*
         version: link:../shared
       drizzle-orm:
-        specifier: 0.40.0
-        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+        specifier: 0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
       pg:
         specifier: 8.13.3
         version: 8.13.3
@@ -460,8 +463,8 @@ importers:
         specifier: workspace:*
         version: link:../shared
       drizzle-orm:
-        specifier: 0.40.0
-        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+        specifier: 0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
       pg:
         specifier: 8.13.3
         version: 8.13.3
@@ -496,8 +499,8 @@ importers:
         specifier: workspace:*
         version: link:../shared
       drizzle-orm:
-        specifier: 0.40.0
-        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+        specifier: 0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
       zod:
         specifier: 3.24.2
         version: 3.24.2
@@ -523,8 +526,8 @@ importers:
         specifier: workspace:*
         version: link:../shared
       drizzle-orm:
-        specifier: 0.40.0
-        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+        specifier: 0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
       pg:
         specifier: 8.13.3
         version: 8.13.3
@@ -553,8 +556,8 @@ importers:
         specifier: workspace:*
         version: link:../shared
       drizzle-orm:
-        specifier: 0.40.0
-        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+        specifier: 0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
       pg:
         specifier: 8.13.3
         version: 8.13.3
@@ -587,8 +590,8 @@ importers:
         specifier: workspace:*
         version: link:../shared
       drizzle-orm:
-        specifier: 0.40.0
-        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+        specifier: 0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
       zod:
         specifier: 3.24.2
         version: 3.24.2
@@ -617,8 +620,8 @@ importers:
         specifier: 0.21.3
         version: 0.21.3
       drizzle-orm:
-        specifier: 0.40.0
-        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+        specifier: 0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
       zod:
         specifier: 3.24.2
         version: 3.24.2
@@ -653,8 +656,8 @@ importers:
         specifier: workspace:*
         version: link:../shared
       drizzle-orm:
-        specifier: 0.40.0
-        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+        specifier: 0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
       pg:
         specifier: 8.13.3
         version: 8.13.3
@@ -689,8 +692,8 @@ importers:
         specifier: workspace:*
         version: link:../shared
       drizzle-orm:
-        specifier: 0.40.0
-        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+        specifier: 0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
       exceljs:
         specifier: 4.4.0
         version: 4.4.0
@@ -725,8 +728,8 @@ importers:
         specifier: workspace:*
         version: link:../shared
       drizzle-orm:
-        specifier: 0.40.0
-        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+        specifier: 0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
       pg:
         specifier: 8.13.3
         version: 8.13.3
@@ -761,8 +764,8 @@ importers:
         specifier: 0.21.3
         version: 0.21.3
       drizzle-orm:
-        specifier: 0.40.0
-        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+        specifier: 0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
       zod:
         specifier: 3.24.2
         version: 3.24.2
@@ -1814,8 +1817,8 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
-  drizzle-orm@0.40.0:
-    resolution: {integrity: sha512-7ptk/HQiMSrEZHnAsSlBESXWj52VwgMmyTEfoNmpNN2ZXpcz13LwHfXTIghsAEud7Z5UJhDOp8U07ujcqme7wg==}
+  drizzle-orm@0.45.4:
+    resolution: {integrity: sha512-NiM1YZpJ2UxyeE67DpDDZ+Tsw4YLX3trSlkNT7Tm9eKoUNb1LvaAaQzXgYQsWs+AQ9TUmmwMmBOCXuqqxUWKKQ==}
     peerDependencies:
       '@aws-sdk/client-rds-data': '>=3'
       '@cloudflare/workers-types': '>=4'
@@ -1823,14 +1826,16 @@ packages:
       '@libsql/client': '>=0.10.0'
       '@libsql/client-wasm': '>=0.10.0'
       '@neondatabase/serverless': '>=0.10.0'
+      '@netlify/db': '>=0.4.0'
       '@op-engineering/op-sqlite': '>=2'
       '@opentelemetry/api': ^1.4.1
-      '@planetscale/database': '>=1'
+      '@planetscale/database': '>=1.13'
       '@prisma/client': '*'
       '@tidbcloud/serverless': '*'
       '@types/better-sqlite3': '*'
       '@types/pg': '*'
       '@types/sql.js': '*'
+      '@upstash/redis': '>=1.34.7'
       '@vercel/postgres': '>=0.8.0'
       '@xata.io/client': '*'
       better-sqlite3: '>=7'
@@ -1858,6 +1863,8 @@ packages:
         optional: true
       '@neondatabase/serverless':
         optional: true
+      '@netlify/db':
+        optional: true
       '@op-engineering/op-sqlite':
         optional: true
       '@opentelemetry/api':
@@ -1873,6 +1880,8 @@ packages:
       '@types/pg':
         optional: true
       '@types/sql.js':
+        optional: true
+      '@upstash/redis':
         optional: true
       '@vercel/postgres':
         optional: true
@@ -2883,9 +2892,8 @@ packages:
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
-  uuid@8.3.2:
-    resolution: {integrity: sha512-+NYs2QeMWy+GWFOEm9xnn6HCDp0l7QBD7ml8zLUmJ+93Q5NF0NocErnwkTkXVFNiX3/fpC6afS8Dhb/gz7R7eg==}
-    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+  uuid@11.1.1:
+    resolution: {integrity: sha512-vIYxrBCC/N/K+Js3qSN88go7kIfNPssr/hHCesKCQNAjmgvYS2oqr69kIufEG+O4+PfezOH4EbIeHCfFov8ZgQ==}
     hasBin: true
 
   vite-node@3.0.8:
@@ -4045,7 +4053,7 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
-  drizzle-orm@0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3):
+  drizzle-orm@0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3):
     optionalDependencies:
       '@opentelemetry/api': 1.10.0
       '@types/pg': 8.11.11
@@ -4207,7 +4215,7 @@ snapshots:
       saxes: 5.0.1
       tmp: 0.2.7
       unzipper: 0.10.14
-      uuid: 8.3.2
+      uuid: 11.1.1
 
   expect-type@1.4.0: {}
 
@@ -5221,7 +5229,7 @@ snapshots:
 
   util-deprecate@1.0.2: {}
 
-  uuid@8.3.2: {}
+  uuid@11.1.1: {}
 
   vite-node@3.0.8(@types/node@24.0.0)(supports-color@7.2.0)(tsx@4.19.3):
     dependencies:

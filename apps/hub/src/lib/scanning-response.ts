@@ -4,7 +4,7 @@ import { t } from "@khidi/i18n";
 
 export function scanningErrorResponse(error: unknown) {
   if (error instanceof AppError) {
-    const status = { UNAUTHORIZED: 401, FORBIDDEN: 403, NOT_FOUND: 404, VALIDATION_ERROR: 400,
+    const status = { UNAUTHORIZED: 401, FORBIDDEN: 403, NOT_FOUND: 404, VALIDATION_ERROR: 400, PAYLOAD_TOO_LARGE:413,
       CONFLICT: 409, IDEMPOTENCY_CONFLICT: 409, PRECONDITION_FAILED: 412, INVARIANT_VIOLATION: 422, RECENT_AUTH_REQUIRED: 428 }[error.code];
     const message = error.details?.blockedReason === "SKU_INVENTORY_NOT_DRAINED" ? t("inventory.error.SKU_INVENTORY_NOT_DRAINED")
       : error.details?.blockedReason === "PHYSICAL_COUNT_DISABLED_ADR013" ? t("inventory.counts_disabled") : typeof error.details?.milestone === "number"

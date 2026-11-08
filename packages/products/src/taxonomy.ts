@@ -1153,12 +1153,12 @@ export const skuAttributeStatusSchema = z.enum([
 ]);
 
 export const skuAttributeEntrySchema = z.object({
-  value: z.union([z.string(), z.number(), z.boolean(), z.null()]),
+  value: z.union([z.string().max(65536), z.number(), z.boolean(), z.null()]),
   status: skuAttributeStatusSchema,
-  sourceType: z.string().optional(),
-  evidenceId: z.string().uuid().optional(),
-  verifiedBy: z.string().uuid().optional(),
-  verifiedAt: z.string().optional()
+  sourceType: z.string().max(65536).optional(),
+  evidenceId: z.string().max(36).uuid().optional(),
+  verifiedBy: z.string().max(36).uuid().optional(),
+  verifiedAt: z.string().max(65536).optional()
 });
 
 /**

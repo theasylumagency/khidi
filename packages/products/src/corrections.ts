@@ -1,6 +1,7 @@
+import { boundedRecord } from "@khidi/shared/input-limits";
 import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { evidence, evidenceAttributions, getSkuImages, getSkuLineageIds, imageAttributions, imageBelongsToSku, productIntakes, productTypes, skuContentVersions, skuSlugHistory, skuSplitBasis, skuSplitTargets, skus, storefrontListings, users, resolveActiveSku, type DbExecutor } from "@khidi/db";
+import { getPostgresError,evidence, evidenceAttributions, getSkuImages, getSkuLineageIds, imageAttributions, imageBelongsToSku, productIntakes, productTypes, skuContentVersions, skuSlugHistory, skuSplitBasis, skuSplitTargets, skus, storefrontListings, users, resolveActiveSku, type DbExecutor } from "@khidi/db";
 import { withDomainTransaction, type DomainActor, type DomainTransactionContext } from "@khidi/domain";
 import { withdrawArchivedSkuPrices } from "@khidi/domain/price-effects";
 import { acquireDomainLocks, priceLockKey } from "@khidi/domain/locking";
@@ -11,10 +12,10 @@ import { createSkuDraft, setStorefrontListing, transitionSkuLifecycle } from "./
 import { getAffectedSkuIds } from "@khidi/db";
 import { saveCanonicalVersion } from "./content.ts";
 const reasonSchema = z.string().trim().min(1).max(4000);
-const valuesSchema = z.record(z.string(), z.union([z.string().min(1).max(400), z.number().finite(), z.boolean()]));
+const valuesSchema = boundedRecord(z.string().max(65536), z.union([z.string().min(1).max(400), z.number().finite(), z.boolean()]), 1000);
 const attributionSchema = z.object({
-    sourceSkuId: z.string().uuid(), targetSkuId: z.string().uuid(), kind: z.enum(["EVIDENCE", "IMAGE"]),
-    assetId: z.string().uuid(), claimSkuId: z.string().uuid().optional(), reason: reasonSchema
+    sourceSkuId: z.string().max(36).uuid(), targetSkuId: z.string().max(36).uuid(), kind: z.enum(["EVIDENCE", "IMAGE"]),
+    assetId: z.string().max(36).uuid(), claimSkuId: z.string().max(36).uuid().optional(), reason: reasonSchema
 }).strict();
 async function requireAdmin(ctx: DomainTransactionContext, actor: DomainActor) {
     const [admin] = actor.userId ? await ctx.tx.select({ id: users.id }).from(users)
@@ -64,14 +65,14 @@ export async function attributeSkuAsset(db: DbExecutor, actor: DomainActor, raw:
     });
 }
 const splitInput = z.object({
-    sourceSkuId: z.string().uuid(), reason: reasonSchema,
+    sourceSkuId: z.string().max(36).uuid(), reason: reasonSchema,
     targets: z.array(z.object({
-        skuId: z.string().uuid().optional(), claims: valuesSchema,
-        imageId: z.string().uuid().optional(), imageIds: z.array(z.string().uuid()).default([]),
-        evidenceIds: z.array(z.string().uuid()).default([]),
-        evidenceAttributions: z.array(z.object({ evidenceId: z.string().uuid(), claimSkuId: z.string().uuid() })).default([]),
-        supports: z.record(z.string(), z.array(z.string().uuid()).min(1)).default({}),
-        copyLocales: z.array(z.string()).max(10).default([])
+        skuId: z.string().max(36).uuid().optional(), claims: valuesSchema,
+        imageId: z.string().max(36).uuid().optional(), imageIds: z.array(z.string().max(36).uuid()).max(1000).default([]),
+        evidenceIds: z.array(z.string().max(36).uuid()).max(1000).default([]),
+        evidenceAttributions: z.array(z.object({ evidenceId: z.string().max(36).uuid(), claimSkuId: z.string().max(36).uuid() })).max(1000).default([]),
+        supports: boundedRecord(z.string().max(65536), z.array(z.string().max(36).uuid()).max(1000).min(1), 1000).default({}),
+        copyLocales: z.array(z.string().max(65536)).max(10).default([])
     }).strict()).min(2).max(10)
 }).strict();
 export async function splitSku(db: DbExecutor, actor: DomainActor, raw: unknown) {
@@ -96,7 +97,7 @@ export async function splitSku(db: DbExecutor, actor: DomainActor, raw: unknown)
             await ctx.tx.execute(sql `SELECT assert_sku_preinventory(ARRAY[${sql.join(lineage.map((id) => sql `${id}::uuid`), sql `,`)}])`);
         }
         catch (error) {
-            if (error instanceof Error && error.message.includes("ADR-011 Part B")) {
+            if (getPostgresError(error)?.message.includes("ADR-011 Part B")) {
                 throw new AppError("PRECONDITION_FAILED", "ADR-011 Part B: SKU has inventory or fulfillment history.");
             }
             throw error;

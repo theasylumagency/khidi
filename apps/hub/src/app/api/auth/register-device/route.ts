@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@khidi/shared/input-limits";
 import { NextResponse, type NextRequest } from "next/server";
 import { getDb } from "@khidi/db";
 import { registerWarehouseDevice } from "@khidi/auth";
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = (await request.json()) as { deviceName?: string };
+    const body = (await readBoundedJson(request, 16384)) as { deviceName?: string };
     if (!body.deviceName || body.deviceName.trim().length < 2) {
       return NextResponse.json(
         { error: "VALIDATION_ERROR", message: "მიუთითეთ მოწყობილობის დასახელება." },

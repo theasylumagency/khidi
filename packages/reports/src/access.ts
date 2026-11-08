@@ -25,8 +25,8 @@ export async function reportAccessSettings(db:DbExecutor,userId:string) {
  .where(and(eq(users.active,true),sql`${users.role}<>'WAREHOUSE'`));
 }
 export async function setReportAccess(db:DbExecutor,adminId:string,key:string,raw:unknown) {
- const input=z.object({userId:z.string().uuid(),entityId:z.string().uuid(),granted:z.boolean(),recipient:z.boolean()}).strict().parse(raw);
- z.string().uuid().parse(key);
+ const input=z.object({userId:z.string().max(36).uuid(),entityId:z.string().max(36).uuid(),granted:z.boolean(),recipient:z.boolean()}).strict().parse(raw);
+ z.string().max(36).uuid().parse(key);
  if((await reportUser(db,adminId)).role!=="ADMIN")throw new AppError("FORBIDDEN","Admin required.");
  return executeIdempotent(db,{scope:"report-access:"+adminId,idempotencyKey:key,payload:input},tx=>withDomainTransaction(tx,{userId:adminId},async ctx=>{
   if((await reportUser(ctx.tx,adminId)).role!=="ADMIN")throw new AppError("FORBIDDEN","Admin required.");

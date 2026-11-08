@@ -77,7 +77,7 @@ it("archives the source, preserves its history and requires explicit evidence an
     expect(await db.query.productImages.findFirst({ where: (row, { eq }) => eq(row.id, f.photos[0]!) })).toMatchObject({ skuId: f.source.id });
     const publication = { id: createUuidV7(), imageId: f.photos[0]!, skuId: left, masterVersion: 1, objectKey: "split-fixture-" + createUuidV7().slice(-9) + "-1-400.webp", width: 400, format: "webp", sha256: "d".repeat(64), status: "PENDING" };
     await db.insert(imagePublications).values(publication);
-    await expect(db.insert(imagePublications).values({ ...publication, id: createUuidV7(), skuId: right, objectKey: "split-fixture-2-400.webp" })).rejects.toThrow(/attribution/);
+    await expect(db.insert(imagePublications).values({ ...publication, id: createUuidV7(), skuId: right, objectKey: "split-fixture-2-400.webp" })).rejects.toMatchObject({cause:{message:expect.stringMatching(/attribution/)}});
     expect(await db.select().from(skuContentApprovals).where(inArray(skuContentApprovals.skuId, split.targetSkuIds))).toEqual([]);
     expect(await db.select().from(skuContentVersions).where(eq(skuContentVersions.skuId,left)))
       .toEqual([expect.objectContaining({origin:"MANUAL",displayName:title})]);
@@ -112,7 +112,7 @@ it("requires explicit shared accounting confirmation and flags both active targe
     await upsertAccountingMapping(db, f.actor, { ...mapping, skuId: split.targetSkuIds[0]! });
     await expect(upsertAccountingMapping(db, f.actor, { ...mapping, skuId: split.targetSkuIds[1]! })).rejects.toThrow(/shared/);
     await expect(db.insert(accountingMappings).values({...mapping,id:createUuidV7(),skuId:split.targetSkuIds[1]!,createdBy:f.actor.userId}))
-      .rejects.toThrow(/explicit admin confirmation/);
+      .rejects.toMatchObject({cause:{message:expect.stringMatching(/explicit admin confirmation/)}});
     await upsertAccountingMapping(db, f.actor, { ...mapping, skuId: split.targetSkuIds[1]!, confirmSharedAccountingItem: true });
     for (const id of split.targetSkuIds)
         expect((await listAccountingMappingsForSku(db, id))[0]?.sharedAccountingItem).toBe(true);

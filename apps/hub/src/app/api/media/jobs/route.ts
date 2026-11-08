@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@khidi/shared/input-limits";
 import { NextResponse } from "next/server";
 import { assertRoleAllowed } from "@khidi/auth";
 import { getDb } from "@khidi/db";
@@ -16,7 +17,7 @@ export async function POST(request: Request) {
   try {
     const principal = await getCurrentPrincipal(); if (!principal) throw new AppError("UNAUTHORIZED", "Authentication required.");
     assertRoleAllowed(principal, ["ADMIN"]);
-    const result = await retryMediaJob(getDb(), principal, await request.json());
+    const result = await retryMediaJob(getDb(), principal, await readBoundedJson(request));
     return NextResponse.json(result.body, { status: result.status });
   } catch (error) { return mediaErrorResponse(error); }
 }

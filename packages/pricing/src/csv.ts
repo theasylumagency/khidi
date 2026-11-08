@@ -1,3 +1,4 @@
+import { boundedRecord } from "@khidi/shared/input-limits";
 import { and, asc, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 import { legalEntities, skus, storefronts, type DbExecutor } from "@khidi/db";
@@ -66,7 +67,7 @@ export async function exportPricesCsv(db: DbExecutor, actor: DomainActor, storef
   })].join("\r\n") + "\r\n";
 }
 
-const csvInputSchema = z.object({ storefrontId: z.string().uuid(), csv: z.string().max(2_000_000), excludedRows: z.array(z.number().int().min(2)).max(1000).default([]) }).strict();
+const csvInputSchema = z.object({ storefrontId: z.string().max(36).uuid(), csv: z.string().max(2_000_000), excludedRows: z.array(z.number().int().min(2)).max(1000).default([]) }).strict();
 export type CsvPriceInput = z.input<typeof csvInputSchema>;
 export async function previewCsvImport(db: DbExecutor, actor: DomainActor, raw: CsvPriceInput) {
   const user = await assertPriceAccess(db, actor, true);
@@ -116,7 +117,7 @@ export async function commitCsvImport(db: DbExecutor, actor: DomainActor, input:
     const result = await previewCsvImport(ctx.tx, actor, csvInput);
     if (!result.canCommit) throw new AppError("VALIDATION_ERROR", "Fix or explicitly exclude CSV errors before committing.");
     if (!result.preview.length) return { batchId: null, rows: [] };
-    const ids = z.record(z.string().uuid().nullable()).safeParse(expectedPriceIds);
+    const ids = boundedRecord(z.string().max(128), z.string().max(36).uuid().nullable(), 1000).safeParse(expectedPriceIds);
     if (!ids.success || result.preview.some((row) => !(row.skuId in ids.data))) throw new AppError("VALIDATION_ERROR", "CSV preview required.");
     return commitPriceChanges(ctx.tx, actor, { source: "CSV_IMPORT", reason, confirmLargeChanges,
       changes: result.preview.map(({ skuId, storefrontId, basePriceMinor, vatIncluded }) => ({ skuId, storefrontId, basePriceMinor,

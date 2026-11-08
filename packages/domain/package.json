@@ -17,6 +17,6 @@
   "dependencies": {
     "@khidi/db": "workspace:*",
     "@khidi/shared": "workspace:*",
-    "drizzle-orm": "0.40.0"
+    "drizzle-orm": "0.45.4"
   }
 }

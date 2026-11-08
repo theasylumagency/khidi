@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@khidi/shared/input-limits";
 import { NextResponse } from "next/server";
 import { getDb } from "@khidi/db";
 import { assertRoleAllowed } from "@khidi/auth";
@@ -13,7 +14,7 @@ export async function POST(request: Request) {
     }
     assertRoleAllowed(principal, ["ADMIN", "OPERATOR"]);
 
-    const body = (await request.json()) as {
+    const body = (await readBoundedJson(request)) as {
       productTypeId?: string;
       brand?: string;
       modelCode?: string;

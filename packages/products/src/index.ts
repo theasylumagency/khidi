@@ -1,3 +1,4 @@
+import { boundedRecord } from "@khidi/shared/input-limits";
 import { and, asc, desc, eq, exists, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -59,8 +60,8 @@ import {
 export * from "./taxonomy.ts";
 /** The primary choice is catalog configuration; existing reservations retain their snapshots. */
 export async function setPrimaryAccountingMapping(db:DbExecutor,actor:DomainActor,key:string,raw:unknown) {
-  const parsed=z.object({mappingId:z.string().uuid()}).strict().safeParse(raw);
-  if(!parsed.success || !z.string().uuid().safeParse(key).success) throw new AppError("VALIDATION_ERROR","Invalid primary mapping request.");
+  const parsed=z.object({mappingId:z.string().max(36).uuid()}).strict().safeParse(raw);
+  if(!parsed.success || !z.string().max(36).uuid().safeParse(key).success) throw new AppError("VALIDATION_ERROR","Invalid primary mapping request.");
   const [admin]=actor.userId ? await db.select().from(users).where(and(eq(users.id,actor.userId),eq(users.active,true),eq(users.role,"ADMIN"))) : [];
   if(!admin) throw new AppError("FORBIDDEN","Only ADMIN can select a primary accounting mapping.");
   return executeIdempotent(db,{scope:"catalog:primary-mapping:"+admin.id,idempotencyKey:key,payload:parsed.data},async(tx)=>
@@ -1716,11 +1717,11 @@ export async function listStorefrontListingsForSku(
 }
 
 const mergeSkuInput = z.object({
-  sourceSkuId: z.string().uuid(), targetSkuId: z.string().uuid(),
-  samenessEvidenceId: z.string().uuid().optional(),
+  sourceSkuId: z.string().max(36).uuid(), targetSkuId: z.string().max(36).uuid(),
+  samenessEvidenceId: z.string().max(36).uuid().optional(),
   identityConfirmed: z.boolean().default(false),
   reason: z.string().trim().min(1).max(4000),
-  listingChoices: z.record(z.string().uuid(), z.enum(["SOURCE", "TARGET"])).default({})
+  listingChoices: boundedRecord(z.string().max(36).uuid(), z.enum(["SOURCE", "TARGET"]), 1000).default({})
 }).strict();
 
 export async function mergeSkus(db: DbExecutor, actor: DomainActor, raw: unknown) {
@@ -1846,10 +1847,10 @@ export async function resolveSkuSlug(db: DbExecutor, slug: string) {
 }
 
 export const registerLegacyUrlSchema = z.object({
-  oldHost: z.string().trim().min(3),
-  oldPathRaw: z.string().trim().min(1),
+  oldHost: z.string().max(65536).trim().min(3),
+  oldPathRaw: z.string().max(65536).trim().min(1),
   entityType: z.enum(["PRODUCT", "CATEGORY", "OTHER"]),
-  entityId: z.string().uuid().nullable().optional(),
+  entityId: z.string().max(36).uuid().nullable().optional(),
   decision: z.enum(["KEEP_301", "ARCHIVE_PAGE", "GONE_410", "UNDECIDED"]).default("UNDECIDED"),
   gscClicks16m: z.number().int().nonnegative().nullable().optional(),
   gscImpressions16m: z.number().int().nonnegative().nullable().optional(),

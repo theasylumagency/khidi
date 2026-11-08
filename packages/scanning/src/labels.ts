@@ -16,7 +16,7 @@ export async function listLabelsToPrint(db: DbExecutor, principal: Authenticated
     .where(eq(productIntakes.labelStatus, "TO_PRINT")).orderBy(asc(productIntakes.createdAt)).limit(500);
 }
 
-export const labelSelectionSchema = z.object({ intakeIds: z.array(z.string().uuid()).min(1).max(100) }).strict();
+export const labelSelectionSchema = z.object({ intakeIds: z.array(z.string().max(36).uuid()).min(1).max(100) }).strict();
 export async function getPrintableLabels(db: DbExecutor, principal: AuthenticatedPrincipal, intakeIds: string[]) {
   await assertScanningPrincipal(db, principal, true);
   const parsed = labelSelectionSchema.safeParse({ intakeIds });

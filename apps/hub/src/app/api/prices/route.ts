@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@khidi/shared/input-limits";
 import { NextResponse } from "next/server";
 import { canEditPrices, canViewPrices } from "@khidi/auth";
 import { getDb } from "@khidi/db";
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
     assertSecurityOrigin(request);
     const db = getDb(), actor = { userId: principal.userId };
     await assertPriceAccess(db, actor, true);
-    const body = await request.json() as { action?: string; batch?: PriceBatch; sourceStorefrontId?: string; targetStorefrontId?: string; skuIds?: string[]; expectedPriceIds?: Record<string, string | null> };
+    const body = await readBoundedJson(request) as { action?: string; batch?: PriceBatch; sourceStorefrontId?: string; targetStorefrontId?: string; skuIds?: string[]; expectedPriceIds?: Record<string, string | null> };
     if (body.action === "copy-preview") {
       return NextResponse.json({ preview: await copyPricePreview(db, actor, body.sourceStorefrontId!, body.targetStorefrontId!, body.skuIds!, body.expectedPriceIds!) });
     }

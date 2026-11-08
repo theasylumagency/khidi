@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@khidi/shared/input-limits";
 import { NextResponse } from "next/server";
 import { assertRoleAllowed } from "@khidi/auth";
 import { getDb } from "@khidi/db";
@@ -17,7 +18,7 @@ export async function POST(request: Request) {
         const key = request.headers.get("Idempotency-Key") ?? "";
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key))
             throw new AppError("VALIDATION_ERROR", "Invalid request key.");
-        const body = await request.json() as {
+        const body = await readBoundedJson(request) as {
             action?: unknown;
             input?: unknown;
         };

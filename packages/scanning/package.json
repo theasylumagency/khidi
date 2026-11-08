@@ -25,7 +25,7 @@
     "@khidi/products": "workspace:*",
     "@khidi/shared": "workspace:*",
     "@zxing/library": "0.21.3",
-    "drizzle-orm": "0.40.0",
+    "drizzle-orm": "0.45.4",
     "zod": "3.24.2"
   },
   "devDependencies": {

@@ -40,7 +40,7 @@ it("restricts warehouse notifications and reads to assigned tasks and permits mu
  const action=await emit(f,"SCAN_TASK_CREATED","scan_task",photo!.id,{taskType:"PHOTO_REQUEST"});
  const [n]=await f.db.select().from(notifications).where(eq(notifications.eventId,action.eventId));
  await expect(updateNotification(f.db,own!.id,createUuidV7(),{action:"MUTE",type:"PHOTO_RETAKE_REQUIRED",muted:true})).rejects.toThrow(/INFO/);
- await expect(f.db.update(notificationReceipts).set({muted:true}).where(and(eq(notificationReceipts.notificationId,n!.id),eq(notificationReceipts.userId,own!.id)))).rejects.toThrow(/INFO/);
+ await expect(f.db.update(notificationReceipts).set({muted:true}).where(and(eq(notificationReceipts.notificationId,n!.id),eq(notificationReceipts.userId,own!.id)))).rejects.toMatchObject({cause:{message:expect.stringMatching(/INFO/)}});
  await expect(f.db.insert(notificationPreferences).values({userId:own!.id,type:"PHOTO_RETAKE_REQUIRED",muted:true})).rejects.toThrow();
  await f.db.update(scanTasks).set({assigneeUserId:other!.id}).where(eq(scanTasks.id,photo!.id));
  expect((await listNotifications(f.db,own!.id)).rows.some(r=>r.notification.id===n!.id)).toBe(false);expect(source.eventId).toBeDefined();

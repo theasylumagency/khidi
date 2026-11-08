@@ -50,7 +50,7 @@ export async function finishPasskeyCeremony(db: DbExecutor, input: {
   ceremony: Ceremony; challengeId: string; bindingToken: string; response: RegistrationResponseJSON | AuthenticationResponseJSON;
   principal?: AuthenticatedPrincipal | null; sharedDevice?: boolean; ipAddress?: string; userAgent?: string; desktopIpad?: boolean;
 }) {
-  if (input.sharedDevice || !z.string().uuid().safeParse(input.challengeId).success || !/^[a-f0-9]{64}$/.test(input.bindingToken)) throw invalid();
+  if (input.sharedDevice || !z.string().max(36).uuid().safeParse(input.challengeId).success || !/^[a-f0-9]{64}$/.test(input.bindingToken)) throw invalid();
   const config = webauthnConfig();
   const outcome = await withDomainTransaction(db, { userId: input.principal?.userId }, async (ctx) => {
     const fail = async () => { await audit(ctx, "PASSKEY_AUTH_FAILED", input.ceremony, input.principal?.userId); return null; };
@@ -155,7 +155,7 @@ export async function getQuickSignInAccount(db: DbExecutor, keyId: string) {
 }
 
 export async function manageOwnPasskey(db: DbExecutor, principal: AuthenticatedPrincipal, input: { id: string; action: "rename" | "revoke"; displayName?: string }) {
-  if (!z.string().uuid().safeParse(input.id).success) throw new AppError("NOT_FOUND", "Passkey not found.");
+  if (!z.string().max(36).uuid().safeParse(input.id).success) throw new AppError("NOT_FOUND", "Passkey not found.");
   return withDomainTransaction(db, { userId: principal.userId }, async (ctx) => {
     await assertRecentStrongAuth(ctx.tx, principal);
     const [key] = await ctx.tx.select().from(userPasskeys).where(and(eq(userPasskeys.id, input.id), eq(userPasskeys.userId, principal.userId), isNull(userPasskeys.revokedAt))).for("update");

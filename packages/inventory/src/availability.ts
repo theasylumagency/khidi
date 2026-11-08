@@ -10,8 +10,8 @@ import { applyStockMovements } from "./engine.ts";
 import type { StockMovement } from "./types.ts";
 import { refreshAllocationStockStatus } from "./replenishment.ts";
 
-const targetSchema=z.object({skuId:z.string().uuid(),storefrontId:z.string().uuid(),target:z.number().int().min(0).max(2_147_483_647),replenishmentRequestId:z.string().uuid().optional()}).strict();
-const setSchema=targetSchema.extend({idempotencyKey:z.string().uuid()});
+const targetSchema=z.object({skuId:z.string().max(36).uuid(),storefrontId:z.string().max(36).uuid(),target:z.number().int().min(0).max(2_147_483_647),replenishmentRequestId:z.string().max(36).uuid().optional()}).strict();
+const setSchema=targetSchema.extend({idempotencyKey:z.string().max(36).uuid()});
 export type AvailabilityTarget=z.infer<typeof targetSchema>;
 export type SetAvailabilityInput=z.infer<typeof setSchema>;
 function parse<T>(schema:z.ZodType<T>,input:unknown):T {const parsed=schema.safeParse(input);if(!parsed.success)throw new AppError("VALIDATION_ERROR","Invalid availability target.");return parsed.data;}

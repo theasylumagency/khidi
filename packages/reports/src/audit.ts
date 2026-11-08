@@ -2,10 +2,10 @@ import { and,desc,eq,lt,sql } from "drizzle-orm";
 import { auditLogs,legalEntities,users,type DbExecutor } from "@khidi/db";
 import { AppError } from "@khidi/shared";
 import { z } from "zod";
-const date=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v=>!Number.isNaN(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v);
+const date=z.string().max(10).regex(/^\d{4}-\d{2}-\d{2}$/).refine(v=>!Number.isNaN(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v);
 const filterSchema=z.object({from:date.optional(),to:date.optional(),actorType:z.enum(["USER","STOREFRONT_SERVICE","SYSTEM_JOB","SYSTEM_WORKFLOW"]).optional(),
  actorId:z.string().min(1).max(200).optional(),entityType:z.string().min(1).max(100).optional(),entityId:z.string().min(1).max(200).optional(),
- entityIdScope:z.string().uuid().optional(),action:z.string().min(1).max(100).optional(),correlationId:z.string().min(1).max(200).optional(),cursor:z.string().uuid().optional()}).strict()
+ entityIdScope:z.string().max(36).uuid().optional(),action:z.string().min(1).max(100).optional(),correlationId:z.string().min(1).max(200).optional(),cursor:z.string().max(36).uuid().optional()}).strict()
  .refine(v=>!v.from||!v.to||v.from<=v.to);
 export type AuditFilter=z.input<typeof filterSchema>;
 const secretKey=/password|passwd|secret|totp|recovery|token|credential|public.?key|private.?key|key.?hash|key.?material|raw.?key|p256dh|authorization|cookie|vapid|^(?:key|auth|endpoint|apiKey)$|pin(?:$|.?hash|.?salt|.?code)/i;

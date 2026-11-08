@@ -2,15 +2,15 @@ import { z } from "zod";
 import { zodJsonSchema } from "@khidi/shared/openapi";
 import { commitSchema, confirmationSchema, extendSchema, releaseSchema, reserveSchema } from "@khidi/reservations";
 import { ensureFulfillmentSchema, cancelStorefrontFulfillmentSchema } from "@khidi/fulfillment/storefront-api";
-export const collectionQuerySchema=z.object({locale:z.enum(["ka","en"]).default("ka"),updated_since:z.string().datetime({offset:true}).optional(),cursor:z.string().uuid().optional(),limit:z.coerce.number().int().min(1).max(100).default(50)}).strict();
-const uuid=z.string().uuid();
+export const collectionQuerySchema=z.object({locale:z.enum(["ka","en"]).default("ka"),updated_since:z.string().max(128).datetime({offset:true}).optional(),cursor:z.string().max(36).uuid().optional(),limit:z.coerce.number().int().min(1).max(100).default(50)}).strict();
+const uuid=z.string().max(36).uuid();
 export const apiCommands={reserve:reserveSchema,commit:commitSchema.omit({reservationId:true}),extend:extendSchema.omit({reservationId:true}),release:releaseSchema.omit({reservationId:true}),
   ensure:ensureFulfillmentSchema,cancel:cancelStorefrontFulfillmentSchema.omit({fulfillmentRequestId:true})};
 const result=z.object({reservationId:uuid.optional(),fulfillmentRequestId:uuid.optional(),status:z.enum(["RESERVED","REQUESTED","HANDED_OVER","CANCELLED","RELEASED"]).optional(),
-  expiresAt:z.string().datetime().optional(),confirmation:z.enum(["SCAN","MANUAL","AUTO_ASSUMED"]).optional(),requiresReturnToShelf:z.boolean().optional()}).strict();
-const fulfillmentResult=z.object({fulfillmentRequestId:uuid,reservationId:uuid,storefrontOrderRef:z.string(),status:z.enum(["REQUESTED","PICKING","PICKED","ACTION_REQUIRED","HANDED_OVER","CANCELLED"]),
-  deliveryMethod:z.enum(["COURIER","PICKUP","OTHER"]),shipBy:z.string(),confirmation:z.enum(["SCAN","MANUAL","AUTO_ASSUMED"]).nullable(),requiresReturnToShelf:z.boolean(),
-  lines:z.array(z.object({skuId:uuid,quantity:z.number().int(),finalUnitPriceMinor:z.number().int().nullable(),currency:z.string()}))}).strict();
+  expiresAt:z.string().max(128).datetime().optional(),confirmation:z.enum(["SCAN","MANUAL","AUTO_ASSUMED"]).optional(),requiresReturnToShelf:z.boolean().optional()}).strict();
+const fulfillmentResult=z.object({fulfillmentRequestId:uuid,reservationId:uuid,storefrontOrderRef:z.string().max(65536),status:z.enum(["REQUESTED","PICKING","PICKED","ACTION_REQUIRED","HANDED_OVER","CANCELLED"]),
+  deliveryMethod:z.enum(["COURIER","PICKUP","OTHER"]),shipBy:z.string().max(65536),confirmation:z.enum(["SCAN","MANUAL","AUTO_ASSUMED"]).nullable(),requiresReturnToShelf:z.boolean(),
+  lines:z.array(z.object({skuId:uuid,quantity:z.number().int(),finalUnitPriceMinor:z.number().int().nullable(),currency:z.string().max(65536)})).max(1000)}).strict();
 export function storefrontOpenApi() {
   const base="/api/v1/storefront/{store}",paths:Record<string,unknown>={};
   const parameter=(name:string,location="path")=>({name,in:location,required:true,schema:{type:"string"}});

@@ -10,7 +10,7 @@ import { assertMediaPrincipal } from "./principal.ts";
 import { refreshIntakePhotoStatus } from "./targets.ts";
 import { mediaReceipt, queueMediaJob, recordMediaReceipt } from "./transactions.ts";
 import { signPrivateMedia } from "./signing.ts";
-const actionSchema = z.object({ idempotencyKey: uuidV7, imageId: z.string().uuid(), action: z.enum(["UPDATE", "VERIFY", "REJECT", "REPROCESS"]),
+const actionSchema = z.object({ idempotencyKey: uuidV7, imageId: z.string().max(36).uuid(), action: z.enum(["UPDATE", "VERIFY", "REJECT", "REPROCESS"]),
   role: z.enum(["MAIN", "GALLERY", "IDENTITY"]).optional(), usage: z.enum(["PUBLIC", "INTERNAL_EVIDENCE"]).optional(), sortOrder: z.number().int().min(0).max(2147483647).optional(), reason: z.string().trim().min(1).max(4000).optional()
 }).strict().superRefine((input, ctx) => {
   if (input.action === "REJECT" && !input.reason) ctx.addIssue({ code: "custom", message: "Rejection reason required." });
@@ -19,7 +19,7 @@ const actionSchema = z.object({ idempotencyKey: uuidV7, imageId: z.string().uuid
 });
 export async function listManagedImages(db: DbExecutor, principal: AuthenticatedPrincipal, target: { skuId?: string; intakeId?: string }) {
   await assertMediaPrincipal(db, principal, true);
-  if (Number(!!target.skuId) + Number(!!target.intakeId) !== 1 || !z.string().uuid().safeParse(target.skuId ?? target.intakeId).success) throw new AppError("VALIDATION_ERROR", "Choose a SKU or intake.");
+  if (Number(!!target.skuId) + Number(!!target.intakeId) !== 1 || !z.string().max(36).uuid().safeParse(target.skuId ?? target.intakeId).success) throw new AppError("VALIDATION_ERROR", "Choose a SKU or intake.");
   if(target.skuId)return (await getSkuImages(db,target.skuId)).sort((a,b)=>a.sortOrder-b.sortOrder||a.createdAt.getTime()-b.createdAt.getTime()||a.id.localeCompare(b.id));
   return db.select().from(productImages).where(eq(productImages.intakeId,target.intakeId!)).orderBy(asc(productImages.sortOrder),asc(productImages.createdAt),asc(productImages.id));
 }
