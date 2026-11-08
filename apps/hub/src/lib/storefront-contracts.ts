@@ -9,7 +9,7 @@ export const apiCommands={reserve:reserveSchema,commit:commitSchema.omit({reserv
 const result=z.object({reservationId:uuid.optional(),fulfillmentRequestId:uuid.optional(),status:z.enum(["RESERVED","REQUESTED","HANDED_OVER","CANCELLED","RELEASED"]).optional(),
   expiresAt:z.string().datetime().optional(),confirmation:z.enum(["SCAN","MANUAL","AUTO_ASSUMED"]).optional(),requiresReturnToShelf:z.boolean().optional()}).strict();
 const fulfillmentResult=z.object({fulfillmentRequestId:uuid,reservationId:uuid,storefrontOrderRef:z.string(),status:z.enum(["REQUESTED","PICKING","PICKED","ACTION_REQUIRED","HANDED_OVER","CANCELLED"]),
-  deliveryMethod:z.enum(["DELIVERY","PICKUP"]),shipBy:z.string(),confirmation:z.enum(["SCAN","MANUAL","AUTO_ASSUMED"]).nullable(),requiresReturnToShelf:z.boolean(),
+  deliveryMethod:z.enum(["COURIER","PICKUP","OTHER"]),shipBy:z.string(),confirmation:z.enum(["SCAN","MANUAL","AUTO_ASSUMED"]).nullable(),requiresReturnToShelf:z.boolean(),
   lines:z.array(z.object({skuId:uuid,quantity:z.number().int(),finalUnitPriceMinor:z.number().int().nullable(),currency:z.string()}))}).strict();
 export function storefrontOpenApi() {
   const base="/api/v1/storefront/{store}",paths:Record<string,unknown>={};

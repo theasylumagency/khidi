@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./webhook-signature": "./src/webhook-signature.ts",
     "./hosts": "./src/hosts.ts",
     "./openapi": "./src/openapi.ts",
     ".": "./src/index.ts",

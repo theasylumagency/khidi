@@ -245,7 +245,10 @@ export const outboxDeliveries = pgTable(
     status: text("status").notNull(), // 'PENDING' | 'DELIVERED' | 'DEAD_LETTER'
     attempts: integer("attempts").notNull().default(0),
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
-    deliveredAt: timestamp("delivered_at", { withTimezone: true })
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    leaseToken: uuid("lease_token"),
+    leasedUntil: timestamp("leased_until",{withTimezone:true}),
+    lastErrorCode: text("last_error_code")
   },
   (table) => [unique().on(table.outboxEventId, table.consumer)]
 );
@@ -283,6 +286,16 @@ export const idempotencyKeys = pgTable(
   },
   (table) => [primaryKey({ columns: [table.scope, table.idempotencyKey] })]
 );
+
+export const webhookFanout=pgTable("webhook_fanout",{
+  eventId:uuid("event_id").primaryKey().references(()=>outboxEvents.id,{onDelete:"restrict"}),
+  createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()
+});
+export const webhookMessages=pgTable("webhook_messages",{
+  deliveryId:uuid("delivery_id").primaryKey().references(()=>outboxDeliveries.id,{onDelete:"restrict"}),
+  body:text("body").notNull(),sha256:text("sha256").notNull(),
+  createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()
+});
 
 export const systemSettings = pgTable("system_settings", {
   key: text("key").primaryKey(),

@@ -66,3 +66,27 @@ updated_since UTC timestamp. Follow nextCursor even when a filtered page is empt
 Unpublished deltas are tombstones; GET of a non-public or foreign product is 404.
 Public prices and stock come only from the storefront's own projection. No Hub,
 accounting, evidence, component or supplier details are included.
+
+## Signed webhooks
+
+An ADMIN configures each storefront's HTTPS endpoint and receives a random secret once.
+It is encrypted at rest; rotating it replaces the signing secret for later attempts.
+The worker independently delivers each `storefront:<id>` consumer. Catalog fan-out also
+covers changes that originally had no external consumer. Notification, AI and media
+delivery state is independent. No response body from a receiver is stored.
+
+The envelope has `id`, `schemaVersion: 1`, `type`, `occurredAt` and a public `data`
+projection. A bundle update never exposes its private component rows. Fulfillment events
+retain `AUTO_ASSUMED`, `SCAN` or `MANUAL` provenance and the status of that event.
+Receivers verify `X-Khidi-Signature: v1=<hex>` using HMAC-SHA256 over
+`X-Khidi-Timestamp + "." + exact UTF-8 body`, reject timestamps outside five minutes,
+then deduplicate `id`. A delivery's body is immutable across retries. Delivery is at
+least once; a crash after acceptance can cause a duplicate.
+
+Workers claim 30-second leases, send outside transactions with a five-second timeout,
+never follow redirects, and pin DNS to an allowed destination. Production endpoints
+must use HTTPS with public addresses; development permits loopback HTTP for the test
+client. Failures back off exponentially (2 seconds initially, capped at one hour).
+After eight failed/abandoned attempts the delivery is DEAD_LETTER. An ADMIN may retry it;
+the audit and append-only attempt history remain, with the same event id and bytes.
+Disabling an endpoint leaves pending events durable until it is enabled again.

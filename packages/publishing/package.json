@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./storefront-api": "./src/storefront-api.ts"
+    "./storefront-api": "./src/storefront-api.ts",
+    "./webhooks": "./src/webhooks.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -13,6 +14,8 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@khidi/domain": "workspace:*",
+    "zod": "3.24.2",
     "@khidi/evidence": "workspace:*",
     "@khidi/entities": "workspace:*",
     "@khidi/inventory": "workspace:*",

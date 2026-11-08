@@ -6,3 +6,4 @@ packages/db/migrations/0040_workflow_guards.sql text eol=lf
 packages/db/migrations/0041_closed_order_guards.sql text eol=lf
 packages/db/migrations/0042_expiry_job_guard.sql text eol=lf
 packages/db/migrations/0043_storefront_api.sql text eol=lf
+packages/db/migrations/0044_webhook_delivery.sql text eol=lf

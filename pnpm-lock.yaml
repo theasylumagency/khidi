@@ -606,6 +606,9 @@ importers:
       '@khidi/db':
         specifier: workspace:*
         version: link:../db
+      '@khidi/domain':
+        specifier: workspace:*
+        version: link:../domain
       '@khidi/entities':
         specifier: workspace:*
         version: link:../entities
@@ -633,6 +636,9 @@ importers:
       pg:
         specifier: 8.13.3
         version: 8.13.3
+      zod:
+        specifier: 3.24.2
+        version: 3.24.2
 
   packages/reports:
     dependencies:

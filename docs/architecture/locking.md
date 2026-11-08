@@ -94,3 +94,8 @@ use this same decision point, including expiry, payment success and cancellation
 Physical completion locks the union of all affected SKU/pool/allocation rows before
 calling the engine. Pure commitment/release batches need only allocations. No other
 inventory service acquires a reservation header after a balance lock.
+
+Webhook catalog fan-out serializes only its own scan using the transaction advisory key
+`webhook:fanout`; it never takes UPDATE locks on append-only outbox events. Dispatchers
+claim per-consumer delivery rows with SKIP LOCKED and commit a lease before network I/O.
+Completion locks only that delivery and checks the lease token; it acquires no stock locks.

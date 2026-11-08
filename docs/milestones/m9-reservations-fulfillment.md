@@ -163,3 +163,15 @@ It never creates a second request. Raw credentials are returned once, never pers
 idempotency receipts. See `docs/ops/storefront-api.md` for proxy setup and client semantics.
 Focused API/host/key checks: 7 passed; auth/architecture compatibility checks: 12 passed.
 Targeted typecheck and dependency boundaries passed. No deployment or proxy changes made.
+
+### R7 — durable signed webhooks
+
+Per-consumer leases, immutable public message bytes and append-only attempt logs support
+at-least-once delivery with timestamped HMAC-SHA256, exponential backoff, dead letters
+and audited ADMIN retry. Catalog fan-out includes bundles and publication withdrawals;
+raw internal event payloads are never sent. Endpoint secrets are encrypted and returned
+once. Worker polling is wired beside the existing durable job dispatchers.
+Focused tests: 4 passed (signature/tamper/staleness, AUTO_ASSUMED, privacy, concurrent
+dispatch, backoff/dead-letter/retry, independent consumers and immutable bodies).
+Publishing, worker and Hub typechecks passed. Migration 0044 is new; no applied migration
+was edited. Operations and locking documents describe the delivery contract.
