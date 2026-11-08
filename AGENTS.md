@@ -48,15 +48,18 @@ If two sources conflict and this list does not resolve it, stop and ask. Do not 
 | M7 Pricing | Merged to `main` (PR #14) |
 | M8 Inventory core | Merged to `main` (PR #15); I6 disabled by Accepted ADR-013 |
 | M9 Reservations and fulfillment | Merged to `main` (PR #16), owner-reviewed; R8 deferred under ADR-014 |
-| M10 Reports, notifications and audit | N1–N5 implemented on `m10-reports-notifications` for Draft PR review |
-| M11 | Not started |
+| M10 Reports, notifications and audit | Merged to `main` (PR #17) |
+| M11 Hardening, restore, E2E and user management | Implemented on `m11-hardening`; final verification / Draft PR closeout |
 
-Current task: M10; see [the milestone record](docs/milestones/m10-reports-notifications.md)
-and [the owner specification](docs/task-m10-reports-notifications-audit.md).
-Scoped in-app/Web Push notifications, snapshot movement reports, private daily reports
-and filtered/redacted audit history are implemented. Keep the PR in draft; no deployment
-or merge is authorized. M9 PICK and manual-confirmation UI remain deferred.
-ADR-011 Part B remains Proposed.
+Working mode: maintenance; no new milestone is assigned. M11 is the final planned candidate,
+under Draft PR review; see [current state](docs/CURRENT-STATE.md) and
+[verification record](docs/milestones/m11-hardening.md). No merge/deployment is authorized.
+ADR-011 Part B, controlled warehouse UI, physical counts and live AI remain deferred.
+
+To start a change: read this file and the affected accepted ADRs, inspect owner changes,
+branch from the latest accepted main, define the bounded fix and its acceptance checks,
+and use small focused commits with a Draft PR. Ask about conflicting business rules;
+implementation details do not require a new approval. Never rewrite applied migrations.
 
 Human checks still pending (the owner updates these lines):
 
@@ -88,14 +91,22 @@ corepack pnpm db:seed
 corepack pnpm dev:hub                  # http://localhost:3100
 ```
 
-Before you report any task as finished, all four must pass:
+Before reporting a code change complete, run the affected checks and record their results:
 
 ```bash
 corepack pnpm typecheck
 corepack pnpm check:boundaries
-corepack pnpm test                     # requires the database
-corepack pnpm test                     # run twice: tests must pass on a fresh DB and on a re-run
+corepack pnpm lint
+corepack pnpm test                     # once on a fresh dedicated _test DB
+corepack pnpm build
 ```
+
+During a step, run focused tests only. Run the full suite once at final acceptance for
+ledger, reservations, fulfillment, auth, migrations, idempotency or offline queue changes;
+repeat only for changed test infrastructure or a newly demonstrated failure. Never weaken
+existing tests. Pure presentation uses the real-device checklist. Dependency/security changes
+also require production audit with every residual finding documented. Never seed/migrate the
+recovered original during a restore drill; H6 uses a separate writable clone.
 
 Reset a dev database when a migration needs a clean start: drop and recreate the database,
 re-run `init-roles.sh`, then migrate and seed. Never "fix" a dev DB by editing applied migrations.
@@ -167,6 +178,10 @@ the interactive `pnpm ops:bootstrap-admin` command, never development accounts.
 - Every `page.tsx` except `/login` calls `requirePageAuth()`. Every `route.ts` verifies the
   principal and its role. The architecture test enforces this; keep it passing.
 - `proxy.ts` is a first filter only. It is never the authorization check.
+- Cookie-authenticated writes require the configured same origin and bounded body readers.
+  Storefront service writes have their separate host/key rules. Public employee setup uses a
+  hashed, expiring, single-use token, never an unauthenticated credential reset. Every user
+  management change requires ADMIN and recent strong proof; all new office users enroll TOTP.
 - No secrets in code. In production the app must fail fast when a required secret is missing
   or equals a development default.
 - The Hub never stores customer personal data (names, phones, addresses, emails).
@@ -195,6 +210,8 @@ the interactive `pnpm ops:bootstrap-admin` command, never development accounts.
 - **E2 — Superseded by ADR-010.** M5 retires manual confidence and retains prior audit entries.
 
 ## 10. Milestone 4 record — photo capture and media pipeline
+
+Historical milestone record; not a new work assignment. Current verification follows §4.
 
 Branch: `m4-media` from `main`. Never commit to `main`. One commit per step, message prefixed
 with the step ID (P1…P10). Each step needs tests. Schema changes only in new migrations
