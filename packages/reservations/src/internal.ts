@@ -5,6 +5,7 @@ import type { DomainTransactionContext } from "@khidi/domain";
 import { applyWorkflowStockMovements, workflowActor, type WorkflowPrincipal } from "@khidi/inventory/workflow";
 import type { StockMovement } from "@khidi/inventory";
 import { getSkuReserveEligibility } from "@khidi/publishing";
+import { emitInstallmentExpiryNotice } from "@khidi/notifications/deadlines";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import { isCod, type Confirmation, type ReserveInput } from "./contracts.ts";
 import { FULFILLMENT_CONFIGURATION_LOCK, readFrozenMode } from "./mode.ts";
@@ -86,6 +87,7 @@ export async function reserveInTransaction(ctx:DomainTransactionContext,p:Storef
   const pools=await linePools(ctx.tx,lines);
   await applyWorkflowStockMovements(ctx.tx,p,lines.map((line)=>({...movement(line,pools.get(line.allocationId)!,"RESERVE",line.quantity),paymentMethod:input.paymentMethod})));
   await scheduleExpiry(ctx,header!);
+  await emitInstallmentExpiryNotice(ctx,header!);
   await ctx.recordAudit({action:"RESERVATION_CREATED",entityType:"reservation",entityId:header!.id,after:{...header,lines}});
   await ctx.emitOutboxEvent({eventType:"RESERVATION_CREATED",storefrontId:store.id,aggregateType:"reservation",aggregateId:header!.id,
     payload:{reservationId:header!.id,orderRef:header!.storefrontOrderRef,status:"RESERVED",expiresAt:header!.expiresAt.toISOString()},consumers:["storefront:"+store.id]});

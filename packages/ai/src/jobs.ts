@@ -103,7 +103,7 @@ async function recordState(ctx: DomainTransactionContext, job: Job, status: stri
   await ctx.tx.update(aiJobs).set({ status, result, updatedAt: new Date() }).where(eq(aiJobs.id, job.id));
   await ctx.recordAudit({ action: "AI_JOB_UPDATED", entityType: "ai_job", entityId: job.id, after: { status, generation: job.generation } });
   await ctx.emitOutboxEvent({ eventType: "AI_JOB_UPDATED", aggregateType: "ai_job", aggregateId: job.id,
-    payload: { skuId: job.skuId, status }, consumers: status === "DEAD_LETTER" ? ["notifications"] : [] });
+    payload: { skuId: job.skuId, status,generation:job.generation }, consumers: ["DEAD_LETTER","SUCCEEDED","SKIPPED"].includes(status) ? ["notifications"] : [] });
 }
 
 async function reserveAttempt(db: DbExecutor, job: Job, provider: { provider: string; model: string }, upperBound: number, cap: number) {
@@ -220,6 +220,8 @@ export async function executeAiJob(db: DbExecutor, storage: MediaStorage, provid
         }
       }
       await recordState(ctx, job, status, output ? { ...output, ...(contentVersionIds.length ? { contentVersionIds } : {}) } : undefined);
+      if(job.jobName==="identify-product"&&output&&Object.keys(output.candidates).length===0)await ctx.emitOutboxEvent({eventType:"PRODUCT_REVIEW_REQUIRED",aggregateType:"sku",aggregateId:job.skuId,
+        payload:{reason:"IDENTIFICATION_FAILED",jobId:job.id,generation:job.generation},consumers:["notifications"]});
     });
   } catch {
     await withDomainTransaction(db, {}, async (ctx) => {

@@ -1,0 +1,28 @@
+import { expect,it } from "vitest";
+import { and,eq } from "drizzle-orm";
+import { notifications,outboxEvents,storefronts,userEntityMemberships,users } from "@khidi/db";
+import { createUuidV7 } from "@khidi/shared";
+import { reservationFixture } from "../../reservations/src/reservation.test-fixture.ts";
+import { extendReservation } from "../../reservations/src/index.ts";
+import { confirmOrder,reserveOrder } from "../../fulfillment/src/index.ts";
+import { consumeNotifications,listNotifications,notificationUnreadCount } from "./index.ts";
+import { emitDeadlineNotifications,installmentReminderLeadHours,setInstallmentReminderLead } from "./deadlines.ts";
+it("notifies immediately once per installment expiry, scopes ADMIN/ORDER_MANAGER to the seller, and repeats only for an extended expiry",async()=>{
+ const f=await reservationFixture();await setInstallmentReminderLead(f.db,f.actor.userId,createUuidV7(),{action:"LEAD",hours:24});expect(await installmentReminderLeadHours(f.db)).toBe(24);
+ const [manager,admin,other]=await f.db.insert(users).values(["ORDER_MANAGER","ADMIN","ORDER_MANAGER"].map(role=>({id:createUuidV7(),role,fullName:"Deadline fixture"}))).returning();
+ await f.db.insert(userEntityMemberships).values([{userId:manager!.id,legalEntityId:f.store.sellerEntityId},{userId:admin!.id,legalEntityId:f.store.sellerEntityId},{userId:other!.id,legalEntityId:f.entities[1]!.id}]);
+ await f.db.update(storefronts).set({reservationPolicyJson:{...f.store.reservationPolicyJson,BANK_INSTALLMENT:3600}}).where(eq(storefronts.id,f.store.id));
+ const order=await reserveOrder(f.db,f.principal,createUuidV7(),{storefrontOrderRef:"Reminder-1",paymentMethod:"BANK_INSTALLMENT",items:[{skuId:f.sku.id,quantity:1}]}),id=order.body.reservationId!;
+ const sources=()=>f.db.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId,id),eq(outboxEvents.eventType,"NOTIFICATION_SIGNAL")));
+ expect(await sources()).toHaveLength(1);await emitDeadlineNotifications(f.db,id);expect(await sources()).toHaveLength(1);
+ for(const e of await sources())await consumeNotifications(f.db,e.id);
+ expect((await listNotifications(f.db,manager!.id)).rows).toHaveLength(1);expect((await listNotifications(f.db,admin!.id)).rows).toHaveLength(1);expect((await listNotifications(f.db,other!.id)).rows).toHaveLength(0);
+ await expect(setInstallmentReminderLead(f.db,manager!.id,createUuidV7(),{action:"LEAD",hours:48})).rejects.toThrow(/ADMIN/);
+ await extendReservation(f.db,f.principal,createUuidV7(),{reservationId:id,expiresAt:new Date(Date.now()+7200000).toISOString()});
+ expect(await sources()).toHaveLength(2);await emitDeadlineNotifications(f.db,id);expect(await sources()).toHaveLength(2);
+ for(const e of await sources())await consumeNotifications(f.db,e.id);
+ expect((await f.db.select().from(notifications).where(eq(notifications.entityId,id)))).toHaveLength(2);
+ expect((await listNotifications(f.db,manager!.id)).rows).toHaveLength(1);
+ await confirmOrder(f.db,f.principal,createUuidV7(),{reservationId:id,confirmation:{deliveryMethod:"PICKUP",shipBy:"2030-01-01",prices:[{skuId:f.sku.id,finalUnitPriceMinor:10000,currency:"GEL"}]}});
+ expect(await notificationUnreadCount(f.db,manager!.id)).toBe(0);await emitDeadlineNotifications(f.db,id);expect(await sources()).toHaveLength(2);
+});

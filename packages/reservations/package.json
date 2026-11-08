@@ -13,6 +13,7 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@khidi/notifications":"workspace:*",
     "@khidi/db": "workspace:*",
     "@khidi/domain": "workspace:*",
     "@khidi/inventory": "workspace:*",

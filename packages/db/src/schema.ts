@@ -225,6 +225,7 @@ export const auditLogs = pgTable("audit_logs", {
 
 export const outboxEvents = pgTable("outbox_events", {
   id: uuid("id").primaryKey(),
+  notificationPosition:bigint("notification_position",{mode:"number"}).generatedAlwaysAsIdentity(),
   eventType: text("event_type").notNull(),
   storefrontId: uuid("storefront_id").references(() => storefronts.id),
   aggregateType: text("aggregate_type").notNull(),
@@ -303,6 +304,26 @@ export const systemSettings = pgTable("system_settings", {
   description: text("description").notNull(),
   updatedBy: uuid("updated_by").references(() => users.id),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const notificationTypes=pgTable("notification_types",{type:text("type").primaryKey(),level:text("level").notNull()});
+export const notifications=pgTable("notifications",{
+ id:uuid("id").primaryKey(),eventId:uuid("event_id").notNull().unique().references(()=>outboxEvents.id),
+ type:text("type").notNull(),level:text("level").notNull(),titleKey:text("title_key").notNull(),parametersJson:jsonb("parameters_json").$type<Record<string,string>>().notNull().default({}),
+ deepLink:text("deep_link").notNull(),entityType:text("entity_type").notNull(),entityId:uuid("entity_id").notNull(),
+ legalEntityId:uuid("legal_entity_id").references(()=>legalEntities.id),taskId:uuid("task_id").references(():AnyPgColumn=>scanTasks.id),audience:text("audience").notNull(),
+ createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()
+});
+export const notificationReceipts=pgTable("notification_receipts",{
+ notificationId:uuid("notification_id").notNull().references(()=>notifications.id),userId:uuid("user_id").notNull().references(()=>users.id),
+ readAt:timestamp("read_at",{withTimezone:true}),muted:boolean("muted").notNull().default(false)
+},t=>[primaryKey({columns:[t.notificationId,t.userId]})]);
+export const notificationPreferences=pgTable("notification_preferences",{
+ userId:uuid("user_id").notNull().references(()=>users.id),type:text("type").notNull(),level:text("level").notNull().default("INFO"),muted:boolean("muted").notNull().default(false)
+},t=>[primaryKey({columns:[t.userId,t.type]})]);
+export const notificationStates=pgTable("notification_states",{
+ stateKey:text("state_key").primaryKey(),fingerprint:text("fingerprint").notNull(),sourceEventId:uuid("source_event_id").notNull().references(()=>outboxEvents.id),
+ sourceCreatedAt:timestamp("source_created_at",{withTimezone:true}).notNull(),sourcePosition:bigint("source_position",{mode:"number"}).notNull()
 });
 
 // ============================================================================

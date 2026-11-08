@@ -57,6 +57,6 @@ export async function refreshSkuContentReview(ctx: DomainTransactionContext, sku
         locales: [...new Set([...(missingKa ? ["ka"] : []), ...stale.map((row) => row.locale)])], stale }, consumers: ["notifications"] });
   } else if (sku.flagged && !required) {
     await ctx.emitOutboxEvent({ eventType: "PRODUCT_UPDATED", aggregateType: "sku", aggregateId: skuId,
-      payload: { skuId, contentReviewRequired: false }, consumers: [] });
+      payload: { skuId, contentReviewRequired: false }, consumers: ["notifications"] });
   }
 }

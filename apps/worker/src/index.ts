@@ -5,6 +5,7 @@ import { AI_JOB_NAMES, configuredAiProvider, dispatchAiJobs, startAiWorkers } fr
 import { dispatchReservationJobs, startReservationWorkers } from "@khidi/fulfillment/jobs";
 import { RESERVATION_QUEUE, RESERVATION_DEAD_LETTER } from "@khidi/fulfillment/job-names";
 import { fanoutStorefrontEvents, dispatchStorefrontWebhooks } from "@khidi/publishing/webhooks";
+import { consumeNotifications,emitDeadlineNotifications } from "@khidi/notifications";
 
 export function getWorkerHealthStatus() {
   return {
@@ -26,6 +27,7 @@ if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, "/")}` || proc
     running = true;
     try {
       const outcomes=await Promise.allSettled([dispatchMediaJobs(db,boss),dispatchAiJobs(db,boss),dispatchReservationJobs(db,boss),
+        (async()=>{await emitDeadlineNotifications(db);await consumeNotifications(db);})(),
         (async()=>{await fanoutStorefrontEvents(db);await dispatchStorefrontWebhooks(db);})()]);
       if(outcomes.some((result)=>result.status==="rejected"))throw new Error("A durable consumer failed.");
     }

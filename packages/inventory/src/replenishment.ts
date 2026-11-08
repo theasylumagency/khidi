@@ -33,10 +33,9 @@ export async function refreshAllocationStockStatus(ctx:DomainTransactionContext,
   await ctx.tx.update(allocations).set({alertState:next}).where(eq(allocations.id,allocationId));
   const recipients=await ctx.tx.select({id:users.id}).from(users).innerJoin(userEntityMemberships,eq(userEntityMemberships.userId,users.id))
     .where(and(eq(users.active,true),eq(userEntityMemberships.legalEntityId,row.pool.ownerEntityId),or(eq(users.role,"STOCK_MANAGER"),eq(userEntityMemberships.isStockManagerRecipient,true))));
-  const [notification]=await ctx.tx.insert(inventoryNotifications).values({id:createUuidV7(),allocationId,status:next,availableToSell:row.balance.availableToSell,ownerEntityId:row.pool.ownerEntityId,recipientUserIds:recipients.map((r)=>r.id)}).returning();
   await ctx.recordAudit({action:"STOCK_STATUS_CHANGED",entityType:"allocation",entityId:allocationId,before:{status:row.allocation.alertState},after:{status:next,availableToSell:row.balance.availableToSell}});
   await ctx.emitOutboxEvent({eventType:next==="NORMAL"?"STOCK_RECOVERED":next==="LOW_STOCK"?"STOCK_LOW":"STOCK_OUT",storefrontId:row.allocation.storefrontId,aggregateType:"allocation",aggregateId:allocationId,
-    payload:{notificationId:notification!.id,status:next,availableToSell:row.balance.availableToSell,recipientUserIds:recipients.map((r)=>r.id)},consumers:["notifications"]});
+    payload:{status:next,availableToSell:row.balance.availableToSell,recipientUserIds:recipients.map((r)=>r.id)},consumers:["notifications"]});
   if(next!=="NORMAL") await openRequest(ctx,allocationId,Math.max(1,row.allocation.minimumStock+1-row.balance.availableToSell));
 }
 export async function setAllocationMinimum(db:DbExecutor,actor:DomainActor,raw:{allocationId:string;minimum:number}) {

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./deadlines":"./src/deadlines.ts",
     ".": "./src/index.ts"
   },
   "scripts": {
@@ -12,6 +13,11 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@khidi/db":"workspace:*",
+    "@khidi/i18n":"workspace:*",
+    "drizzle-orm":"0.40.0",
+    "pg":"8.13.3",
+    "zod":"3.24.2",
     "@khidi/domain": "workspace:*",
     "@khidi/shared": "workspace:*"
   }
