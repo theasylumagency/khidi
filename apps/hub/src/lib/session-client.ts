@@ -15,6 +15,8 @@ function signalEnd(sessionId: string) {
 export async function leaveSession(sessionId: string, expired: boolean) {
   signalEnd(sessionId);
   try {
+    const registration=await navigator.serviceWorker?.getRegistration?.();
+    await(await registration?.pushManager?.getSubscription())?.unsubscribe();
     navigator.serviceWorker?.controller?.postMessage({ type: "CLEAR_AUTH_CACHES" });
     if ("caches" in window) await Promise.all((await caches.keys()).filter((key) => key.startsWith("khidi-")).map((key) => caches.delete(key)));
   } catch { /* Navigation still discards authenticated in-memory content. */ }

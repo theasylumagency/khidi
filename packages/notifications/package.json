@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./deadlines":"./src/deadlines.ts",
+    "./push-config":"./src/push-config.ts",
     ".": "./src/index.ts"
   },
   "scripts": {
@@ -13,12 +14,16 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
-    "@khidi/db":"workspace:*",
-    "@khidi/i18n":"workspace:*",
-    "drizzle-orm":"0.40.0",
-    "pg":"8.13.3",
-    "zod":"3.24.2",
+    "@khidi/db": "workspace:*",
     "@khidi/domain": "workspace:*",
-    "@khidi/shared": "workspace:*"
+    "@khidi/i18n": "workspace:*",
+    "@khidi/shared": "workspace:*",
+    "drizzle-orm": "0.40.0",
+    "pg": "8.13.3",
+    "web-push": "3.6.7",
+    "zod": "3.24.2"
+  },
+  "devDependencies": {
+    "@types/web-push": "3.6.4"
   }
 }

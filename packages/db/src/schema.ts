@@ -325,6 +325,20 @@ export const notificationStates=pgTable("notification_states",{
  stateKey:text("state_key").primaryKey(),fingerprint:text("fingerprint").notNull(),sourceEventId:uuid("source_event_id").notNull().references(()=>outboxEvents.id),
  sourceCreatedAt:timestamp("source_created_at",{withTimezone:true}).notNull(),sourcePosition:bigint("source_position",{mode:"number"}).notNull()
 });
+export const pushSubscriptions=pgTable("push_subscriptions",{
+ id:uuid("id").primaryKey(),userId:uuid("user_id").notNull().references(()=>users.id),sessionId:uuid("session_id").notNull().references(()=>sessions.id,{onDelete:"cascade"}),
+ registeredDeviceId:uuid("registered_device_id").references(()=>registeredDevices.id,{onDelete:"cascade"}),browserDeviceId:uuid("browser_device_id").notNull(),
+ endpointHash:text("endpoint_hash").notNull().unique(),subscriptionEncrypted:text("subscription_encrypted").notNull(),infoOptIn:boolean("info_opt_in").notNull().default(false),
+ createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()
+},t=>[unique().on(t.userId,t.browserDeviceId)]);
+export const pushDeliveries=pgTable("push_deliveries",{
+ id:uuid("id").primaryKey(),notificationId:uuid("notification_id").notNull().references(()=>notifications.id),userId:uuid("user_id").notNull().references(()=>users.id),
+ subscriptionId:uuid("subscription_id").references(()=>pushSubscriptions.id,{onDelete:"set null"}),status:text("status").notNull().default("PENDING"),attempts:integer("attempts").notNull().default(0),
+ nextAttemptAt:timestamp("next_attempt_at",{withTimezone:true}).notNull().defaultNow(),leaseToken:uuid("lease_token"),leasedUntil:timestamp("leased_until",{withTimezone:true}),lastErrorCode:text("last_error_code")
+},t=>[unique().on(t.notificationId,t.subscriptionId)]);
+export const pushAttempts=pgTable("push_attempts",{
+ id:uuid("id").primaryKey(),deliveryId:uuid("delivery_id").notNull().references(()=>pushDeliveries.id),succeeded:boolean("succeeded").notNull(),responseStatus:integer("response_status"),errorCode:text("error_code"),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()
+});
 
 // ============================================================================
 // Milestone 2: Product Master, Taxonomy, Identifiers & Accounting Mappings

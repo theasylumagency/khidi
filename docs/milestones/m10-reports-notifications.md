@@ -79,3 +79,19 @@ notice when inside the window, and seller-membership checks even for ADMIN. Comm
 expiry changes or loss of scope makes an obsolete reminder unavailable. Overdue controlled
 requests notify the existing ADMIN/ORDER_MANAGER view, never the disabled PICK UI.
 Six focused notification/deadline checks and dependency boundaries passed.
+
+## N2 — Web Push
+
+Pinned `web-push` 3.6.7 and types 3.6.4 (publication dates verified from npm) power
+encryption/VAPID. Explicit per-device consent and separate INFO opt-in; encrypted registry
+capabilities, session/device ownership checks and database cleanup on logout, revocation
+and shared-device user switch. The worker uses independent durable push intents, leases,
+retry/backoff and append-only attempts. HTTP 404/410 removes subscriptions. Every send
+rechecks current recipient access and mute/opt-in state. Generic lock-screen payloads
+carry no financial/customer/evidence content. Production refuses development VAPID keys.
+Worker/Hub production startup validates the matching key pair. Browser logout unsubscribes
+and notification clicks are constrained to the Hub origin.
+
+Focused push/session/service-worker checks: 20 passed; notification and Hub typechecks
+passed. No push was sent to a real device. Operations are in
+`docs/ops/notifications-reports.md`; private production configuration remains untouched.

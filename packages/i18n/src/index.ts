@@ -127,6 +127,15 @@ export function formatStaffName(fullName: string): string {
 
 const SCANNING_LABELS = {
  "notification.title":"შეტყობინებები",
+ "notification.push_body":"Khidi-ში სამუშაო თქვენს ყურადღებას ელოდება.",
+ "notification.push_title":"შეტყობინებები ამ მოწყობილობაზე",
+ "notification.push_hint":"ჩართვისას მნიშვნელოვანი შეტყობინებები აპის დახურვის შემდეგაც გამოჩნდება. ეკრანზე მხოლოდ მოკლე, ზოგადი ტექსტი გამოჩნდება.",
+ "notification.push_enable":"შეტყობინებების ჩართვა","notification.push_disable":"შეტყობინებების გამორთვა",
+ "notification.push_info":"საინფორმაციო შეტყობინებებიც მივიღო",
+ "notification.push_unsupported":"ამ ბრაუზერში შეტყობინებები მიუწვდომელია. iPhone-ზე სცადეთ მთავარ ეკრანზე დამატებული აპიდან.",
+ "notification.push_permission":"შეტყობინებების ნებართვა ბრაუზერის პარამეტრებში უნდა ჩართოთ.",
+ "notification.push_storage":"მოწყობილობის დამახსოვრება ვერ მოხერხდა. შეამოწმეთ ბრაუზერის შენახვის ნებართვა.",
+ "notification.push_failed":"შეტყობინებების პარამეტრი ვერ შეიცვალა. ხელახლა სცადეთ.",
  "notification.lead_hours":"განვადების ვადის გაფრთხილება რამდენი საათით ადრე გაიგზავნოს",
  "notification.lead_hint":"გაფრთხილება მხოლოდ აცნობებს შესაბამისი გამყიდველის ადმინისტრატორსა და შეკვეთის მენეჯერს. რეზერვაციის ვადას კვლავ მაღაზია აგრძელებს.",
  "notification.scope_hint":"აქ ჩანს თქვენი უფლებებით ხელმისაწვდომი სამუშაოები.",
