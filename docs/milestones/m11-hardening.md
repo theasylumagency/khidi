@@ -2,7 +2,7 @@
 
 Base: main `17d286bee1d6acff6e91fac4f88f69488dcc8aa6`, merged PR #17.
 Branch: `m11-hardening`. Existing owner changes and other worktrees remain untouched.
-One commit per H1–H8; Draft PR only, no shared database access, merge or deployment.
+One commit per H1–H9; Draft PR only, no shared database access, merge or deployment.
 
 ## Initial findings
 
@@ -15,8 +15,8 @@ One commit per H1–H8; Draft PR only, no shared database access, merge or deplo
   public-address checks. Request parsing often buffers bodies before checking their size.
 - Production preflight checks only WebAuthn. Runtime validation must cover application
   secrets and storage, with deployment-only credentials kept out of runtime services.
-- First-admin bootstrap exists, but second-admin provisioning has no implementation.
-  The owner has been asked to choose its authenticated provisioning interface.
+- The owner added H9 user management, including secure employee setup and second-admin creation.
+  There are no existing staff accounts to migrate; all new office accounts require TOTP.
 
 ## Verification budget
 
@@ -38,3 +38,35 @@ Focused verification: 29/29 passed across input limits, identifier escaping on r
 PostgreSQL, extended XLSX formatting, evidence/content and storefront HTTP behavior.
 Hub/report/product/evidence typechecks and boundaries passed. Final audit currently has
 one documented high (Zod), zero critical; Drizzle/UUID findings are removed.
+
+## H2/H3 — security review and production configuration
+
+Private browser writes now enforce exact origin and bounded JSON/MIME or multipart/CSV bytes;
+server-to-server API rules stay separate. Public outbound destinations share a conservative
+IPv4/IPv6 policy with bounded DNS/response time and bytes. Credential responses are no-store,
+and operations no longer print raw driver errors. The security review records the checklist.
+Focused security tests: 74 existing/new tests passed, then 15 further origin/host/push/evidence
+checks passed; the two new origin-reader test call-shape failures were corrected and passed.
+Shared, Hub, publishing, notifications typechecks and dependency boundaries passed.
+
+Production preflight now checks app/deployment DB roles and pairing, non-development encryption,
+signing/proxy secrets, exact hosts/RP/origin, matching VAPID keys, storage and backup metadata.
+App and worker run the same pure guard before starting; runtime needs no migrator/backup secrets.
+Seven configuration/architecture tests and shared/Hub/worker typechecks passed.
+
+## H9 — owner-approved user management
+
+ADMIN-only user creation, editing, lifecycle and resets require recent strong proof. Setup
+links are hashed, expiring, single use and returned once. The employee sets their credentials;
+new office accounts confirm TOTP before any session, warehouse setup requires an active device.
+Every change is audited with an outbox event; access changes/deactivation revoke sessions,
+push and pending links. Resets revoke passkeys; deactivation preserves stored factors.
+The last active ADMIN is protected in PostgreSQL. Old applied migrations are unchanged.
+New 0051–0054 retain the pending-TOTP block for legacy office accounts with a PIN and
+make the last-admin check independent of temporary-table search paths.
+The report-access screen also requires strong proof and revokes obsolete sessions.
+
+See user-management.md for operation, lost responses, explicit account switching and recovery.
+Thirteen domain lifecycle tests passed; HTTP authorization/setup and the existing recovery
+regression tests passed (16/16). Other focused authentication/report tests passed before the
+two discovered integration issues were corrected. Auth/report/Hub typechecks and boundaries pass.

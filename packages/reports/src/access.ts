@@ -1,3 +1,4 @@
+import { assertRecentStrongAuth,authorizeUserManagement,revokeUserSessionsAndSetup,type AuthenticatedPrincipal } from "@khidi/auth";
 import { and,eq,sql } from "drizzle-orm";
 import { legalEntities,userEntityMemberships,userPermissions,users,type DbExecutor } from "@khidi/db";
 import { executeIdempotent,withDomainTransaction } from "@khidi/domain";
@@ -24,16 +25,20 @@ export async function reportAccessSettings(db:DbExecutor,userId:string) {
  .from(userEntityMemberships).innerJoin(users,eq(users.id,userEntityMemberships.userId)).innerJoin(legalEntities,eq(legalEntities.id,userEntityMemberships.legalEntityId))
  .where(and(eq(users.active,true),sql`${users.role}<>'WAREHOUSE'`));
 }
-export async function setReportAccess(db:DbExecutor,adminId:string,key:string,raw:unknown) {
+export async function setReportAccess(db:DbExecutor,principal:AuthenticatedPrincipal,key:string,raw:unknown) {
+ const adminId=principal.userId;
+ await assertRecentStrongAuth(db,principal);
  const input=z.object({userId:z.string().max(36).uuid(),entityId:z.string().max(36).uuid(),granted:z.boolean(),recipient:z.boolean()}).strict().parse(raw);
  z.string().max(36).uuid().parse(key);
  if((await reportUser(db,adminId)).role!=="ADMIN")throw new AppError("FORBIDDEN","Admin required.");
  return executeIdempotent(db,{scope:"report-access:"+adminId,idempotencyKey:key,payload:input},tx=>withDomainTransaction(tx,{userId:adminId},async ctx=>{
+  await authorizeUserManagement(ctx.tx,principal);
   if((await reportUser(ctx.tx,adminId)).role!=="ADMIN")throw new AppError("FORBIDDEN","Admin required.");
   const [u]=await ctx.tx.select().from(users).where(eq(users.id,input.userId)).for("update");
   const [m]=await ctx.tx.select().from(userEntityMemberships).where(and(eq(userEntityMemberships.userId,input.userId),eq(userEntityMemberships.legalEntityId,input.entityId))).for("update");
   if(!u?.active||u.role==="WAREHOUSE"||!m)throw new AppError("FORBIDDEN","Existing non-warehouse entity membership required.");
   const granted=!!(await ctx.tx.select().from(userPermissions).where(and(eq(userPermissions.userId,u.id),eq(userPermissions.permissionKey,"reports.view"))))[0];
+  await revokeUserSessionsAndSetup(ctx.tx,u.id);
   if(input.granted)await ctx.tx.insert(userPermissions).values({userId:u.id,permissionKey:"reports.view",grantedBy:adminId}).onConflictDoNothing();
   else await ctx.tx.delete(userPermissions).where(and(eq(userPermissions.userId,u.id),eq(userPermissions.permissionKey,"reports.view")));
   await ctx.tx.update(userEntityMemberships).set({isReportRecipient:input.recipient}).where(and(eq(userEntityMemberships.userId,u.id),eq(userEntityMemberships.legalEntityId,input.entityId)));

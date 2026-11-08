@@ -53,6 +53,13 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 });
 
+export const userSetupLinks = pgTable("user_setup_links", {
+ id:uuid("id").primaryKey(),userId:uuid("user_id").notNull().references(()=>users.id,{onDelete:"restrict"}),
+ tokenHash:text("token_hash").notNull().unique(),kind:text("kind").notNull(),issuedBy:uuid("issued_by").notNull().references(()=>users.id),
+ createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),expiresAt:timestamp("expires_at",{withTimezone:true}).notNull(),
+ usedAt:timestamp("used_at",{withTimezone:true}),revokedAt:timestamp("revoked_at",{withTimezone:true})
+});
+
 export const entityRelationships = pgTable("entity_relationships", {
   id: uuid("id").primaryKey(),
   fromEntityId: uuid("from_entity_id")

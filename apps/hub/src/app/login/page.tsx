@@ -6,17 +6,20 @@ import { cookies } from "next/headers";
 import { getDb } from "@khidi/db";
 import { getQuickSignInAccount } from "@khidi/auth";
 import { QUICK_SIGN_IN_COOKIE, readQuickSignInPreference } from "../../lib/quick-sign-in-cookie.ts";
+import { UserSetup } from "../../components/user-setup.tsx";
 
 export const dynamic = "force-dynamic";
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ session?: string }> }) {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ session?: string;setup?:string }> }) {
+  const query=await searchParams;
   const existingPrincipal = await getCurrentPrincipal();
+  if(query.setup==="1")return <UserSetup sessionId={existingPrincipal?.sessionId} registeredDevice={Boolean(await getRegisteredDevicePinContext())}/>;
   if (existingPrincipal) {
     redirect("/");
   }
 
-  const [devicePinContext, sharedWarehouseDevice, cookieStore, query] = await Promise.all([
-    getRegisteredDevicePinContext(), isSharedWarehouseBrowser(), cookies(), searchParams
+  const [devicePinContext, sharedWarehouseDevice, cookieStore] = await Promise.all([
+    getRegisteredDevicePinContext(), isSharedWarehouseBrowser(), cookies()
   ]);
   const preference = sharedWarehouseDevice ? null : readQuickSignInPreference(cookieStore.get(QUICK_SIGN_IN_COOKIE)?.value);
   const quickAccount = preference && preference.mode !== "deferred" ? await getQuickSignInAccount(getDb(), preference.id) : null;

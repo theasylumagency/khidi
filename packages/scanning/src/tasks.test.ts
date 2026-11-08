@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { and,eq } from "drizzle-orm";
 import { loadPrincipalByUserId, type AuthenticatedPrincipal } from "@khidi/auth";
 import { getDb, scanTasks, skus, users } from "@khidi/db";
 import { submitSkuEvidence } from "@khidi/evidence";
@@ -10,8 +10,8 @@ describe("M3 S4 task administration and Quick Scan", () => {
   const db = getDb();
   let admin: AuthenticatedPrincipal, warehouse: AuthenticatedPrincipal;
   beforeAll(async () => {
-    const [a] = await db.select().from(users).where(eq(users.role, "ADMIN")).limit(1);
-    const [w] = await db.select().from(users).where(eq(users.role, "WAREHOUSE")).limit(1);
+    const [a] = await db.select().from(users).where(and(eq(users.role, "ADMIN"),eq(users.active,true),eq(users.totpEnrollmentRequired,false))).limit(1);
+    const [w] = await db.select().from(users).where(and(eq(users.role, "WAREHOUSE"),eq(users.active,true),eq(users.totpEnrollmentRequired,false))).limit(1);
     admin = await loadPrincipalByUserId(db, a!.id); warehouse = await loadPrincipalByUserId(db, w!.id);
   });
   const taskInput = () => ({ idempotencyKey: createUuidV7(), taskType: "INTAKE_UNIQUE", title: "Unique intake", assigneeRole: "WAREHOUSE", targetCount: 27, dueDate: "2026-12-01T12:00:00+04:00" });
@@ -43,9 +43,9 @@ describe("M3 S4 task administration and Quick Scan", () => {
     expect(await getAssignedScanTask(db, warehouse, created.body.id)).toMatchObject({ status: "COMPLETED", completedCount: 1 });
   });
   it("rejects every non-admin role for task creation and keeps warehouse users out of task/intake administration", async () => {
-    const staff = await db.select().from(users);
-    for (const user of staff.filter((user) => user.active && user.role !== "ADMIN")) {
-      const principal = await loadPrincipalByUserId(db, user.id);
+    for (const role of ["OPERATOR","STOCK_MANAGER","WAREHOUSE","ORDER_MANAGER"]) {
+      const [user] = await db.insert(users).values({id:createUuidV7(),fullName:"Task authorization fixture",role}).returning();
+      const principal = await loadPrincipalByUserId(db, user!.id);
       await expect(createScanTask(db, principal, taskInput())).rejects.toMatchObject({ code: "FORBIDDEN" });
     }
     await expect(listScanTasks(db, warehouse)).rejects.toMatchObject({ code: "FORBIDDEN" });

@@ -667,6 +667,9 @@ importers:
 
   packages/reports:
     dependencies:
+      '@khidi/auth':
+        specifier: workspace:*
+        version: link:../auth
       '@khidi/db':
         specifier: workspace:*
         version: link:../db

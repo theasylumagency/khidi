@@ -12,7 +12,7 @@ function signalEnd(sessionId: string) {
   channel.postMessage({ sessionId, kind: "ended" }); channel.close();
 }
 
-export async function leaveSession(sessionId: string, expired: boolean) {
+export async function leaveSession(sessionId: string, expired: boolean, setupToken?:string) {
   signalEnd(sessionId);
   try {
     const registration=await navigator.serviceWorker?.getRegistration?.();
@@ -20,14 +20,17 @@ export async function leaveSession(sessionId: string, expired: boolean) {
     navigator.serviceWorker?.controller?.postMessage({ type: "CLEAR_AUTH_CACHES" });
     if ("caches" in window) await Promise.all((await caches.keys()).filter((key) => key.startsWith("khidi-")).map((key) => caches.delete(key)));
   } catch { /* Navigation still discards authenticated in-memory content. */ }
-  window.location.replace(expired ? "/login?session=expired" : "/login");
+  window.location.replace(!expired && setupToken && /^[A-Za-z0-9_-]{43}$/.test(setupToken) ? "/login?setup=1#setup="+setupToken : expired ? "/login?session=expired" : "/login");
 }
 
-export async function logoutSession(sessionId: string) {
+export async function logoutSession(sessionId: string, setupToken?:string) {
   const response = await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin", cache: "no-store", redirect: "error",
     signal: AbortSignal.timeout(8000), headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId }) });
   if (!response.ok) throw new Error("Logout unavailable.");
-  await leaveSession(sessionId, false);
+  // Explicit setup handoff must stop this tab's idle monitor before its logout broadcast;
+  // otherwise its expiry redirect can race away the new account's in-memory setup token.
+  if(setupToken)window.dispatchEvent(new Event(SESSION_ENROLLMENT_EVENT));
+  await leaveSession(sessionId, false,setupToken);
 }
 
 export function sessionRequest(sessionId: string): SessionRequest {

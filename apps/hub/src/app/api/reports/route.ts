@@ -15,6 +15,6 @@ export async function GET(request:Request){try{
 export async function POST(request:Request){try{
  const p=await getCurrentPrincipal();if(!p)throw new AppError("UNAUTHORIZED","Login required.");assertSecurityOrigin(request);
  const text=await readBoundedText(request, 4096);if(text.length>4096)throw new AppError("VALIDATION_ERROR","Too large.");
- const result=await setReportAccess(getDb(),p.userId,request.headers.get("idempotency-key")??"",parseBoundedObjectJson(text));
+ const result=await setReportAccess(getDb(),p,request.headers.get("idempotency-key")??"",parseBoundedObjectJson(text));
  return Response.json(result.body,{status:result.status,headers:{"Cache-Control":"private, no-store"}});
 }catch(e){return scanningErrorResponse(e);}}

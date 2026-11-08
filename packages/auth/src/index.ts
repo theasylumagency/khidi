@@ -391,6 +391,11 @@ export async function loginWithWarehousePin(
   const expiresAt = new Date(Date.now() + WAREHOUSE_PIN_SESSION_TTL_MS);
 
   await withDomainTransaction(db, { userId: user.id }, async (ctx) => {
+    const [current] = await ctx.tx.select().from(users).where(eq(users.id,user.id)).for("update");
+    const [currentDevice] = await ctx.tx.select().from(registeredDevices).where(eq(registeredDevices.id,device.id)).for("update");
+    if(!current?.active || current.totpEnrollmentRequired || current.pinHash!==user.pinHash
+      || !currentDevice?.active || currentDevice.revokedAt
+      || current.pinLockedUntil && current.pinLockedUntil>new Date()) throw new AppError("UNAUTHORIZED","Please sign in again.");
     await ctx.tx
       .update(users)
       .set({ failedPinAttempts: 0, pinLockedUntil: null })
@@ -570,6 +575,8 @@ export async function listUsersWithMemberships(
     locale: u.locale as SupportedLocale,
     totpEnabled: u.totpEnabled,
     hasPin: Boolean(u.pinHash),
+    setupPending: !u.passwordHash && !u.pinHash,
+    totpEnrollmentRequired: u.totpEnrollmentRequired,
     active: u.active,
     entityIds: allMemberships.filter((m) => m.userId === u.id).map((m) => m.legalEntityId),
     permissions: allPermissions
@@ -580,3 +587,5 @@ export async function listUsersWithMemberships(
 }
 
 export * from "./storefront-service.ts";
+
+export * from "./user-management.ts";
