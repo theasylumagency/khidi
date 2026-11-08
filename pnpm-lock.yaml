@@ -429,6 +429,9 @@ importers:
 
   packages/fulfillment:
     dependencies:
+      '@khidi/db':
+        specifier: workspace:*
+        version: link:../db
       '@khidi/domain':
         specifier: workspace:*
         version: link:../domain
@@ -441,9 +444,24 @@ importers:
       '@khidi/products':
         specifier: workspace:*
         version: link:../products
+      '@khidi/reservations':
+        specifier: workspace:*
+        version: link:../reservations
+      '@khidi/scanning':
+        specifier: workspace:*
+        version: link:../scanning
       '@khidi/shared':
         specifier: workspace:*
         version: link:../shared
+      drizzle-orm:
+        specifier: 0.40.0
+        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+      pg:
+        specifier: 8.13.3
+        version: 8.13.3
+      zod:
+        specifier: 3.24.2
+        version: 3.24.2
 
   packages/i18n:
     dependencies:
@@ -576,6 +594,9 @@ importers:
 
   packages/publishing:
     dependencies:
+      '@khidi/db':
+        specifier: workspace:*
+        version: link:../db
       '@khidi/entities':
         specifier: workspace:*
         version: link:../entities
@@ -597,6 +618,12 @@ importers:
       '@khidi/shared':
         specifier: workspace:*
         version: link:../shared
+      drizzle-orm:
+        specifier: 0.40.0
+        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+      pg:
+        specifier: 8.13.3
+        version: 8.13.3
 
   packages/reports:
     dependencies:
@@ -615,6 +642,33 @@ importers:
       '@khidi/shared':
         specifier: workspace:*
         version: link:../shared
+
+  packages/reservations:
+    dependencies:
+      '@khidi/db':
+        specifier: workspace:*
+        version: link:../db
+      '@khidi/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@khidi/inventory':
+        specifier: workspace:*
+        version: link:../inventory
+      '@khidi/publishing':
+        specifier: workspace:*
+        version: link:../publishing
+      '@khidi/shared':
+        specifier: workspace:*
+        version: link:../shared
+      drizzle-orm:
+        specifier: 0.40.0
+        version: 0.40.0(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
+      pg:
+        specifier: 8.13.3
+        version: 8.13.3
+      zod:
+        specifier: 3.24.2
+        version: 3.24.2
 
   packages/scanning:
     dependencies:

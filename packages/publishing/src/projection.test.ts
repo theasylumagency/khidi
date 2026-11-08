@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
-import { getDb, getAppPool, productImages, legalEntities } from "../../db/src/index.ts";
+import { getDb, getAppPool, productImages, legalEntities, storefronts } from "../../db/src/index.ts";
 import { setEntityRelationship } from "@khidi/entities";
-import { applyAdvancedStockOperation, createStockPool } from "@khidi/inventory";
+import { applyAdvancedStockOperation, createStockPool, configureAvailabilityPool } from "@khidi/inventory";
 import { getApprovedContent, getContentFactFields, reviewSkuEvidence, setSkuIdentityKind, submitSkuEvidence } from "@khidi/evidence";
 import { approveCanonicalVersion, createSkuDraft, getProductTypeByKey, listSkusWorkspace, normalizePowerToKw, saveCanonicalVersion, setStorefrontListing,
   transitionSkuLifecycle, transitionSkuToReady, upsertAccountingMapping } from "@khidi/products";
@@ -11,10 +11,11 @@ import { getSkuPublicationReview, getStorefrontProductProjection } from "./index
 
 it("suspends only locales whose approved content cites a conflicting, changed or unverified fact", async () => {
   const db = getDb();
-  const [admin, storefront, type] = await Promise.all([
+  const [admin, templateStore, type] = await Promise.all([
     db.query.users.findFirst({ where: (row, { eq }) => eq(row.role, "ADMIN") }),
     db.query.storefronts.findFirst(), getProductTypeByKey(db, "MOTOBLOCK")
   ]);
+  const [storefront]=await db.insert(storefronts).values({id:createUuidV7(),key:"projection-"+createUuidV7(),name:"Projection fixture",domain:createUuidV7()+".example.test",sellerEntityId:templateStore!.sellerEntityId,mediaBaseUrl:"https://media.example.test"}).returning();
   const actor = { userId: admin!.id };
   const sku = await createSkuDraft(db, actor, { productTypeId: type.id });
   // A unique decimal identifier avoids random hex endings such as "123a" looking like amperes.
@@ -120,6 +121,7 @@ it("suspends only locales whose approved content cites a conflicting, changed or
   const [owner]=await db.insert(legalEntities).values({id:createUuidV7(),key:"OWNER_"+createUuidV7(),legalName:"Fixture owner "+createUuidV7(),taxId:createUuidV7(),pricesIncludeVat:false}).returning();
   const pool=await createStockPool(db,actor,{ownerEntityId:owner!.id,name:"Projection pool"});
   await setEntityRelationship(db,actor,{fromEntityId:owner!.id,toEntityId:storefront!.sellerEntityId,mode:"CONSIGNMENT"});
+  await configureAvailabilityPool(db,actor,{storefrontId:storefront!.id,poolId:pool.id});
   await applyAdvancedStockOperation(db,actor,{operation:"STOCK_IN",poolId:pool.id,skuId:sku.id,quantity:7,reason:"Projection stock"});
   await applyAdvancedStockOperation(db,actor,{operation:"ALLOCATE",poolId:pool.id,skuId:sku.id,storefrontId:storefront!.id,quantity:7,reason:"Projection allocation"});
   await setPrice(db,actor,{skuId:sku.id,storefrontId:storefront!.id,basePriceMinor:123450});

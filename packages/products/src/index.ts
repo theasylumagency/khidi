@@ -31,7 +31,7 @@ import {
   storefronts,
   users
 } from "@khidi/db";
-import { type DomainActor, withDomainTransaction } from "@khidi/domain";
+import { type DomainActor, withDomainTransaction, executeIdempotent } from "@khidi/domain";
 import { withdrawArchivedSkuPrices } from "@khidi/domain/price-effects";
 import { acquireDomainLocks, priceLockKey } from "@khidi/domain/locking";
 import { assertSkuInventoryDrained } from "@khidi/domain/inventory-effects";
@@ -57,6 +57,25 @@ import {
 } from "./identifiers.ts";
 
 export * from "./taxonomy.ts";
+/** The primary choice is catalog configuration; existing reservations retain their snapshots. */
+export async function setPrimaryAccountingMapping(db:DbExecutor,actor:DomainActor,key:string,raw:unknown) {
+  const parsed=z.object({mappingId:z.string().uuid()}).strict().safeParse(raw);
+  if(!parsed.success || !z.string().uuid().safeParse(key).success) throw new AppError("VALIDATION_ERROR","Invalid primary mapping request.");
+  const [admin]=actor.userId ? await db.select().from(users).where(and(eq(users.id,actor.userId),eq(users.active,true),eq(users.role,"ADMIN"))) : [];
+  if(!admin) throw new AppError("FORBIDDEN","Only ADMIN can select a primary accounting mapping.");
+  return executeIdempotent(db,{scope:"catalog:primary-mapping:"+admin.id,idempotencyKey:key,payload:parsed.data},async(tx)=>
+    withDomainTransaction(tx,actor,async(ctx)=>{
+      await lockIdentityCatalog(ctx.tx);
+      const [mapping]=await ctx.tx.select().from(accountingMappings).where(and(eq(accountingMappings.id,parsed.data.mappingId),eq(accountingMappings.active,true)));
+      if(!mapping) throw new AppError("NOT_FOUND","Active accounting mapping not found.");
+      const before=await ctx.tx.select().from(accountingMappings).where(and(eq(accountingMappings.skuId,mapping.skuId),eq(accountingMappings.legalEntityId,mapping.legalEntityId),eq(accountingMappings.active,true)));
+      await ctx.tx.update(accountingMappings).set({isPrimary:false,updatedAt:new Date()}).where(and(eq(accountingMappings.skuId,mapping.skuId),eq(accountingMappings.legalEntityId,mapping.legalEntityId),eq(accountingMappings.isPrimary,true)));
+      await ctx.tx.update(accountingMappings).set({isPrimary:true,updatedAt:new Date()}).where(eq(accountingMappings.id,mapping.id));
+      await ctx.recordAudit({action:"ACCOUNTING_PRIMARY_SELECTED",entityType:"sku",entityId:mapping.skuId,before:{mappings:before},after:{mappingId:mapping.id}});
+      await ctx.emitOutboxEvent({eventType:"PRODUCT_UPDATED",aggregateType:"sku",aggregateId:mapping.skuId,payload:{skuId:mapping.skuId},consumers:["publishing"]});
+      return {status:200,body:{mappingId:mapping.id}};
+    }));
+}
 export * from "./units.ts";
 export * from "./naming.ts";
 export * from "./labels.ts";

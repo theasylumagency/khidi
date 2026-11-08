@@ -16,6 +16,12 @@
     "@khidi/entities": "workspace:*",
     "@khidi/inventory": "workspace:*",
     "@khidi/products": "workspace:*",
-    "@khidi/shared": "workspace:*"
+    "@khidi/shared": "workspace:*",
+    "@khidi/db": "workspace:*",
+    "drizzle-orm": "0.40.0",
+    "@khidi/reservations": "workspace:*",
+    "zod": "3.24.2",
+    "@khidi/scanning": "workspace:*",
+    "pg": "8.13.3"
   }
 }

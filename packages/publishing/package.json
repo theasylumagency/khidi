@@ -18,6 +18,9 @@
     "@khidi/media": "workspace:*",
     "@khidi/pricing": "workspace:*",
     "@khidi/products": "workspace:*",
-    "@khidi/shared": "workspace:*"
+    "@khidi/shared": "workspace:*",
+    "@khidi/db": "workspace:*",
+    "drizzle-orm": "0.40.0",
+    "pg": "8.13.3"
   }
 }

@@ -2,6 +2,12 @@
 module.exports = {
   forbidden: [
     {
+      name: "reservation-transaction-capability-is-private",
+      severity: "error",
+      from: { pathNot: "^packages/(reservations|fulfillment)/" },
+      to: { path: "^packages/reservations/src/internal\\.ts$" }
+    },
+    {
       name: "inventory-workflow-capability-is-private",
       severity: "error",
       from: { pathNot: "^packages/(inventory|reservations|fulfillment)/" },

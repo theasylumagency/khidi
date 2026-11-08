@@ -4,7 +4,8 @@ import { hasVerifiedPublicMainImage, listStorefrontMedia } from "@khidi/media";
 import { compareApprovedContentFacts, getApprovedContent, getContentFactFields, getStorefrontIdentityFacts } from "@khidi/evidence";
 import { AppError } from "@khidi/shared";
 import { listLatestPrices } from "@khidi/pricing";
-import { getSkuAllocationFacts } from "@khidi/inventory";
+import { getReservationStockFacts } from "./reservation-facts.ts";
+export { getReservationStockFacts, selectPrimaryMapping } from "./reservation-facts.ts";
 
 /**
  * [C5, C8, C9, C18] Storefront Sellability Evaluator contract (§15.2).
@@ -92,13 +93,15 @@ type PublishingDb = Parameters<typeof hasVerifiedPublicMainImage>[0];
 
 async function loadPublicationInputs(db: PublishingDb, skuId: string, catalog?: {
   details: Awaited<ReturnType<typeof getSkuWithDetails>>; stores: Awaited<ReturnType<typeof listStorefronts>>;
-}) {
-  const [details, stores, approvals, fields, hasVerifiedPublicMainImageForSku, confidentialTerms, prices, allocationFacts] = await Promise.all([
+}, storefrontId?: string) {
+  const [details, stores, approvals, fields, hasVerifiedPublicMainImageForSku, confidentialTerms, prices] = await Promise.all([
     catalog?.details ?? getSkuWithDetails(db, skuId), catalog?.stores ?? listStorefronts(db),
     getApprovedContent(db, skuId), getContentFactFields(db, skuId),
-    hasVerifiedPublicMainImage(db, skuId), getCanonicalConfidentialTerms(db), listLatestPrices(db, { skuId }), getSkuAllocationFacts(db,skuId)
+    hasVerifiedPublicMainImage(db, skuId), getCanonicalConfidentialTerms(db), listLatestPrices(db, { skuId })
   ]);
-  return { details, stores, approvals, fields, hasVerifiedPublicMainImageForSku, confidentialTerms, prices, allocationFacts };
+  const scopedStores=storefrontId ? stores.filter((s)=>s.id===storefrontId) : stores;
+  const stockFacts=new Map(await Promise.all(scopedStores.map(async(s)=>[s.id,await getReservationStockFacts(db,skuId,s.id)] as const)));
+  return { details, stores:scopedStores, approvals, fields, hasVerifiedPublicMainImageForSku, confidentialTerms, prices, stockFacts };
 }
 
 function evaluateLocale(input: Awaited<ReturnType<typeof loadPublicationInputs>>,
@@ -106,18 +109,16 @@ function evaluateLocale(input: Awaited<ReturnType<typeof loadPublicationInputs>>
   const { details, approvals, fields, hasVerifiedPublicMainImageForSku } = input;
   const version = approvals.find(({ version }) => version.locale === locale)?.version;
   const factComparison = version && compareApprovedContentFacts(version.verifiedFacts, fields);
-  const allocationFacts=input.allocationFacts.filter((a)=>a.storefrontId===store.id);
-  const owners=[...new Set(allocationFacts.map((a)=>a.ownerEntityId))].filter((id)=>id!==store.sellerEntityId);
-  const mappings = new Set(details.accountingMappings.filter((mapping) => mapping.active).map((mapping) => mapping.legalEntityId));
+  const stock=input.stockFacts.get(store.id)!;
   const slug = details.sku.canonicalSlug;
   const result = evaluateStorefrontSellability({
     lifecycleState: details.sku.lifecycleState as SkuLifecycleState,
     identityConflict: details.sku.identityConfidence === "CONFLICT",
     canonicalSlug: slug && isPublicCanonicalText(slug) && !/khidi-(app|internal)/i.test(slug) ? slug : null,
-    hasActiveSellerAccountingMapping: mappings.has(store.sellerEntityId),
-    hasStorefrontAllocation: allocationFacts.length>0,
-    requiresOwnerAccountingMapping: owners.length>0,
-    hasActiveOwnerAccountingMapping: owners.every((id) => mappings.has(id)),
+    hasActiveSellerAccountingMapping: !stock.blockingReasons.includes("MISSING_SELLER_ACCOUNTING_MAPPING"),
+    hasStorefrontAllocation: !stock.blockingReasons.includes("MISSING_STOREFRONT_ALLOCATION"),
+    requiresOwnerAccountingMapping: true,
+    hasActiveOwnerAccountingMapping: !stock.blockingReasons.includes("MISSING_OWNER_ACCOUNTING_MAPPING"),
     hasCurrentBasePrice: input.prices.some((row) => row.storefrontId === store.id && row.kind === "SET"),
     hasVerifiedPublicMainImage: hasVerifiedPublicMainImageForSku,
     isStorefrontListingEnabled: store.active && details.storefrontListings.some((listing) => listing.storefrontId === store.id && listing.enabled),
@@ -127,7 +128,9 @@ function evaluateLocale(input: Awaited<ReturnType<typeof loadPublicationInputs>>
     hasConfidentialLocaleContent: !!version && [version.displayName, version.shortDescription, version.fullDescription]
       .some((text) => findConfidentialPhrase(text, input.confidentialTerms) !== null)
   });
-  return { result, version, availableToSell:allocationFacts.reduce((sum,a)=>sum+a.availableToSell,0) };
+  result.blockingReasons=[...new Set([...result.blockingReasons,...stock.blockingReasons])];
+  result.sellable=result.blockingReasons.length===0;
+  return { result, version, availableToSell:stock.availableToSell };
 }
 
 export async function getSkuPublicationReview(db: PublishingDb, skuId: string, catalog?: Parameters<typeof loadPublicationInputs>[2]) {
@@ -142,7 +145,7 @@ export async function getSkuPublicationReview(db: PublishingDb, skuId: string, c
 export async function getStorefrontProductProjection(db: PublishingDb, target: {
   skuId: string; storefrontId: string; locale: string;
 }) {
-  const input = await loadPublicationInputs(db, target.skuId);
+  const input = await loadPublicationInputs(db, target.skuId, undefined, target.storefrontId);
   const store = input.stores.find((store) => store.id === target.storefrontId);
   if (!store) throw new AppError("NOT_FOUND", "Storefront not found.");
   const { result, version, availableToSell } = evaluateLocale(input, store, target.locale);
@@ -159,4 +162,13 @@ export async function getStorefrontProductProjection(db: PublishingDb, target: {
     fields, media, ...(price ? { basePrice: { amount: price.basePriceMinor!, currency: price.currency, vat_included: price.vatIncluded } } : {}),
     sellable: result.sellable, blockingReasons: result.blockingReasons, available_to_sell:availableToSell
   };
+}
+
+/** Read by the reservation domain under its complete price/catalog/inventory lock plan. */
+export async function getSkuReserveEligibility(db: PublishingDb, target:{skuId:string;storefrontId:string;locale:string}) {
+  const input=await loadPublicationInputs(db,target.skuId,undefined,target.storefrontId);
+  const store=input.stores[0];
+  if (!store) throw new AppError("NOT_FOUND","Storefront not found.");
+  const evaluation=evaluateLocale(input,store,target.locale);
+  return {...evaluation.result,stock:input.stockFacts.get(store.id)!,price:input.prices.find((p)=>p.storefrontId===store.id && p.kind==="SET")??null};
 }

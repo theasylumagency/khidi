@@ -53,3 +53,22 @@ Focused engine, principal and independent inventory-model tests: 34 passed, incl
 25 generated programs (seed -1214575146). Historical primitive fixtures now create real
 reservation and confirmation rows; the generator uses the approved single request per
 reservation. Wrong-request rejection remains covered. Applied migration checksums are frozen.
+
+### R2 — reservation engine
+
+A separate reservations module sits above publishing/inventory; its transaction capability
+is private to the fulfillment facade. Strict schemas reject personal-data fields and
+unsafe order references. RESERVE snapshots cart/base price, expanded components and both
+selected accounting mappings. COMMIT uses those frozen snapshots. Durable append-only
+command receipts prevent re-execution after the generic idempotency cache expires.
+
+Publishing evaluates only the configured availability pool. Composed bundles use
+component readiness/allocation/mappings and min(floor(available/component quantity));
+components need no listing or price. Factory kits stay ordinary stock. ADMIN can select
+an audited primary mapping; ambiguity blocks reserving. No external library versions
+changed: the new module reuses the pinned database/validation libraries, including the
+existing PostgreSQL peer version.
+
+Focused reservations, publishing and catalog checks: 62 passed. Reservation typecheck
+and dependency boundaries passed. The projection fixture now binds its own isolated
+storefront to its availability pool instead of relying on the superseded any-pool rule.
