@@ -2,7 +2,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   allocationBalances, allocations, entityRelationships, poolLocations, poolSkuBalances, stockLedger, stockPools,
-  storefronts, userEntityMemberships, users, skus, accountingMappings, reservationLines, unitConfirmations, type DbExecutor
+  storefronts, userEntityMemberships, users, skus, accountingMappings, reservationLines, reservations, unitConfirmations, type DbExecutor
 } from "@khidi/db";
 import { withDomainTransaction, type DomainActor, type DomainTransactionContext } from "@khidi/domain";
 import { acquireDomainLocks } from "@khidi/domain/locking";
@@ -109,6 +109,9 @@ export async function applyStockMovementBatch(db: DbExecutor, actor: DomainActor
     const [user] = actor.userId ? await ctx.tx.select().from(users).where(and(eq(users.id,actor.userId),eq(users.active,true))) : [];
     if (principal) await authorizeWorkflowMovements(ctx.tx,principal,movements);
     else if (!user || !["ADMIN","STOCK_MANAGER"].includes(user.role)) throw new AppError("FORBIDDEN", "Stock primitives require authorized staff.");
+    const orderIds=[...new Set(movements.flatMap((m)=>m.reservationId ? [m.reservationId] : []))];
+    const orders=orderIds.length ? await ctx.tx.select().from(reservations).where(inArray(reservations.id,orderIds)) : [];
+    requireCondition(!orders.some((h)=>["HANDED_OVER","RELEASED","EXPIRED"].includes(h.status)),"Closed orders cannot change stock.");
     const pools = await ctx.tx.select().from(stockPools).where(inArray(stockPools.id,[...new Set(movements.map((m)=>m.poolId))]));
     const poolMap = new Map(pools.map((p)=>[p.id,p]));
     const skuIds = [...new Set(movements.map((m)=>m.skuId))];

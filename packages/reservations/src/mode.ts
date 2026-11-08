@@ -26,7 +26,7 @@ export async function setFulfillmentMode(tx:DbExecutor,p:{type:"USER";userId:str
     const before=await readFrozenMode(ctx.tx);
     await ctx.tx.update(systemSettings).set({valueJson:input,updatedBy:p.userId,updatedAt:new Date()}).where(eq(systemSettings.key,"fulfillment_mode"));
     await ctx.recordAudit({action:"FULFILLMENT_MODE_CHANGED",entityType:"system_setting",entityId:"fulfillment_mode",before:{mode:before},after:input});
-    await ctx.emitOutboxEvent({eventType:"FULFILLMENT_MODE_CHANGED",aggregateType:"system_setting",aggregateId:"fulfillment_mode",payload:input,consumers:["notifications"]});
+    await ctx.emitOutboxEvent({eventType:"FULFILLMENT_MODE_CHANGED",aggregateType:"user",aggregateId:p.userId,payload:{key:"fulfillment_mode",...input},consumers:["notifications"]});
     return {status:200,body:input};
   });
 }

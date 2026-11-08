@@ -8,3 +8,4 @@ export const FULFILLMENT_STATUSES = [
 ] as const;
 
 export type FulfillmentStatus = (typeof FULFILLMENT_STATUSES)[number];
+export { reserveOrder, confirmOrder, releaseOrder, confirmFulfillmentUnit, handoverOrder, cancelFulfillment, markLostInStaging } from "./workflow.ts";

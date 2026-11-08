@@ -72,3 +72,18 @@ existing PostgreSQL peer version.
 Focused reservations, publishing and catalog checks: 62 passed. Reservation typecheck
 and dependency boundaries passed. The projection fixture now binds its own isolated
 storefront to its availability pool instead of relying on the superseded any-pool rule.
+
+### R3 — fulfillment
+
+The public facade confirms COD/PICKUP at RESERVE and CARD/BANK at COMMIT with an identical
+fulfillment payload in both modes. Simplified completion atomically commits, picks and
+hands over each frozen component; AUTO_ASSUMED records the real trigger and executor.
+Controlled fulfillment uses genuine per-unit scans/manual proofs, assigned PICK records,
+whole-order handover, cancellation with staged returns and ADMIN-only staging loss. PICK
+transport/UI remain disabled. After handover no further order stock mutations are allowed;
+new migration 0041 also protects closed orders and ledger/snapshot dimensions.
+
+Focused fulfillment, primitive and principal checks: 46 passed. All four payment methods
+produce identical completed balances in both modes; bundles auto-complete for all four.
+Concurrent/replayed confirmation, manual permissions, wrong scans, partial cancellation,
+lost units, same-transaction proof reuse and later proof reuse are covered.
