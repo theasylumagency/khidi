@@ -95,3 +95,25 @@ and notification clicks are constrained to the Hub origin.
 Focused push/session/service-worker checks: 20 passed; notification and Hub typechecks
 passed. No push was sent to a real device. Operations are in
 `docs/ops/notifications-reports.md`; private production configuration remains untouched.
+### N3 — movement reports
+
+Implemented seller COMMIT / COMMIT_RELEASE corrections and owner HANDOVER_OUT periods in
+Asia/Tbilisi, immutable C18 accounting snapshots, final cart prices, separate transfer and
+optional availability sections, and exact integer-money storefront totals. A bundle carries
+one priced header; its component rows carry quantities and accounting snapshots without a
+price split. Reservation planning explicitly refuses mixed-owner bundles. The defensive
+mixed-owner report excludes the informational header price from owner totals; this branch
+is unreachable under today's one-pool invariant and would require a future ADR to enable.
+
+CSV is UTF-8 BOM with formula-injection protection; XLSX uses exceljs 4.4.0
+(published 2023-10-19). A read-only repeatable-read snapshot keeps each export internally
+consistent. Preview is bounded; exports refuse oversized periods rather than truncate.
+ADMIN can view all entities and grant reports.view to an existing non-warehouse member;
+other users require that grant and their own entity membership. Daily recipients are
+configured separately per existing membership; granting reports.view is per user.
+
+New migration 0048 snapshots price ID and vat_included at reservation time. Legacy M9
+reservations have no recorded VAT snapshot and are explicitly shown as unknown; current
+prices or accounting mappings are never used to invent historical values.
+
+Focused verification: reports 6/6, reservations 6/6; reports and Hub type checks passed.

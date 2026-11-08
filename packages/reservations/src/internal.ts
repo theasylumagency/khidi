@@ -9,6 +9,7 @@ import { emitInstallmentExpiryNotice } from "@khidi/notifications/deadlines";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import { isCod, type Confirmation, type ReserveInput } from "./contracts.ts";
 import { FULFILLMENT_CONFIGURATION_LOCK, readFrozenMode } from "./mode.ts";
+import { assertBundleSingleOwner } from "./bundle-owner.ts";
 export { workflowCommand } from "./commands.ts";
 
 export type StorefrontPrincipal=Extract<WorkflowPrincipal,{type:"STOREFRONT_SERVICE"}>;
@@ -71,8 +72,10 @@ export async function reserveInTransaction(ctx:DomainTransactionContext,p:Storef
     const facts=await getSkuReserveEligibility(ctx.tx,{skuId:requested.skuId,storefrontId:store.id,locale:input.locale??"ka"});
     demand(facts.sellable && facts.price,"The product cannot be reserved: "+facts.blockingReasons.join(", "));
     demand(facts.stock.availableToSell>=requested.quantity,"Insufficient available stock.");
+    assertBundleSingleOwner(facts.stock.composedBundle,facts.stock.components);
     const [item]=await ctx.tx.insert(reservationItems).values({id:createUuidV7(),reservationId:header!.id,skuId:requested.skuId,quantity:requested.quantity,
-      composedBundle:facts.stock.composedBundle,basePriceMinor:facts.price.basePriceMinor!,currency:facts.price.currency}).returning();
+      composedBundle:facts.stock.composedBundle,basePriceMinor:facts.price.basePriceMinor!,currency:facts.price.currency,
+      basePriceId:facts.price.id,vatIncluded:facts.price.vatIncluded}).returning();
     for(const component of facts.stock.components) {
       demand(component.allocationId && component.sellerMapping && component.ownerMapping,"Missing component allocation or mapping.");
       const quantity=requested.quantity*component.componentQuantity;

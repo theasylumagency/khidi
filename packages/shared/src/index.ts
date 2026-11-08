@@ -188,6 +188,7 @@ export type UserRole = (typeof USER_ROLES)[number];
 
 export const GRANULAR_PERMISSIONS = [
   "price.edit",
+  "reports.view",
   "stock.transfer.cross_entity",
   "product.approve",
   "evidence.view_invoices"

@@ -1031,6 +1031,8 @@ export const reservationItems = pgTable("reservation_items", {
   quantity:integer("quantity").notNull(),
   composedBundle:boolean("composed_bundle").notNull(),
   basePriceMinor:bigint("base_price_minor",{mode:"number"}).notNull(),
+  basePriceId:uuid("base_price_id").references(()=>storefrontPrices.id),
+  vatIncluded:boolean("vat_included"),
   currency:text("currency").notNull(),
   finalUnitPriceMinor:bigint("final_unit_price_minor",{mode:"number"})
 });

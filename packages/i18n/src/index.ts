@@ -116,7 +116,8 @@ export const NAVIGATION_ITEMS: readonly NavItem[] = [
 ] as const;
 
 export function getNavigationForRole(role: UserRole, permissions: readonly GranularPermission[] = []): NavItem[] {
-  return NAVIGATION_ITEMS.filter((item) => item.allowedRoles.includes(role) || (item.key === "prices" && role !== "WAREHOUSE" && permissions.includes("price.edit")))
+  return NAVIGATION_ITEMS.filter((item) => item.key==="reports" ? role==="ADMIN"||role!=="WAREHOUSE"&&permissions.includes("reports.view") :
+    item.allowedRoles.includes(role) || (item.key === "prices" && role !== "WAREHOUSE" && permissions.includes("price.edit")))
     .map((item) => item.key === "tasks" && role !== "ADMIN" ? { ...item, href: "/warehouse/tasks" } : item);
 }
 
@@ -126,6 +127,27 @@ export function formatStaffName(fullName: string): string {
 }
 
 const SCANNING_LABELS = {
+ "reports.title":"მოძრაობის ანგარიშები","reports.entity":"იურიდიული პირი","reports.from":"პერიოდის დასაწყისი","reports.to":"პერიოდის ბოლო",
+ "reports.bundle_cancelled":"ბანდლის გაუქმება გადაცემამდე",
+ "reports.item":"პროდუქტი","reports.bundle":"ბანდლი","reports.component":"კომპონენტი","reports.movement":"მოძრაობა",
+ "reports.commit":"შეკვეთის დადასტურება","reports.commit_release":"გადაცემამდე გაუქმების შესწორება","reports.handover":"ფიზიკური გადაცემა",
+ "reports.transfer_out":"გადატანა — გასვლა","reports.transfer_in":"გადატანა — მიღება","reports.stock_in":"მარაგის დამატება","reports.stock_out":"მარაგის შემცირება",
+ "reports.adjustment":"კორექტირება","reports.write_off":"ჩამოწერა","reports.purchase":"შესყიდვა","reports.consignment":"კონსიგნაცია",
+ "reports.show":"ჩვენება","reports.download_csv":"CSV ჩამოტვირთვა","reports.download_xlsx":"Excel ჩამოტვირთვა","reports.availability_option":"ხელმისაწვდომობის ცვლილებებიც",
+ "reports.seller":"როგორც გამყიდველი","reports.owner":"როგორც მფლობელი","reports.transfers":"გადატანები","reports.other":"სხვა მოძრაობა",
+ "reports.availability":"ხელმისაწვდომობის ცვლილებები","reports.totals":"ჯამები","reports.view":"ხედვა",
+ "reports.unknown":"არ არის დაფიქსირებული","reports.yes":"კი","reports.no":"არა","reports.unallocated":"განაწილება დაუდგენელია",
+ "reports.policy":"გაყიდვის პერიოდი დადასტურების თარიღით ითვლება, მფლობელის — გადაცემის თარიღით. გადაცემამდე გაუქმება ცალკე შესწორებაა. ბანდლის კომპონენტებს ფასი არ უნაწილდება.",
+ "reports.preview":"ეკრანზე ნაჩვენებია თითო სექციის პირველი 100 ჩანაწერი. ჩამოტვირთვა სრულ ანგარიშს შეიცავს.",
+ "reports.access":"ანგარიშებზე წვდომა","reports.granted":"ანგარიშების ნახვის უფლება","reports.recipient":"დღიური ანგარიშის მიმღები","reports.save":"შენახვა",
+ "reports.access_hint":"ნახვის უფლება მომხმარებლის ყველა საკუთარ იურიდიულ პირზე მოქმედებს; დღიური ანგარიშის მიმღები თითოეულ პირზე ცალკე ირჩევა.",
+ "reports.saved":"ცვლილება შენახულია","reports.failed":"ოპერაცია ვერ შესრულდა. გადაამოწმეთ მონაცემები და სცადეთ ხელახლა.",
+ "reports.col.rowKind":"სტრიქონის ტიპი","reports.col.kind":"მოძრაობა","reports.col.date":"მოძრაობის დრო",
+ "reports.col.saleDate":"დადასტურების დრო","reports.col.exitDate":"ფიზიკური გასვლის დრო","reports.col.storefront":"მაღაზია","reports.col.orderRef":"მაღაზიის შეკვეთა",
+ "reports.col.sku":"SKU","reports.col.quantity":"რაოდენობა","reports.col.unitPrice":"საბოლოო ერთეულის ფასი","reports.col.totalMinor":"ჯამი",
+ "reports.col.currency":"ვალუტა","reports.col.vat":"დღგ ჩათვლილია","reports.col.accountingId":"საბუღალტრო კოდი","reports.col.accountingName":"საბუღალტრო დასახელება",
+ "reports.col.provenance":"შესრულების დადასტურება","reports.col.document":"დოკუმენტი","reports.col.reason":"მიზეზი","reports.col.relationship":"ურთიერთობის რეჟიმი",
+ "reports.col.componentSnapshots":"კომპონენტების თავდაპირველი საბუღალტრო ჩანაწერები",
  "notification.title":"შეტყობინებები",
  "notification.push_body":"Khidi-ში სამუშაო თქვენს ყურადღებას ელოდება.",
  "notification.push_title":"შეტყობინებები ამ მოწყობილობაზე",
