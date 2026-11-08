@@ -46,3 +46,28 @@ notice; extending creates a new eligible expiry, and creation/extension already 
 the lead window emits immediately. Other deadlines are checked by the worker. Recipients
 must be ADMIN/ORDER_MANAGER members of the seller entity. The notice does not extend a
 reservation; only the storefront's existing API command does that.
+## Movement reports
+
+After migrations, run media:jobs:deploy as hub_migrator to register the daily-report queue,
+dead-letter queue and 00:05 Asia/Tbilisi schedule. The worker uses hub_app and enables the
+pg-boss scheduler without runtime migrations. The previous completed Tbilisi day is frozen
+once per legal entity. Retries reuse the frozen snapshot and fill only missing CSV/XLSX
+files; the ready notification is emitted once, after both files exist.
+
+Reports use the same private storage, versioning, replication and backup coverage as media,
+under reports/<random UUIDv7>/. Include this prefix in backup/restore verification.
+No report file is public. Download links expire after five minutes, are bound to the signed-in
+user, and recheck current reports.view/entity membership; copying a link cannot grant access.
+Ready reports are available under Reports. ADMIN configures daily recipients per existing
+entity membership; other recipients also need reports.view. No email is sent.
+
+If the worker was offline at the scheduled time, run pnpm reports:daily YYYY-MM-DD for each
+missed completed date, with the worker's database/storage configuration. This is idempotent.
+Investigate report-dead-letter via the audit screen, fix storage/database availability, then
+use the same command for the failed date. Do not run tests or seeds on a shared server.
+The task does not deploy this schedule or worker to a shared environment.
+
+Storage writes precede the append-only file-reference transaction. A crash at that boundary
+can leave an unreferenced private immutable object; retry creates a fresh random object key.
+Do not automatically delete such files or overwrite them. Referenced snapshots/files never
+change; verify stored SHA-256 on every download.

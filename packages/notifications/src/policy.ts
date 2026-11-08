@@ -25,6 +25,7 @@ export async function notificationIntent(db:DbExecutor,e:Event):Promise<Notifica
  if(e.eventType==="FULFILLMENT_MODE_CHANGED")return intent("FULFILLMENT_MODE_CHANGED","ADMIN","/fulfillment",p);
  if(e.eventType==="NOTIFICATION_SIGNAL") {
   const type=p.type as NotificationType;
+  if(type==="JOB_FAILED"&&e.aggregateType==="report_job")return intent("JOB_FAILED","ADMIN","/reports",p.jobId,"report-job");
   if(type==="DAILY_REPORT_READY"&&uuid(p.legalEntityId)&&uuid(p.reportId))return {...intent(type,"REPORT","/reports/"+p.reportId,p.reportId),legalEntityId:p.legalEntityId};
   if(type==="RESERVATION_EXPIRING") {
    const [header]=await db.select().from(reservations).where(eq(reservations.id,e.aggregateId));

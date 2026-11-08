@@ -7,22 +7,25 @@ import { RESERVATION_QUEUE, RESERVATION_DEAD_LETTER } from "@khidi/fulfillment/j
 import { fanoutStorefrontEvents, dispatchStorefrontWebhooks } from "@khidi/publishing/webhooks";
 import { consumeNotifications,emitDeadlineNotifications,createPushIntents,dispatchPush } from "@khidi/notifications";
 import { vapidConfig } from "@khidi/notifications/push-config";
+import { REPORT_QUEUE,REPORT_DEAD_LETTER } from "@khidi/reports";
+import { startReportWorkers } from "@khidi/reports/jobs";
 
 export function getWorkerHealthStatus() {
   return {
     service: "khidi-worker",
     status: "ok",
-    registeredQueues: [...MEDIA_QUEUES, "media-dead-letter", ...AI_JOB_NAMES, "ai-dead-letter",RESERVATION_QUEUE,RESERVATION_DEAD_LETTER],
+    registeredQueues: [...MEDIA_QUEUES, "media-dead-letter", ...AI_JOB_NAMES, "ai-dead-letter",RESERVATION_QUEUE,RESERVATION_DEAD_LETTER,REPORT_QUEUE,REPORT_DEAD_LETTER],
     timestamp: nowUtc().toISOString()
   };
 }
 
 if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, "/")}` || process.argv[1]?.endsWith("index.ts")) {
   if(process.env.NODE_ENV==="production")vapidConfig();
-  const db = getDb(), storage = getMediaStorage(), boss = await createMediaJobRuntime();
+  const db = getDb(), storage = getMediaStorage(), boss = await createMediaJobRuntime({schedule:true});
   await startMediaWorkers(db, storage, boss);
   await startAiWorkers(db, storage, boss, configuredAiProvider());
   await startReservationWorkers(db,boss);
+  await startReportWorkers(db,storage,boss);
   let running = false;
   const dispatch = async () => {
     if (running) return;

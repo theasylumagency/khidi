@@ -1,0 +1,41 @@
+import { expect,it } from "vitest";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { eq,sql } from "drizzle-orm";
+import { notifications,outboxEvents,userEntityMemberships } from "@khidi/db";
+import { createUuidV7 } from "@khidi/shared";
+import { FilesystemMediaStorage } from "@khidi/media/storage";
+import { deployMediaJobs } from "../../media/src/jobs-runtime.ts";
+import { consumeNotifications } from "../../notifications/src/index.ts";
+import { reservationFixture } from "../../reservations/src/reservation.test-fixture.ts";
+import { generateDailyReport,previousTbilisiDay,tbilisiDay,REPORT_QUEUE,REPORT_DEAD_LETTER } from "./daily.ts";
+import { downloadDailyReport,signReportDownload,verifyReportDownload } from "./download.ts";
+it("generates a private report once per entity/day, retries missing files, and notifies configured recipients only once",async()=>{
+ const f=await reservationFixture(),root=await mkdtemp(path.join(tmpdir(),"khidi-report-")),storage=new FilesystemMediaStorage(root);
+ const entityId=f.entities[0]!.id,day=previousTbilisiDay();
+ await f.db.insert(userEntityMemberships).values({userId:f.actor.userId,legalEntityId:entityId,isReportRecipient:true});
+ let fail=true;const flaky={...storage,readPrivate:storage.readPrivate.bind(storage),putPublic:storage.putPublic.bind(storage),removePublic:storage.removePublic.bind(storage),
+  putPrivate:async(key:string,bytes:Uint8Array,type:string)=>{if(key.endsWith(".xlsx")&&fail){fail=false;throw new Error("simulated storage outage");}return storage.putPrivate(key,bytes,type);}};
+ await expect(generateDailyReport(f.db,flaky,entityId,day)).rejects.toThrow(/outage/);
+ const a=await generateDailyReport(f.db,storage,entityId,day),b=await generateDailyReport(f.db,storage,entityId,day);expect(a).toBe(b);
+ const files=await f.db.execute(sql`SELECT * FROM daily_report_files WHERE report_id=${a}::uuid`);expect(files.rows).toHaveLength(2);
+ expect(files.rows.every(r=>String(r.storage_key).startsWith("reports/")&&!String(r.storage_key).includes("KH-"))).toBe(true);
+ const events=await f.db.select().from(outboxEvents).where(eq(outboxEvents.aggregateId,a));
+ const ready=events.filter(e=>e.payloadJson.type==="DAILY_REPORT_READY");expect(ready).toHaveLength(1);
+ await consumeNotifications(f.db,ready[0]!.id);await consumeNotifications(f.db,ready[0]!.id);
+ expect(await f.db.select().from(notifications).where(eq(notifications.eventId,ready[0]!.id))).toHaveLength(1);
+ const url=signReportDownload(f.actor.userId,a,"CSV"),raw=Object.fromEntries(new URL(url,"https://app.example.test").searchParams);
+ const file=await downloadDailyReport(f.db,storage,f.actor.userId,raw);expect(Buffer.from(file.bytes).subarray(0,3)).toEqual(Buffer.from([239,187,191]));
+ await expect(downloadDailyReport(f.db,storage,f.actor.userId,raw,Date.now()+301000)).rejects.toMatchObject({code:"FORBIDDEN"});
+ expect(()=>verifyReportDownload(createUuidV7(),raw)).toThrow();
+ await expect(f.db.execute(sql`UPDATE daily_reports SET snapshot_json='{}' WHERE id=${a}::uuid`)).rejects.toThrow();
+ await expect(generateDailyReport(f.db,storage,entityId,tbilisiDay())).rejects.toThrow(/completed/);
+});
+it("uses the previous Tbilisi day across UTC midnight and deploys the daily schedule at 00:05 Tbilisi",async()=>{
+ expect(previousTbilisiDay(new Date("2026-11-07T20:01:00Z"))).toBe("2026-11-07");
+ expect(previousTbilisiDay(new Date("2026-11-07T19:59:00Z"))).toBe("2026-11-06");
+ await deployMediaJobs([],[],{queue:REPORT_QUEUE,deadLetter:REPORT_DEAD_LETTER,cron:"5 0 * * *"});
+ const f=await reservationFixture(),r=await f.db.execute(sql`SELECT cron,timezone AS tz FROM khidi_jobs.schedule WHERE name=${REPORT_QUEUE}`);
+ expect(r.rows[0]).toMatchObject({cron:"5 0 * * *",tz:"Asia/Tbilisi"});
+});

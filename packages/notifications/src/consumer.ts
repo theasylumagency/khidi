@@ -30,7 +30,7 @@ export async function consumeNotifications(db:DbExecutor,onlyEventId?:string) {
       if(task&&user.role==="ADMIN"&&task.createdBy!==user.id&&task.assigneeUserId!==user.id&&task.assigneeRole!=="ADMIN")continue;
       const [allowed]=await ctx.tx.select({id:notifications.id}).from(notifications).where(and(eq(notifications.id,id),await notificationVisibility(ctx.tx,user)));
       if(!allowed)continue;
-      if(intent.audience==="REPORT"&&user.role!=="ADMIN") {
+       if(intent.audience==="REPORT") {
        const members=await ctx.tx.execute(sql`SELECT 1 FROM user_entity_memberships WHERE user_id=${user.id} AND legal_entity_id=${intent.legalEntityId} AND is_report_recipient`);
        if(!members.rowCount)continue;
       }

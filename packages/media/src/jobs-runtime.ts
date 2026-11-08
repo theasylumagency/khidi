@@ -7,7 +7,7 @@ import type { MediaStorage } from "./storage.ts";
 import { synchronizePublicMedia } from "./public-media.ts";
 export const MEDIA_QUEUES = ["process-image", "tier2-image-check", "publish-sku-media"] as const;
 export const MEDIA_JOB_SCHEMA = "khidi_jobs";
-export async function deployMediaJobs(aiQueues: readonly string[] = [], reservationQueues: readonly string[] = []) {
+export async function deployMediaJobs(aiQueues: readonly string[] = [], reservationQueues: readonly string[] = [], reportSchedule?:{queue:string;deadLetter:string;cron:string}) {
   const pool = createMigratorPool();
   const boss = new PgBoss({ connectionString: resolveMigratorDatabaseUrl(), schema: MEDIA_JOB_SCHEMA, schedule: false, supervise: false });
   boss.on("error", () => {});
@@ -27,6 +27,11 @@ export async function deployMediaJobs(aiQueues: readonly string[] = [], reservat
       for(const queue of reservationQueues) await boss.createQueue(queue,{retryLimit:5,retryDelay:10,retryBackoff:true,
         expireInSeconds:300,retentionSeconds:2592000,deadLetter:"reservation-dead-letter"});
     }
+    if(reportSchedule) {
+      await boss.createQueue(reportSchedule.deadLetter,{retryLimit:0,retentionSeconds:2592000});
+      await boss.createQueue(reportSchedule.queue,{retryLimit:3,retryDelay:60,retryBackoff:true,expireInSeconds:3600,retentionSeconds:2592000,deadLetter:reportSchedule.deadLetter});
+      await boss.schedule(reportSchedule.queue,reportSchedule.cron,{}, {tz:"Asia/Tbilisi"});
+    }
     await pool.query(`REVOKE ALL ON SCHEMA khidi_jobs FROM PUBLIC; REVOKE CREATE ON SCHEMA khidi_jobs FROM hub_app;
       GRANT USAGE ON SCHEMA khidi_jobs TO hub_app;
       GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA khidi_jobs TO hub_app;
@@ -34,8 +39,8 @@ export async function deployMediaJobs(aiQueues: readonly string[] = [], reservat
       GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA khidi_jobs TO hub_app;`);
   } finally { await boss.stop({ graceful: true }); await pool.end(); }
 }
-export async function createMediaJobRuntime() {
-  const boss = new PgBoss({ connectionString: resolveAppDatabaseUrl(), schema: MEDIA_JOB_SCHEMA, migrate: false, createSchema: false, schedule: false, reindex: false, application_name: "khidi-worker" });
+export async function createMediaJobRuntime(options:{schedule?:boolean}={}) {
+  const boss = new PgBoss({ connectionString: resolveAppDatabaseUrl(), schema: MEDIA_JOB_SCHEMA, migrate: false, createSchema: false, schedule: options.schedule??false, reindex: false, application_name: "khidi-worker" });
   boss.on("error", () => { console.error("Khidi media queue error; inspect the worker and database health."); });
   await boss.start();
   const role = await boss.getDb().executeSql("SELECT current_user AS name");

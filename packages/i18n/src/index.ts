@@ -128,6 +128,7 @@ export function formatStaffName(fullName: string): string {
 
 const SCANNING_LABELS = {
  "reports.title":"მოძრაობის ანგარიშები","reports.entity":"იურიდიული პირი","reports.from":"პერიოდის დასაწყისი","reports.to":"პერიოდის ბოლო",
+ "reports.daily":"დღიური ანგარიშები","reports.private_download":"ბმული მხოლოდ თქვენთვისაა და 5 წუთში ამოიწურება. საჭიროებისას განაახლეთ გვერდი.",
  "reports.bundle_cancelled":"ბანდლის გაუქმება გადაცემამდე",
  "reports.item":"პროდუქტი","reports.bundle":"ბანდლი","reports.component":"კომპონენტი","reports.movement":"მოძრაობა",
  "reports.commit":"შეკვეთის დადასტურება","reports.commit_release":"გადაცემამდე გაუქმების შესწორება","reports.handover":"ფიზიკური გადაცემა",

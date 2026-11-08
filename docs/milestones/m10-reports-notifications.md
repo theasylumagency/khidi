@@ -117,3 +117,12 @@ reservations have no recorded VAT snapshot and are explicitly shown as unknown; 
 prices or accounting mappings are never used to invent historical values.
 
 Focused verification: reports 6/6, reservations 6/6; reports and Hub type checks passed.
+### N4 — daily reports
+
+Migration 0049 freezes one report snapshot per entity/Tbilisi day and append-only CSV/XLSX
+file references. pg-boss runs at 00:05 Asia/Tbilisi with retry/backoff and a dead-letter
+notification. Ready is emitted once only after both private files are recorded; ADMIN
+receives a daily notification only when configured as an entity report recipient, like
+other authorized recipients. A storage outage can be retried without changing the snapshot.
+Five-minute signed links bind the user and recheck current scope before hash-verified reads.
+No email. Operations includes manual catch-up for missed days and orphan-object handling.
