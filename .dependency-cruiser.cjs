@@ -2,6 +2,24 @@
 module.exports = {
   forbidden: [
     {
+      name: "reservation-transaction-capability-is-private",
+      severity: "error",
+      from: { pathNot: "^packages/(reservations|fulfillment)/" },
+      to: { path: "^packages/reservations/src/internal\\.ts$" }
+    },
+    {
+      name: "inventory-workflow-capability-is-private",
+      severity: "error",
+      from: { pathNot: "^packages/(inventory|reservations|fulfillment)/" },
+      to: { path: "^packages/inventory/src/(workflow|workflow-auth)\\.ts$" }
+    },
+    {
+      name: "inventory-core-has-only-authorized-entry-points",
+      severity: "error",
+      from: { pathNot: "^packages/inventory/src/(engine|workflow)\\.ts$" },
+      to: { path: "^packages/inventory/src/engine-core\\.ts$" }
+    },
+    {
       name: "no-circular",
       severity: "error",
       comment: "[C5] Circular dependencies between modules or files are strictly forbidden.",
@@ -13,12 +31,12 @@ module.exports = {
     {
       name: "products-must-not-import-commerce-or-publishing",
       severity: "error",
-      comment: "[C5] packages/products must never import pricing, inventory, fulfillment, or publishing.",
+      comment: "[C5] packages/products must never import pricing, inventory, reservations, fulfillment, or publishing.",
       from: {
         path: "^packages/products/"
       },
       to: {
-        path: "^packages/(pricing|inventory|fulfillment|publishing|reports|notifications)/"
+        path: "^packages/(pricing|inventory|reservations|fulfillment|publishing|reports|notifications)/"
       }
     },
     {

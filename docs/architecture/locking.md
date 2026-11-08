@@ -82,3 +82,20 @@ The verification command uses a read-only repeatable-read snapshot and takes no 
 Archive/merge checks use `assert_sku_inventory_drained` after the source SKU lock. It locks
 source pool/allocation rows and checks their zero balances plus open fulfillment when M9's
 tables exist. History is not a blocker. The survivor's balances are not changed.
+
+## Reservation and fulfillment extension (M9)
+
+New reservations share fulfillment:configuration, identity catalog and
+inventory:configuration before discovering their cart/component union; price keys and
+SKU rows precede balances. The mode setter exclusively locks fulfillment:configuration.
+Existing workflows take the shared catalog/configuration locks, then the reservation
+header FOR UPDATE, then their complete balance plan. All operations on a reservation
+use this same decision point, including expiry, payment success and cancellation.
+Physical completion locks the union of all affected SKU/pool/allocation rows before
+calling the engine. Pure commitment/release batches need only allocations. No other
+inventory service acquires a reservation header after a balance lock.
+
+Webhook catalog fan-out serializes only its own scan using the transaction advisory key
+`webhook:fanout`; it never takes UPDATE locks on append-only outbox events. Dispatchers
+claim per-consumer delivery rows with SKIP LOCKED and commit a lease before network I/O.
+Completion locks only that delivery and checks the lease token; it acquires no stock locks.

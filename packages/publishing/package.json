@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./storefront-api": "./src/storefront-api.ts",
+    "./webhooks": "./src/webhooks.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -12,12 +14,17 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@khidi/domain": "workspace:*",
+    "zod": "3.24.2",
     "@khidi/evidence": "workspace:*",
     "@khidi/entities": "workspace:*",
     "@khidi/inventory": "workspace:*",
     "@khidi/media": "workspace:*",
     "@khidi/pricing": "workspace:*",
     "@khidi/products": "workspace:*",
-    "@khidi/shared": "workspace:*"
+    "@khidi/shared": "workspace:*",
+    "@khidi/db": "workspace:*",
+    "drizzle-orm": "0.40.0",
+    "pg": "8.13.3"
   }
 }

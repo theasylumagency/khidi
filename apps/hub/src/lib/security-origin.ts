@@ -1,7 +1,9 @@
 import { webauthnConfig } from "@khidi/auth/webauthn-config";
 import { AppError } from "@khidi/shared";
+import { assertHubRequestHost } from "./host-isolation.ts";
 
 export function assertSameSecurityOrigin(request: Request) {
+  assertHubRequestHost(request);
   const config = webauthnConfig();
   const fetchSite = request.headers.get("sec-fetch-site");
   if (request.headers.get("origin") !== config.origin || (fetchSite && fetchSite !== "same-origin")) {

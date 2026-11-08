@@ -75,6 +75,7 @@ const nextConfig: NextConfig = {
     "@khidi/pricing",
     "@khidi/inventory",
     "@khidi/fulfillment",
+    "@khidi/reservations",
     "@khidi/reports",
     "@khidi/notifications",
     "@khidi/i18n",

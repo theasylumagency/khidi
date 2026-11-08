@@ -7,7 +7,7 @@ import type { MediaStorage } from "./storage.ts";
 import { synchronizePublicMedia } from "./public-media.ts";
 export const MEDIA_QUEUES = ["process-image", "tier2-image-check", "publish-sku-media"] as const;
 export const MEDIA_JOB_SCHEMA = "khidi_jobs";
-export async function deployMediaJobs(aiQueues: readonly string[] = []) {
+export async function deployMediaJobs(aiQueues: readonly string[] = [], reservationQueues: readonly string[] = []) {
   const pool = createMigratorPool();
   const boss = new PgBoss({ connectionString: resolveMigratorDatabaseUrl(), schema: MEDIA_JOB_SCHEMA, schedule: false, supervise: false });
   boss.on("error", () => {});
@@ -21,6 +21,11 @@ export async function deployMediaJobs(aiQueues: readonly string[] = []) {
       await boss.createQueue("ai-dead-letter", { retryLimit: 0, retentionSeconds: 2592000 });
       for (const queue of aiQueues) await boss.createQueue(queue, { retryLimit: 2, retryDelay: 10, retryBackoff: true,
         expireInSeconds: 300, retentionSeconds: 2592000, deadLetter: "ai-dead-letter" });
+    }
+    if(reservationQueues.length) {
+      await boss.createQueue("reservation-dead-letter",{retryLimit:0,retentionSeconds:2592000});
+      for(const queue of reservationQueues) await boss.createQueue(queue,{retryLimit:5,retryDelay:10,retryBackoff:true,
+        expireInSeconds:300,retentionSeconds:2592000,deadLetter:"reservation-dead-letter"});
     }
     await pool.query(`REVOKE ALL ON SCHEMA khidi_jobs FROM PUBLIC; REVOKE CREATE ON SCHEMA khidi_jobs FROM hub_app;
       GRANT USAGE ON SCHEMA khidi_jobs TO hub_app;

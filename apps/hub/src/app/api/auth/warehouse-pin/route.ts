@@ -1,3 +1,4 @@
+import { assertHubRequestHost } from "../../../../lib/host-isolation.ts";
 import { NextResponse, type NextRequest } from "next/server";
 import { getDb } from "@khidi/db";
 import { loginWithWarehousePin } from "@khidi/auth";
@@ -6,6 +7,7 @@ import { KHIDI_DEVICE_COOKIE, KHIDI_SESSION_COOKIE } from "../../../../lib/sessi
 
 export async function POST(request: NextRequest) {
   try {
+    assertHubRequestHost(request);
     const body = (await request.json()) as {
       userId?: string;
       pin?: string;

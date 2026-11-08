@@ -29,7 +29,7 @@ independently configured session duration are unchanged.
 3. **Run migrations**: `corepack pnpm db:migrate`. `DATABASE_MIGRATOR_URL` identifies
    `hub_migrator`; `DATABASE_URL` identifies the restricted `hub_app` role on the same DB.
 4. **Deploy worker queues**: `corepack pnpm media:jobs:deploy`. This creates/migrates
-   pg-boss as `hub_migrator`, registers the media and evidence AI queues, and grants runtime
+   pg-boss as `hub_migrator`, registers the media, evidence AI and reservation-expiry queues, and grants runtime
    privileges to `hub_app`. Keep `AI_PROVIDER=disabled` on shared servers. Local fixture runs
    can use `AI_PROVIDER=synthetic`. `AI_DAILY_BUDGET_USD_MICROS` defaults to zero, counts
    reserved and billed amounts, and resets at midnight in `Asia/Tbilisi`.

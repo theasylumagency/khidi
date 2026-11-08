@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    "./office": "./src/office.ts",
+    ".": "./src/index.ts",
+    "./jobs": "./src/jobs.ts",
+    "./job-names": "./src/job-names.ts",
+    "./storefront-api": "./src/storefront-api.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -16,6 +20,13 @@
     "@khidi/entities": "workspace:*",
     "@khidi/inventory": "workspace:*",
     "@khidi/products": "workspace:*",
-    "@khidi/shared": "workspace:*"
+    "@khidi/shared": "workspace:*",
+    "@khidi/db": "workspace:*",
+    "drizzle-orm": "0.40.0",
+    "@khidi/reservations": "workspace:*",
+    "zod": "3.24.2",
+    "@khidi/scanning": "workspace:*",
+    "pg": "8.13.3",
+    "pg-boss": "12.38.0"
   }
 }
