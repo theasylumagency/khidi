@@ -7,6 +7,7 @@ import { formatStaffName, getNavigationForRole, t, type TranslationKey } from "@
 import { PwaRegister } from "../components/pwa-register.tsx";
 import { LogoutButton } from "../components/logout-button.tsx";
 import { SessionIdleMonitor } from "../components/session-idle-monitor.tsx";
+import { NotificationBadge } from "../components/notification-badge.tsx";
 import { getCurrentPrincipal } from "../lib/session.ts";
 
 export const metadata: Metadata = {
@@ -141,7 +142,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                       background: "rgba(255,255,255,0.06)"
                     }}
                   >
-                    {item.labelKa}
+                    {item.labelKa}{item.key==="notifications"?<NotificationBadge key={principal.userId}/>:null}
                   </Link>
                 ))}
                 <span

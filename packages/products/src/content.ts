@@ -119,7 +119,7 @@ export async function recordCanonicalVersion(ctx: DomainTransactionContext, inpu
   await ctx.recordAudit({ action: "CANONICAL_CONTENT_VERSION_CREATED", entityType: "sku", entityId: input.skuId,
     after: { versionId: version!.id, locale: input.locale, origin: input.origin, facts } });
   await ctx.emitOutboxEvent({ eventType: "PRODUCT_UPDATED", aggregateType: "sku", aggregateId: input.skuId,
-    payload: { contentVersionId: version!.id, locale: input.locale, approved: false }, consumers: [] });
+    payload: { contentVersionId: version!.id, locale: input.locale, approved: false }, consumers: ["notifications"] });
   return { version: version!, issues };
 }
 
@@ -187,7 +187,7 @@ export async function approveCanonicalVersion(db: DbExecutor, actor: DomainActor
       before: previous ? { versionId: previous.versionId, locale: version.locale } : undefined,
       after: { versionId, locale: version.locale, approvedBy } });
     await ctx.emitOutboxEvent({ eventType: "PRODUCT_UPDATED", aggregateType: "sku", aggregateId: skuId,
-      payload: { contentVersionId: versionId, locale: version.locale, approved: true }, consumers: [] });
+      payload: { contentVersionId: versionId, locale: version.locale, approved: true }, consumers: ["notifications"] });
     await refreshSkuContentReview(ctx, skuId);
     return version;
   });

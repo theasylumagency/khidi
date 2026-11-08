@@ -12,8 +12,9 @@ import { mediaReceipt, recordMediaReceipt } from "./transactions.ts";
 import { synchronizePublicMedia } from "./public-media.ts";
 
 async function auditJob(ctx: DomainTransactionContext, id: string, status: string, attempts: number) {
+  const [job]=await ctx.tx.select({generation:mediaJobs.generation}).from(mediaJobs).where(eq(mediaJobs.id,id));
   await ctx.recordAudit({ action: "MEDIA_JOB_UPDATED", entityType: "media_job", entityId: id, after: { status, attempts } });
-  await ctx.emitOutboxEvent({ eventType: "MEDIA_JOB_UPDATED", aggregateType: "media_job", aggregateId: id, payload: { status, attempts }, consumers: [] });
+  await ctx.emitOutboxEvent({ eventType: "MEDIA_JOB_UPDATED", aggregateType: "media_job", aggregateId: id, payload: { status, attempts,generation:job?.generation }, consumers: ["DEAD_LETTER","COMPLETED"].includes(status)?["notifications"]:[] });
 }
 export interface MediaJobHandlers { publish?: (db: DbExecutor, storage: MediaStorage, skuId: string) => Promise<void> }
 /** pg-boss owns execution leases; media_jobs retains the human-visible result permanently. */

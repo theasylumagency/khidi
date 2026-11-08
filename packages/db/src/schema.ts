@@ -225,6 +225,7 @@ export const auditLogs = pgTable("audit_logs", {
 
 export const outboxEvents = pgTable("outbox_events", {
   id: uuid("id").primaryKey(),
+  notificationPosition:bigint("notification_position",{mode:"number"}).generatedAlwaysAsIdentity(),
   eventType: text("event_type").notNull(),
   storefrontId: uuid("storefront_id").references(() => storefronts.id),
   aggregateType: text("aggregate_type").notNull(),
@@ -303,6 +304,40 @@ export const systemSettings = pgTable("system_settings", {
   description: text("description").notNull(),
   updatedBy: uuid("updated_by").references(() => users.id),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const notificationTypes=pgTable("notification_types",{type:text("type").primaryKey(),level:text("level").notNull()});
+export const notifications=pgTable("notifications",{
+ id:uuid("id").primaryKey(),eventId:uuid("event_id").notNull().unique().references(()=>outboxEvents.id),
+ type:text("type").notNull(),level:text("level").notNull(),titleKey:text("title_key").notNull(),parametersJson:jsonb("parameters_json").$type<Record<string,string>>().notNull().default({}),
+ deepLink:text("deep_link").notNull(),entityType:text("entity_type").notNull(),entityId:uuid("entity_id").notNull(),
+ legalEntityId:uuid("legal_entity_id").references(()=>legalEntities.id),taskId:uuid("task_id").references(():AnyPgColumn=>scanTasks.id),audience:text("audience").notNull(),
+ createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()
+});
+export const notificationReceipts=pgTable("notification_receipts",{
+ notificationId:uuid("notification_id").notNull().references(()=>notifications.id),userId:uuid("user_id").notNull().references(()=>users.id),
+ readAt:timestamp("read_at",{withTimezone:true}),muted:boolean("muted").notNull().default(false)
+},t=>[primaryKey({columns:[t.notificationId,t.userId]})]);
+export const notificationPreferences=pgTable("notification_preferences",{
+ userId:uuid("user_id").notNull().references(()=>users.id),type:text("type").notNull(),level:text("level").notNull().default("INFO"),muted:boolean("muted").notNull().default(false)
+},t=>[primaryKey({columns:[t.userId,t.type]})]);
+export const notificationStates=pgTable("notification_states",{
+ stateKey:text("state_key").primaryKey(),fingerprint:text("fingerprint").notNull(),sourceEventId:uuid("source_event_id").notNull().references(()=>outboxEvents.id),
+ sourceCreatedAt:timestamp("source_created_at",{withTimezone:true}).notNull(),sourcePosition:bigint("source_position",{mode:"number"}).notNull()
+});
+export const pushSubscriptions=pgTable("push_subscriptions",{
+ id:uuid("id").primaryKey(),userId:uuid("user_id").notNull().references(()=>users.id),sessionId:uuid("session_id").notNull().references(()=>sessions.id,{onDelete:"cascade"}),
+ registeredDeviceId:uuid("registered_device_id").references(()=>registeredDevices.id,{onDelete:"cascade"}),browserDeviceId:uuid("browser_device_id").notNull(),
+ endpointHash:text("endpoint_hash").notNull().unique(),subscriptionEncrypted:text("subscription_encrypted").notNull(),infoOptIn:boolean("info_opt_in").notNull().default(false),
+ createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()
+},t=>[unique().on(t.userId,t.browserDeviceId)]);
+export const pushDeliveries=pgTable("push_deliveries",{
+ id:uuid("id").primaryKey(),notificationId:uuid("notification_id").notNull().references(()=>notifications.id),userId:uuid("user_id").notNull().references(()=>users.id),
+ subscriptionId:uuid("subscription_id").references(()=>pushSubscriptions.id,{onDelete:"set null"}),status:text("status").notNull().default("PENDING"),attempts:integer("attempts").notNull().default(0),
+ nextAttemptAt:timestamp("next_attempt_at",{withTimezone:true}).notNull().defaultNow(),leaseToken:uuid("lease_token"),leasedUntil:timestamp("leased_until",{withTimezone:true}),lastErrorCode:text("last_error_code")
+},t=>[unique().on(t.notificationId,t.subscriptionId)]);
+export const pushAttempts=pgTable("push_attempts",{
+ id:uuid("id").primaryKey(),deliveryId:uuid("delivery_id").notNull().references(()=>pushDeliveries.id),succeeded:boolean("succeeded").notNull(),responseStatus:integer("response_status"),errorCode:text("error_code"),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()
 });
 
 // ============================================================================
@@ -996,6 +1031,8 @@ export const reservationItems = pgTable("reservation_items", {
   quantity:integer("quantity").notNull(),
   composedBundle:boolean("composed_bundle").notNull(),
   basePriceMinor:bigint("base_price_minor",{mode:"number"}).notNull(),
+  basePriceId:uuid("base_price_id").references(()=>storefrontPrices.id),
+  vatIncluded:boolean("vat_included"),
   currency:text("currency").notNull(),
   finalUnitPriceMinor:bigint("final_unit_price_minor",{mode:"number"})
 });

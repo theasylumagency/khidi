@@ -18,8 +18,8 @@ export function digest(bytes: Uint8Array): string { return createHash("sha256").
 export function assertObjectKey(key: string, area: "private" | "public") {
   if (!key || key.length > 512 || !/^[a-zA-Z0-9_./-]+$/.test(key) || key.startsWith("/")
     || key.split("/").some((part) => !part || part === "." || part === "..")) throw new Error("Invalid media object key.");
-  if (area === "private" && !/^(raw|master|evidence)\/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\//i.test(key)) {
-    throw new Error("Private keys require an image/evidence UUIDv7, never a product identifier.");
+  if (area === "private" && !/^(raw|master|evidence|reports)\/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\//i.test(key)) {
+    throw new Error("Private keys require an object UUIDv7, never a product identifier.");
   }
 }
 export function checkDigest(bytes: Uint8Array, expected: string) {

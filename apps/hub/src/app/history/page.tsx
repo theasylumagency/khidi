@@ -1,67 +1,27 @@
 import { getDb } from "@khidi/db";
-import { listRecentAuditLogs } from "@khidi/domain";
+import { auditHistory,inventoryHistory,historyEntities,type AuditFilter } from "@khidi/reports/audit";
+import { t } from "@khidi/i18n";
 import { formatTbilisiDateTime } from "@khidi/shared";
 import { requirePageAuth } from "../../lib/session.ts";
-
-export const dynamic = "force-dynamic";
-
-export default async function HistoryPage() {
-  await requirePageAuth({ allowedRoles: ["ADMIN", "OPERATOR", "STOCK_MANAGER"] });
-  const db = getDb();
-  const logs = await listRecentAuditLogs(db, 30);
-
-  return (
-    <div style={{ display: "grid", gap: "1.5rem" }}>
-      <section
-        style={{
-          background: "#ffffff",
-          border: "1px solid #e2e8f0",
-          borderRadius: "12px",
-          padding: "1.5rem"
-        }}
-      >
-        <h1 style={{ margin: "0 0 0.5rem 0", fontSize: "1.35rem" }}>
-          უცვლელი აუდიტის ჟურნალი — Append-Only Audit Logs (§16.1, [C7])
-        </h1>
-        <p style={{ margin: "0 0 1.25rem 0", color: "#475569", fontSize: "0.9rem" }}>
-          <code>audit_logs</code> ცხრილზე PostgreSQL ტრიგერითა და <code>hub_app</code> როლის უფლებებით სრულად აკრძალულია <code>UPDATE</code> და <code>DELETE</code> ოპერაციები ([C7]).
-        </p>
-
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
-          <thead>
-            <tr style={{ borderBottom: "2px solid #cbd5e1", textAlign: "left" }}>
-              <th style={{ padding: "0.65rem" }}>დრო (Asia/Tbilisi)</th>
-              <th style={{ padding: "0.65rem" }}>ქმედება (Action)</th>
-              <th style={{ padding: "0.65rem" }}>ობიექტი</th>
-              <th style={{ padding: "0.65rem" }}>Correlation ID</th>
-              <th style={{ padding: "0.65rem" }}>After JSON</th>
-            </tr>
-          </thead>
-          <tbody>
-            {logs.map((log) => (
-              <tr key={log.id} style={{ borderBottom: "1px solid #e2e8f0" }}>
-                <td style={{ padding: "0.65rem", whiteSpace: "nowrap" }}>
-                  {formatTbilisiDateTime(log.createdAt)}
-                </td>
-                <td style={{ padding: "0.65rem", fontWeight: 700 }}>
-                  <code>{log.action}</code>
-                </td>
-                <td style={{ padding: "0.65rem" }}>
-                  <code>
-                    {log.entityType}:{log.entityId}
-                  </code>
-                </td>
-                <td style={{ padding: "0.65rem" }}>
-                  <code>{log.correlationId}</code>
-                </td>
-                <td style={{ padding: "0.65rem", fontFamily: "monospace", fontSize: "0.78rem" }}>
-                  {JSON.stringify(log.afterJson)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-    </div>
-  );
+import "../../components/inventory.css";
+export const dynamic="force-dynamic";
+export default async function HistoryPage({searchParams}:{searchParams:Promise<Record<string,string|undefined>>}) {
+ const p=await requirePageAuth({allowedRoles:["ADMIN","STOCK_MANAGER"]}),db=getDb(),params=await searchParams,admin=p.role==="ADMIN";
+ const keys=admin?["from","to","actorType","actorId","entityType","entityId","entityIdScope","action","correlationId","cursor"]:["from","to","entityIdScope","cursor"];
+ const q=Object.fromEntries(keys.filter(k=>params[k]).map(k=>[k,params[k]!])) as AuditFilter,entities=await historyEntities(db,p.userId);
+ const audit=admin?await auditHistory(db,p.userId,q):null,inventory=admin?null:await inventoryHistory(db,p.userId,q),cursor=audit?.nextCursor??inventory?.nextCursor;
+ const next=new URLSearchParams({...Object.fromEntries(Object.entries(q).filter(([k])=>k!=="cursor")),cursor:cursor??""});
+ return <div className="inventory-workspace"><h1>{t(admin?"history.audit":"history.inventory")}</h1><p>{t(admin?"history.audit_hint":"history.inventory_hint")}</p><form>
+  <label>{t("reports.from")}<input type="date" name="from" defaultValue={q.from}/></label><label>{t("reports.to")}<input type="date" name="to" defaultValue={q.to}/></label>
+  <label>{t("reports.entity")}<select name="entityIdScope" defaultValue={q.entityIdScope??""}><option value="">{t("history.all")}</option>{entities.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
+  {admin?<><label>{t("history.actor")}<select name="actorType" defaultValue={q.actorType??""}><option value="">{t("history.all")}</option>{(["USER","STOREFRONT_SERVICE","SYSTEM_JOB","SYSTEM_WORKFLOW"] as const).map(v=><option key={v} value={v}>{t(`history.actor.${v}`)}</option>)}</select></label>
+   {(["actorId","entityType","entityId","action","correlationId"] as const).map(k=><label key={k}>{t(`history.${k}`)}<input name={k} defaultValue={q[k]} maxLength={k==="action"||k==="entityType"?100:200}/></label>)}</>:null}
+  <button>{t("reports.show")}</button><a href="/history">{t("history.reset")}</a></form>
+  <div className="inventory-scroll">{audit?<table><thead><tr>{(["time","actor","action","object","before","after","reason","correlationId"] as const).map(k=><th key={k}>{t(`history.${k}`)}</th>)}</tr></thead><tbody>{audit.rows.map(r=><tr key={r.id}>
+   <td>{formatTbilisiDateTime(r.createdAt)}</td><td>{r.actorType??(r.actorUserId?"USER":"")}<br/>{r.actorId??r.actorUserId}</td><td>{r.action}</td><td>{r.entityType}<br/>{r.entityId}</td>
+   <td><pre>{JSON.stringify(r.beforeJson,null,2)}</pre></td><td><pre>{JSON.stringify(r.afterJson,null,2)}</pre></td><td>{r.reason}<br/>{r.externalDocumentRef}</td><td>{r.correlationId}<br/>{r.triggerCallId}</td>
+  </tr>)}</tbody></table>:<table><thead><tr>{(["time","action","sku","quantity","pool","deltas","reason","correlationId"] as const).map(k=><th key={k}>{t(`history.${k}`)}</th>)}</tr></thead><tbody>{inventory!.rows.map(r=><tr key={r.id}>
+   <td>{formatTbilisiDateTime(r.date)}</td><td>{r.movement}</td><td>{r.sku}</td><td>{r.quantity}</td><td>{r.pool}</td><td>{r.shelfDelta} / {r.stagingDelta} / {r.allocatedDelta} / {r.reservedDelta} / {r.committedDelta}</td>
+   <td>{r.reason}<br/>{r.document}</td><td>{r.correlation}</td></tr>)}</tbody></table>}</div>
+  {cursor?<a href={"/history?"+next}>{t("notification.next")}</a>:null}</div>;
 }

@@ -17,7 +17,7 @@ async function staff(db:DbExecutor,p:Staff,admin=false) {
 }
 async function changed(ctx:DomainTransactionContext,id:string,action:string,after:Record<string,unknown>) {
   await ctx.recordAudit({action,entityType:"outbox_delivery",entityId:id,after});
-  await ctx.emitOutboxEvent({eventType:"WEBHOOK_DELIVERY_UPDATED",aggregateType:"outbox_delivery",aggregateId:id,payload:after,consumers:[]});
+  await ctx.emitOutboxEvent({eventType:"WEBHOOK_DELIVERY_UPDATED",aggregateType:"outbox_delivery",aggregateId:id,payload:{...after,action},consumers:["WEBHOOK_DEAD_LETTER","WEBHOOK_RETRY_REQUESTED","WEBHOOK_DELIVERED"].includes(action)?["notifications"]:[]});
 }
 export async function configureStorefrontWebhook(db:DbExecutor,p:Staff,key:string,raw:unknown) {
   const parsed=z.object({storefrontId:z.string().uuid(),url:z.string().max(2048).nullable(),rotateSecret:z.boolean().default(false)}).strict().safeParse(raw);

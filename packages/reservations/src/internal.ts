@@ -5,9 +5,11 @@ import type { DomainTransactionContext } from "@khidi/domain";
 import { applyWorkflowStockMovements, workflowActor, type WorkflowPrincipal } from "@khidi/inventory/workflow";
 import type { StockMovement } from "@khidi/inventory";
 import { getSkuReserveEligibility } from "@khidi/publishing";
+import { emitInstallmentExpiryNotice } from "@khidi/notifications/deadlines";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import { isCod, type Confirmation, type ReserveInput } from "./contracts.ts";
 import { FULFILLMENT_CONFIGURATION_LOCK, readFrozenMode } from "./mode.ts";
+import { assertBundleSingleOwner } from "./bundle-owner.ts";
 export { workflowCommand } from "./commands.ts";
 
 export type StorefrontPrincipal=Extract<WorkflowPrincipal,{type:"STOREFRONT_SERVICE"}>;
@@ -70,8 +72,10 @@ export async function reserveInTransaction(ctx:DomainTransactionContext,p:Storef
     const facts=await getSkuReserveEligibility(ctx.tx,{skuId:requested.skuId,storefrontId:store.id,locale:input.locale??"ka"});
     demand(facts.sellable && facts.price,"The product cannot be reserved: "+facts.blockingReasons.join(", "));
     demand(facts.stock.availableToSell>=requested.quantity,"Insufficient available stock.");
+    assertBundleSingleOwner(facts.stock.composedBundle,facts.stock.components);
     const [item]=await ctx.tx.insert(reservationItems).values({id:createUuidV7(),reservationId:header!.id,skuId:requested.skuId,quantity:requested.quantity,
-      composedBundle:facts.stock.composedBundle,basePriceMinor:facts.price.basePriceMinor!,currency:facts.price.currency}).returning();
+      composedBundle:facts.stock.composedBundle,basePriceMinor:facts.price.basePriceMinor!,currency:facts.price.currency,
+      basePriceId:facts.price.id,vatIncluded:facts.price.vatIncluded}).returning();
     for(const component of facts.stock.components) {
       demand(component.allocationId && component.sellerMapping && component.ownerMapping,"Missing component allocation or mapping.");
       const quantity=requested.quantity*component.componentQuantity;
@@ -86,6 +90,7 @@ export async function reserveInTransaction(ctx:DomainTransactionContext,p:Storef
   const pools=await linePools(ctx.tx,lines);
   await applyWorkflowStockMovements(ctx.tx,p,lines.map((line)=>({...movement(line,pools.get(line.allocationId)!,"RESERVE",line.quantity),paymentMethod:input.paymentMethod})));
   await scheduleExpiry(ctx,header!);
+  await emitInstallmentExpiryNotice(ctx,header!);
   await ctx.recordAudit({action:"RESERVATION_CREATED",entityType:"reservation",entityId:header!.id,after:{...header,lines}});
   await ctx.emitOutboxEvent({eventType:"RESERVATION_CREATED",storefrontId:store.id,aggregateType:"reservation",aggregateId:header!.id,
     payload:{reservationId:header!.id,orderRef:header!.storefrontOrderRef,status:"RESERVED",expiresAt:header!.expiresAt.toISOString()},consumers:["storefront:"+store.id]});

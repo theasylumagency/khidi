@@ -5,27 +5,34 @@ import { AI_JOB_NAMES, configuredAiProvider, dispatchAiJobs, startAiWorkers } fr
 import { dispatchReservationJobs, startReservationWorkers } from "@khidi/fulfillment/jobs";
 import { RESERVATION_QUEUE, RESERVATION_DEAD_LETTER } from "@khidi/fulfillment/job-names";
 import { fanoutStorefrontEvents, dispatchStorefrontWebhooks } from "@khidi/publishing/webhooks";
+import { consumeNotifications,emitDeadlineNotifications,createPushIntents,dispatchPush } from "@khidi/notifications";
+import { vapidConfig } from "@khidi/notifications/push-config";
+import { REPORT_QUEUE,REPORT_DEAD_LETTER } from "@khidi/reports";
+import { startReportWorkers } from "@khidi/reports/jobs";
 
 export function getWorkerHealthStatus() {
   return {
     service: "khidi-worker",
     status: "ok",
-    registeredQueues: [...MEDIA_QUEUES, "media-dead-letter", ...AI_JOB_NAMES, "ai-dead-letter",RESERVATION_QUEUE,RESERVATION_DEAD_LETTER],
+    registeredQueues: [...MEDIA_QUEUES, "media-dead-letter", ...AI_JOB_NAMES, "ai-dead-letter",RESERVATION_QUEUE,RESERVATION_DEAD_LETTER,REPORT_QUEUE,REPORT_DEAD_LETTER],
     timestamp: nowUtc().toISOString()
   };
 }
 
 if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, "/")}` || process.argv[1]?.endsWith("index.ts")) {
-  const db = getDb(), storage = getMediaStorage(), boss = await createMediaJobRuntime();
+  if(process.env.NODE_ENV==="production")vapidConfig();
+  const db = getDb(), storage = getMediaStorage(), boss = await createMediaJobRuntime({schedule:true});
   await startMediaWorkers(db, storage, boss);
   await startAiWorkers(db, storage, boss, configuredAiProvider());
   await startReservationWorkers(db,boss);
+  await startReportWorkers(db,storage,boss);
   let running = false;
   const dispatch = async () => {
     if (running) return;
     running = true;
     try {
       const outcomes=await Promise.allSettled([dispatchMediaJobs(db,boss),dispatchAiJobs(db,boss),dispatchReservationJobs(db,boss),
+        (async()=>{await emitDeadlineNotifications(db);await consumeNotifications(db);await createPushIntents(db);await dispatchPush(db);})(),
         (async()=>{await fanoutStorefrontEvents(db);await dispatchStorefrontWebhooks(db);})()]);
       if(outcomes.some((result)=>result.status==="rejected"))throw new Error("A durable consumer failed.");
     }

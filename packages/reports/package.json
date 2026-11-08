@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./jobs":"./src/jobs.ts",
+    "./audit":"./src/audit.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -12,10 +14,18 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@khidi/db": "workspace:*",
     "@khidi/domain": "workspace:*",
     "@khidi/entities": "workspace:*",
+    "@khidi/i18n": "workspace:*",
     "@khidi/inventory": "workspace:*",
+    "@khidi/media": "workspace:*",
     "@khidi/products": "workspace:*",
-    "@khidi/shared": "workspace:*"
+    "@khidi/shared": "workspace:*",
+    "drizzle-orm": "0.40.0",
+    "exceljs": "4.4.0",
+    "pg": "8.13.3",
+    "pg-boss": "12.38.0",
+    "zod": "3.24.2"
   }
 }

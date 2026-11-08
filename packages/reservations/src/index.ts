@@ -3,6 +3,7 @@ import { reservations, type DbExecutor } from "@khidi/db";
 import { workflowCommand } from "./commands.ts";
 import { demand, expireLocked, lockReservation, scheduleExpiry, type StorefrontPrincipal } from "./internal.ts";
 import { extendSchema, parseInput, type OrderResponse } from "./contracts.ts";
+import { emitInstallmentExpiryNotice } from "@khidi/notifications/deadlines";
 export { reserveSchema, commitSchema, extendSchema, releaseSchema, confirmationSchema, orderReferenceSchema, isCod, parseInput, type Confirmation, type ReserveInput, type CommitInput, type FulfillmentMode, type OrderResponse } from "./contracts.ts";
 export { getFulfillmentMode, setFulfillmentMode } from "./mode.ts";
 export type { StorefrontPrincipal } from "./internal.ts";
@@ -17,6 +18,7 @@ export async function extendReservation(db:DbExecutor,p:StorefrontPrincipal,key:
     demand(expiresAt>state.header.expiresAt,"An extension must increase the deadline.");
     const [header]=await ctx.tx.update(reservations).set({expiresAt,updatedAt:new Date()}).where(eq(reservations.id,state.header.id)).returning();
     await scheduleExpiry(ctx,header!);
+    await emitInstallmentExpiryNotice(ctx,header!);
     await ctx.recordAudit({action:"RESERVATION_EXTENDED",entityType:"reservation",entityId:header!.id,before:{expiresAt:state.header.expiresAt.toISOString()},after:{expiresAt:expiresAt.toISOString()}});
     await ctx.emitOutboxEvent({eventType:"RESERVATION_UPDATED",storefrontId:p.storefrontId,aggregateType:"reservation",aggregateId:header!.id,
       payload:{reservationId:header!.id,expiresAt:expiresAt.toISOString()},consumers:["storefront:"+p.storefrontId]});

@@ -120,7 +120,9 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = (event.notification.data && event.notification.data.url) || "/";
+  const requestedUrl = (event.notification.data && event.notification.data.url) || "/notifications";
+  const parsed = new URL(requestedUrl, self.location.origin);
+  const targetUrl = parsed.origin === self.location.origin && parsed.pathname.startsWith("/") ? parsed.href : self.location.origin+"/notifications";
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windowClients) => {
       for (const client of windowClients) {

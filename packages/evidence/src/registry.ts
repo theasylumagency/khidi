@@ -316,11 +316,11 @@ async function saveSkuIdentity(ctx: DomainTransactionContext, projection: Awaite
     await ctx.recordAudit({ action: "SKU_IDENTITY_RECOMPUTED", entityType: "sku", entityId: skuId,
       before: { confidence: sku.identityConfidence, reverificationRequired: sku.reverificationRequired },
       after: { ...result, reverificationRequired } });
-    const attention = reverificationRequired || projection.mergeConflict;
+    const attention = reverificationRequired || projection.mergeConflict || result.level==="CONFLICT";
     await ctx.emitOutboxEvent({ eventType: attention ? "PRODUCT_REVIEW_REQUIRED" : "PRODUCT_UPDATED",
       aggregateType: "sku", aggregateId: skuId, payload: { skuId, confidence: result.level, reverificationRequired,
         ...(attention ? { severity: "ACTION_REQUIRED", reason: projection.mergeConflict ? "MERGE_EVIDENCE_CONFLICT" : "IDENTITY_REVERIFICATION" } : {}) },
-      consumers: attention ? ["notifications"] : [] });
+      consumers: ["notifications"] });
   }
   await refreshSkuContentReview(ctx, skuId, previousFields);
   return { ...result, fields, decisions, productType, duplicates, reverificationRequired };

@@ -69,6 +69,7 @@ export async function applyMergeUncertainty(ctx: DomainTransactionContext, skuId
                 eventType: "PRODUCT_REVIEW_REQUIRED", aggregateType: "sku", aggregateId: skuId,
                 payload: { skuId, fields: nextConflicts, severity: "ACTION_REQUIRED", reason: "MERGE_EVIDENCE_CONFLICT" }, consumers: ["notifications"]
             });
+        else await ctx.emitOutboxEvent({eventType:"PRODUCT_UPDATED",aggregateType:"sku",aggregateId:skuId,payload:{skuId,fields:nextConflicts,reason:"MERGE_EVIDENCE_CONFLICT"},consumers:["notifications"]});
     }
     for (const field of unresolved) {
         const current = fields.get(field);
@@ -86,7 +87,7 @@ export async function applyMergeUncertainty(ctx: DomainTransactionContext, skuId
             before: { fields: sku?.flagged ?? [] }, after: { fields: next } });
         await ctx.emitOutboxEvent({ eventType: next.length ? "PRODUCT_REVIEW_REQUIRED" : "PRODUCT_UPDATED",
             aggregateType: "sku", aggregateId: skuId, payload: { skuId, fields: next, severity: "ACTION_REQUIRED", reason: "MERGE_UNDETERMINED" },
-            consumers: next.length ? ["notifications"] : [] });
+            consumers: ["notifications"] });
     }
     return { conflict };
 }
