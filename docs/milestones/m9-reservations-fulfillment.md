@@ -175,3 +175,17 @@ Focused tests: 4 passed (signature/tamper/staleness, AUTO_ASSUMED, privacy, conc
 dispatch, backoff/dead-letter/retry, independent consumers and immutable bodies).
 Publishing, worker and Hub typechecks passed. Migration 0044 is new; no applied migration
 was edited. Operations and locking documents describe the delivery contract.
+
+### R9 — fulfillment office
+
+ADMIN/ORDER_MANAGER have request list/detail, ACTION_REQUIRED and pending-return filters,
+reservation deadlines, per-unit and status histories with actual executor/trigger and
+SCAN/MANUAL/AUTO_ASSUMED provenance. ADMIN alone manages the mode, service keys and
+webhooks, including dead-letter retry. Key/webhook secrets require recent strong
+authentication and are displayed once. Mode changes are audited and affect new orders.
+Controlled cancel/loss actions are gated in both UI and domain on the current mode and
+the reservation's frozen mode. Cancellation never returns staged units implicitly;
+ADMIN can resolve a staged loss even after cancellation. Closed handed-over requests
+have no stock action. Warehouse PICK/manual-confirmation/return capture UI stays deferred
+under R8/ADR-014. All new UI labels are Georgian translations.
+Focused office/behavior tests: 3 passed; architecture authorization checks: 5 passed.

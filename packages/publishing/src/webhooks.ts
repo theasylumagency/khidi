@@ -20,7 +20,8 @@ async function changed(ctx:DomainTransactionContext,id:string,action:string,afte
   await ctx.emitOutboxEvent({eventType:"WEBHOOK_DELIVERY_UPDATED",aggregateType:"outbox_delivery",aggregateId:id,payload:after,consumers:[]});
 }
 export async function configureStorefrontWebhook(db:DbExecutor,p:Staff,key:string,raw:unknown) {
-  const input=z.object({storefrontId:z.string().uuid(),url:z.string().max(2048).nullable(),rotateSecret:z.boolean().default(false)}).strict().parse(raw);
+  const parsed=z.object({storefrontId:z.string().uuid(),url:z.string().max(2048).nullable(),rotateSecret:z.boolean().default(false)}).strict().safeParse(raw);
+  if(!parsed.success)throw new AppError("VALIDATION_ERROR","Invalid webhook configuration.");const input=parsed.data;
   if(!z.string().uuid().safeParse(key).success)throw new AppError("VALIDATION_ERROR","Idempotency key required.");
   if(input.url)webhookUrl(input.url);
   await staff(db,p,true);let secret:string|undefined;
@@ -41,7 +42,8 @@ export async function listWebhookDeliveries(db:DbExecutor,p:Staff) {
     .where(sql`${outboxDeliveries.consumer} LIKE 'storefront:%'`).orderBy(sql`${outboxEvents.createdAt} DESC`).limit(100);
 }
 export async function retryWebhook(db:DbExecutor,p:Staff,key:string,raw:unknown) {
-  const input=z.object({deliveryId:z.string().uuid()}).strict().parse(raw);await staff(db,p,true);
+  const parsed=z.object({deliveryId:z.string().uuid()}).strict().safeParse(raw);
+  if(!parsed.success)throw new AppError("VALIDATION_ERROR","Invalid webhook retry.");const input=parsed.data;await staff(db,p,true);
   if(!z.string().uuid().safeParse(key).success)throw new AppError("VALIDATION_ERROR","Idempotency key required.");
   return executeIdempotent(db,{scope:"webhook-retry:"+p.userId,idempotencyKey:key,payload:input},async(tx)=>withDomainTransaction(tx,{userId:p.userId},async(ctx)=>{
     await staff(ctx.tx,p,true);

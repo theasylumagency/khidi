@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./office": "./src/office.ts",
     ".": "./src/index.ts",
     "./jobs": "./src/jobs.ts",
     "./job-names": "./src/job-names.ts",
