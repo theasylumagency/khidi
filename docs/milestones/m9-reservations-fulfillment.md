@@ -144,3 +144,10 @@ added. Phase 2 must document the same confirmation payload in both modes and req
 storefronts to handle REQUESTED or HANDED_OVER/AUTO_ASSUMED without reading the mode.
 Partial fulfillment and consolidation require a future ADR; no ledger rewrite is needed.
 No new business ADR is proposed. Existing human deployment/restore/device gates stay pending.
+
+## Phase 2 — owner approval and USER COMMIT hardening
+
+The owner approved Phase 1 and authorized R6, R7, R9 and R10; R8 stays deferred.
+Before Phase 2, USER COMMIT is limited to a controlled COD/PICKUP reservation and the
+immediately matching HANDOVER_OUT in the same command. CARD/BANK commitments remain
+storefront/system operations. Focused principal and fulfillment checks: 24 passed.

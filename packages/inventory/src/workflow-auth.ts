@@ -56,6 +56,13 @@ export async function authorizeWorkflowMovements(tx: DbExecutor, p: WorkflowPrin
       if (user?.role === "ADMIN" || user?.role === "ORDER_MANAGER") allowed.push("RESERVATION_RELEASE","COMMIT_RELEASE");
       if (user?.role === "ADMIN") allowed.push("ADJUSTMENT");
       if (!allowed.includes(m.type) || (m.type === "ADJUSTMENT" && !m.variant?.startsWith("STAGING"))) deny();
+      if (m.type === "COMMIT") {
+        const handover=movements[movements.indexOf(m)+1];
+        if (header.fulfillmentMode!=="CONTROLLED_FULFILLMENT" || !["CASH_ON_DELIVERY","PAY_ON_PICKUP"].includes(header.paymentMethod)
+          || handover?.type!=="HANDOVER_OUT" || handover.reservationId!==m.reservationId || handover.reservationLineId!==m.reservationLineId
+          || handover.fulfillmentRequestId!==m.fulfillmentRequestId || handover.allocationId!==m.allocationId
+          || handover.poolId!==m.poolId || handover.skuId!==m.skuId || handover.quantity!==m.quantity) deny();
+      }
       if (user?.role === "WAREHOUSE") {
         const [task] = m.fulfillmentRequestId ? await tx.select().from(scanTasks).where(and(eq(scanTasks.fulfillmentRequestId,m.fulfillmentRequestId),
           eq(scanTasks.taskType,"PICK"),or(eq(scanTasks.assigneeUserId,p.userId),eq(scanTasks.assigneeRole,"WAREHOUSE")),
