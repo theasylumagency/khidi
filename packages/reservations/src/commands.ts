@@ -7,7 +7,7 @@ import { AppError, createUuidV7, sha256Hex } from "@khidi/shared";
 /** Durable business receipt outlives the generic idempotency cache and API-key rotation. */
 export async function workflowCommand<T extends Record<string,unknown>>(db:DbExecutor,p:WorkflowPrincipal,action:string,key:string,payload:unknown,
   handler:(ctx:DomainTransactionContext)=>Promise<{status:number;body:T}>) {
-  if(!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(key)) throw new AppError("VALIDATION_ERROR","An idempotency UUID is required.");
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key)) throw new AppError("VALIDATION_ERROR","An idempotency UUID is required.");
   await authorizeWorkflowPrincipal(db,p);
   const identity=p.type==="STOREFRONT_SERVICE" ? p.storefrontId : p.type==="USER" ? p.userId : p.type==="SYSTEM_JOB" ? p.jobId : p.reservationId;
   const scope="order:"+identity+":"+action,requestHash=sha256Hex(JSON.stringify(payload));

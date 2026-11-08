@@ -46,14 +46,15 @@ If two sources conflict and this list does not resolve it, stop and ask. Do not 
 | M6 Review, canonical content and publishing | Merged to `main` (PR #11) |
 | ADR-011 Part A / ADR-012 | Merged to `main` (PR #12); Part B remains Proposed |
 | M7 Pricing | Merged to `main` (PR #14) |
-| M8 Inventory core | I1–I5 and I7–I9 implemented on `m8-inventory-core` for Draft PR #15 and owner review; I6 disabled by Accepted ADR-013 |
-| M9–M11 | Not started |
+| M8 Inventory core | Merged to `main` (PR #15); I6 disabled by Accepted ADR-013 |
+| M9 Reservations and fulfillment | Phase 1 R1–R5 implemented on `m9-reservations-fulfillment` for Draft PR and enhanced owner review; Phase 2 not started |
+| M10–M11 | Not started |
 
-Current task: M8 Phase 2 under [Accepted ADR-013](docs/adr/ADR-013-online-stock-as-declared-limit.md);
-see [the task record](docs/milestones/m8-inventory-core.md) and
-[the owner specification](docs/task-m8-inventory-core.md). ADR-013 replaces the physical-stock
-operating model in I5, I6 and I9: availability is a declared free-to-sell limit and physical
-counts stay disabled. Keep PR #15 in draft and stop for owner review before M9.
+Current task: M9 Phase 1 under Accepted ADR-013 and ADR-014; see
+[the milestone record](docs/milestones/m9-reservations-fulfillment.md) and
+[the owner specification](docs/task-m9-reservations-fulfillment-api.md). Keep the PR in draft
+and stop for enhanced owner review before Phase 2. Storefront transport, webhook delivery,
+OpenAPI and admin screens are not implemented in Phase 1; PICK UI remains deferred.
 ADR-011 Part B remains Proposed.
 
 Human checks still pending (the owner updates these lines):

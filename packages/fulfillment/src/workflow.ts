@@ -23,7 +23,7 @@ async function history(ctx:DomainTransactionContext,p:WorkflowPrincipal,request:
   await ctx.recordAudit({action,entityType:"fulfillment_request",entityId:request.id,before:{status:request.status},after:{status:toStatus,confirmation},reason});
   await ctx.emitOutboxEvent({eventType:"FULFILLMENT_STATUS_CHANGED",storefrontId:request.storefrontId,aggregateType:"fulfillment_request",aggregateId:request.id,
     payload:{schemaVersion:1,fulfillmentRequestId:request.id,reservationId:request.reservationId,orderRef:request.storefrontOrderRef,status:toStatus,
-      ...(confirmation ? {confirmation} : {})},consumers:["storefront:"+request.storefrontId]});
+      ...(confirmation ? {confirmation} : {}),...(reason?.startsWith("UNIT_LOST:") ? {reason:"UNIT_LOST"} : {})},consumers:["storefront:"+request.storefrontId]});
 }
 async function createFulfillment(ctx:DomainTransactionContext,p:StorefrontPrincipal,state:LockedReservation,confirmation:Confirmation) {
   const [existing]=await ctx.tx.select().from(fulfillmentRequests).where(eq(fulfillmentRequests.reservationId,state.header.id));
@@ -58,6 +58,8 @@ async function autoComplete(ctx:DomainTransactionContext,trigger:StorefrontPrinc
       batch.push(movement(line,state.pools.get(line.allocationId)!,"HANDOVER_OUT",line.quantity,request.id));
     }
     await applyWorkflowStockMovements(system.tx,p,batch);
+    await system.emitOutboxEvent({eventType:"STOCK_COMMITTED",storefrontId:state.header.storefrontId,aggregateType:"reservation",aggregateId:state.header.id,
+      payload:{reservationId:state.header.id,status:"HANDED_OVER",confirmation:"AUTO_ASSUMED"},consumers:["storefront:"+state.header.storefrontId]});
     for(const line of lines) await system.tx.update(fulfillmentLines).set({pickedQuantity:line.quantity,handedOverQuantity:line.quantity}).where(eq(fulfillmentLines.id,line.id));
     await history(system,p,request,"REQUESTED","ORDER_COMMITTED","AUTO_ASSUMED");
     await history(system,p,request,"PICKED","FULFILLMENT_PICKED","AUTO_ASSUMED");
@@ -163,6 +165,8 @@ export async function handoverOrder(db:DbExecutor,p:Staff,key:string,raw:unknown
       return isCod(state.header.paymentMethod) ? [movement(line,state.pools.get(line.allocationId)!,"COMMIT",line.quantity,request.id),handover] : [handover];
     });
     await applyWorkflowStockMovements(ctx.tx,p,batch);
+    if(isCod(state.header.paymentMethod)) await ctx.emitOutboxEvent({eventType:"STOCK_COMMITTED",storefrontId:state.header.storefrontId,aggregateType:"reservation",aggregateId:state.header.id,
+      payload:{reservationId:state.header.id,status:"HANDED_OVER"},consumers:["storefront:"+state.header.storefrontId]});
     for(const line of lines) await ctx.tx.update(fulfillmentLines).set({handedOverQuantity:line.quantity}).where(eq(fulfillmentLines.id,line.id));
     const confirmations=await ctx.tx.select().from(unitConfirmations).where(and(eq(unitConfirmations.fulfillmentRequestId,request.id),eq(unitConfirmations.action,"PICK_TO_STAGING")));
     const confirmation:Provenance=confirmations.some((c)=>c.method==="MANUAL") ? "MANUAL" : "SCAN";
@@ -194,6 +198,7 @@ export async function releaseOrder(db:DbExecutor,p:StorefrontPrincipal,key:strin
   const input=parseInput(releaseSchema,raw);
   return workflowCommand<OrderResponse>(db,p,"release",key,input,async(ctx)=>{
     const state=await lockReservation(ctx.tx,p,input.reservationId);
+    demand(state.header.status==="RESERVED","This order is closed or committed; cancel its active fulfillment instead.");
     return {status:200,body:await cancelLocked(ctx,p,state,input.reason)};
   });
 }
@@ -210,7 +215,6 @@ export async function markLostInStaging(db:DbExecutor,p:Staff,key:string,raw:unk
   return workflowCommand<OrderResponse>(db,p,"lost",key,input,async(ctx)=>{
     await staffRole(ctx.tx,p,["ADMIN"]);
     const {state,request,lines}=await requestState(ctx,p,input.fulfillmentRequestId);
-    demand(request.status!=="CANCELLED","This fulfillment is already cancelled.");
     const line=lines.find((l)=>l.id===input.lineId),snapshot=state.lines.find((l)=>l.id===line?.reservationLineId);
     demand(line && snapshot && staged(line)>0,"No staged unit is available to mark lost.");
     const lost={...movement(snapshot,state.pools.get(line.allocationId)!,"ADJUSTMENT",1,request.id),variant:isCod(state.header.paymentMethod) ? "STAGING_RESERVED" : "STAGING_COMMITTED",cancelLostLine:true,reason:input.reason};

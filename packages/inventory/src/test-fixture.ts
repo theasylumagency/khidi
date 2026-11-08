@@ -1,4 +1,5 @@
-import { getDb, allocations, legalEntities, poolLocations, stockPools, storefronts } from "@khidi/db";
+import { eq } from "drizzle-orm";
+import { getDb, allocations, fulfillmentRequests, legalEntities, poolLocations, stockLedger, stockPools, storefronts } from "@khidi/db";
 import { createSkuDraft } from "@khidi/products";
 import { createUuidV7 } from "@khidi/shared";
 import { applyStockMovements } from "./engine.ts";
@@ -18,7 +19,17 @@ export async function inventoryFixture(seed = true) {
   const line={...base,allocationId:as[0]!.id,reservationId:createUuidV7(),fulfillmentRequestId:createUuidV7()};
   // Count/loss fixture hooks are separate from the real database unit-confirmation gate.
   const proofs={assertApprovedCountLine:async()=>{},assertScanConfirmedReturn:async()=>{},cancelLostFulfillmentLine:async()=>{}};
-  const apply=(movements: StockMovement[])=>db.transaction(async(tx)=>applyStockMovements(tx,actor,await primitiveWorkflowFixture(tx,admin.id,movements),proofs));
+  const apply=(movements: StockMovement[])=>db.transaction(async(tx)=>{
+    const result=await applyStockMovements(tx,actor,await primitiveWorkflowFixture(tx,admin.id,movements),proofs);
+    // Primitive tests bypass the domain lifecycle. Close their fixture request when all held
+    // units have been released/handed over/lost, so drain tests do not leave phantom work.
+    if(result.status==="APPLIED") for(const id of new Set(movements.flatMap((m)=>m.reservationId ? [m.reservationId] : []))) {
+      const rows=await tx.select().from(stockLedger).where(eq(stockLedger.reservationId,id));
+      if(rows.some((r)=>r.movementType==="RESERVE") && ["reservedDelta","committedDelta","stagingDelta"].every((key)=>rows.reduce((n,r)=>n+r[key as "reservedDelta"|"committedDelta"|"stagingDelta"],0)===0))
+        await tx.update(fulfillmentRequests).set({status:"CANCELLED",cancelReason:"Primitive fixture fully closed"}).where(eq(fulfillmentRequests.reservationId,id));
+    }
+    return result;
+  });
   if(seed) await apply([{...base,type:"STOCK_IN",quantity:100},{...base,allocationId:as[0]!.id,type:"ALLOCATE",quantity:60}]);
   return {db,actor,sku,entities,stores,pools,as,base,line,apply,proofs};
 }

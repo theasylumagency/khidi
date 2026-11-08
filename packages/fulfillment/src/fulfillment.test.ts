@@ -1,9 +1,11 @@
 import { expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { allocationBalances, auditLogs, fulfillmentHistory, fulfillmentLines, fulfillmentRequests, outboxEvents, poolSkuBalances, reservations, scanTasks, stockLedger, unitConfirmations, users } from "@khidi/db";
+import { accountingMappings, allocationBalances, auditLogs, bundleComponents, fulfillmentHistory, fulfillmentLines, fulfillmentRequests, outboxEvents, poolSkuBalances, reservationLines, reservations, scanTasks, stockLedger, storefrontApiKeys, storefrontListings, unitConfirmations, users } from "@khidi/db";
 import { getFulfillmentMode, setFulfillmentMode, type FulfillmentMode } from "@khidi/reservations";
 import { createUuidV7 } from "@khidi/shared";
 import { applyWorkflowStockMovements } from "@khidi/inventory/workflow";
+import { applyStockMovements } from "@khidi/inventory";
+import { withdrawPrice } from "../../pricing/src/index.ts";
 import { reservationFixture } from "../../reservations/src/reservation.test-fixture.ts";
 import { reserveOrder, confirmOrder, releaseOrder, confirmFulfillmentUnit, handoverOrder, cancelFulfillment, markLostInStaging } from "./index.ts";
 
@@ -63,8 +65,21 @@ it("freezes mode per reservation; duplicate and concurrent confirmations move st
   const rows=await f.db.select().from(stockLedger).where(eq(stockLedger.reservationId,r.body.reservationId!));
   expect(rows.map((m)=>m.movementType)).toEqual(["RESERVE","COMMIT","PICK_TO_STAGING","HANDOVER_OUT"]);
   const second=await open(f,"CARD","CONTROLLED_FULFILLMENT");expect(second.body.status).toBe("REQUESTED");
+  await setFulfillmentMode(f.db,staff(f),createUuidV7(),{mode:"SIMPLIFIED_FULFILLMENT"});
+  const [line]=await lines(f,second.body.fulfillmentRequestId!);
+  await unit(f,second.body.fulfillmentRequestId!,line!.id);await unit(f,second.body.fulfillmentRequestId!,line!.id);
+  expect((await handoverOrder(f.db,staff(f),createUuidV7(),{fulfillmentRequestId:second.body.fulfillmentRequestId})).body.status).toBe("HANDED_OVER");
   await expect(getFulfillmentMode(f.db,f.principal as unknown as ReturnType<typeof staff>)).rejects.toMatchObject({code:"FORBIDDEN"});
   await expect(setFulfillmentMode(f.db,f.principal as unknown as ReturnType<typeof staff>,createUuidV7(),{mode:"SIMPLIFIED_FULFILLMENT"})).rejects.toMatchObject({code:"FORBIDDEN"});
+});
+it("refuses another storefront's valid key without exposing or changing its reservation",async()=>{
+  const f=await reservationFixture(),r=await reserveOrder(f.db,f.principal,createUuidV7(),{storefrontOrderRef:"SCOPE-1",paymentMethod:"CARD",items:[{skuId:f.sku.id,quantity:2}]});
+  const [key]=await f.db.insert(storefrontApiKeys).values({id:createUuidV7(),storefrontId:f.stores[1]!.id,name:"Other store fixture",keyPrefix:"m9-other",keyHash:createUuidV7()}).returning();
+  const other={type:"STOREFRONT_SERVICE" as const,storefrontId:f.stores[1]!.id,apiKeyId:key!.id};
+  const before=await f.db.select().from(stockLedger).where(eq(stockLedger.reservationId,r.body.reservationId!));
+  await expect(confirmOrder(f.db,other,createUuidV7(),{reservationId:r.body.reservationId,confirmation:confirmation(f.sku.id)})).rejects.toMatchObject({code:"NOT_FOUND"});
+  await expect(releaseOrder(f.db,other,createUuidV7(),{reservationId:r.body.reservationId,reason:"Wrong store"})).rejects.toMatchObject({code:"NOT_FOUND"});
+  expect(await f.db.select().from(stockLedger).where(eq(stockLedger.reservationId,r.body.reservationId!))).toEqual(before);
 });
 
 it("requires a correct unit scan or authorized manual confirmation with a reason and the assigned warehouse task",async()=>{
@@ -87,7 +102,7 @@ it("requires a correct unit scan or authorized manual confirmation with a reason
 });
 
 for(const payment of ["CARD","CASH_ON_DELIVERY"]) it(`cancels partial ${payment} picks without releasing staging and returns each unit before release`,async()=>{
-  const f=await reservationFixture(),r=await open(f,payment),id=r.body.fulfillmentRequestId!,[line]=await lines(f,id);
+  const f=await reservationFixture(),r=await open(f,payment,"CONTROLLED_FULFILLMENT",3),id=r.body.fulfillmentRequestId!,[line]=await lines(f,id);
   await unit(f,id,line!.id);
   const cancelled=await cancelFulfillment(f.db,staff(f),createUuidV7(),{fulfillmentRequestId:id,reason:"Order cancelled"});
   expect(cancelled.body.requiresReturnToShelf).toBe(true);
@@ -106,6 +121,8 @@ for(const payment of ["CARD","CASH_ON_DELIVERY"]) it(`handles lost ${payment} st
   await expect(markLostInStaging(f.db,{type:"USER",userId:manager!.id},createUuidV7(),payload)).rejects.toMatchObject({code:"FORBIDDEN"});
   const result=await markLostInStaging(f.db,staff(f),createUuidV7(),payload);
   expect(result.body.requiresReturnToShelf).toBe(true);
+  expect(await f.db.select().from(outboxEvents).where(eq(outboxEvents.aggregateId,id)))
+    .toContainEqual(expect.objectContaining({payloadJson:expect.objectContaining({status:"CANCELLED",reason:"UNIT_LOST"})}));
   await unit(f,id,line!.id,"RETURN");
   expect((await f.db.select().from(allocationBalances).where(eq(allocationBalances.allocationId,f.as[0]!.id)))[0]).toMatchObject({allocated:59,reserved:0,committed:0,availableToSell:59});
   expect((await lines(f,id))[0]).toMatchObject({lostQuantity:1,returnedQuantity:1});
@@ -124,6 +141,16 @@ it("automatically fulfills bundle snapshot lines and rejects a failed confirmati
   expect(await f.db.select().from(fulfillmentRequests).where(eq(fulfillmentRequests.reservationId,pending.body.reservationId!))).toHaveLength(0);
   expect(await f.db.select().from(auditLogs).where(and(eq(auditLogs.entityId,r.body.fulfillmentRequestId!),eq(auditLogs.actorType,"SYSTEM_WORKFLOW"))))
     .toContainEqual(expect.objectContaining({triggerApiKeyId:f.principal.apiKeyId}));
+});
+it("lets ADMIN record another actually lost staged unit while cancellation still awaits its return",async()=>{
+  const f=await reservationFixture(),r=await open(f,"CASH_ON_DELIVERY"),id=r.body.fulfillmentRequestId!,[line]=await lines(f,id);
+  await unit(f,id,line!.id);await unit(f,id,line!.id);
+  const payload={fulfillmentRequestId:id,lineId:line!.id,reason:"Missing staged unit"};
+  await markLostInStaging(f.db,staff(f),createUuidV7(),payload);
+  const last=await markLostInStaging(f.db,staff(f),createUuidV7(),payload);
+  expect(last.body.requiresReturnToShelf).toBe(false);
+  expect((await lines(f,id))[0]).toMatchObject({lostQuantity:2,returnedQuantity:0});
+  expect((await f.db.select().from(reservations).where(eq(reservations.id,r.body.reservationId!)))[0]!.status).toBe("RELEASED");
 });
 
 it("does not reuse a unit confirmation, within the same transaction or after it commits",async()=>{
@@ -150,4 +177,38 @@ it("automatically expands and completes bundles for every payment method",async(
     expect(r.body).toMatchObject({status:"HANDED_OVER",confirmation:"AUTO_ASSUMED"});
     expect((await lines(f,r.body.fulfillmentRequestId!)).map((l)=>l.handedOverQuantity).sort()).toEqual([2,3]);
   }
+});
+
+it("fulfills the original bundle and accounting snapshots after composition, listing, mapping and price changes",async()=>{
+  const f=await reservationFixture(),bundle=await f.bundle();
+  await setFulfillmentMode(f.db,staff(f),createUuidV7(),{mode:"SIMPLIFIED_FULFILLMENT"});
+  const input={storefrontOrderRef:"SNAP-1",paymentMethod:"CARD",items:[{skuId:bundle.sku.id,quantity:2}]};
+  const r=await reserveOrder(f.db,f.principal,createUuidV7(),input);
+  await f.db.update(bundleComponents).set({quantity:10}).where(eq(bundleComponents.bundleSkuId,bundle.sku.id));
+  await f.db.update(accountingMappings).set({active:false,accountingName:"Changed later"}).where(eq(accountingMappings.skuId,bundle.second.sku.id));
+  await f.db.update(storefrontListings).set({enabled:false}).where(eq(storefrontListings.skuId,bundle.sku.id));
+  await withdrawPrice(f.db,f.actor,{skuId:bundle.sku.id,storefrontId:f.store.id},"Fixture withdrawal");
+  await expect(reserveOrder(f.db,f.principal,createUuidV7(),input)).rejects.toThrow();
+  const done=await confirmOrder(f.db,f.principal,createUuidV7(),{reservationId:r.body.reservationId,confirmation:confirmation(bundle.sku.id)});
+  expect((await lines(f,done.body.fulfillmentRequestId!)).map((l)=>l.handedOverQuantity).sort()).toEqual([4,6]);
+  expect(await f.db.select().from(stockLedger).where(and(eq(stockLedger.reservationId,r.body.reservationId!),eq(stockLedger.movementType,"COMMIT"))))
+    .toMatchObject([{sellerAccountingName:"M9 fixture"},{sellerAccountingName:"M9 fixture"}]);
+  const [snapshot]=await f.db.select().from(reservationLines).where(eq(reservationLines.reservationId,r.body.reservationId!));
+  await expect(f.db.update(reservationLines).set({releasedQuantity:1}).where(eq(reservationLines.id,snapshot!.id))).rejects.toThrow(/Closed/);
+  await expect(applyStockMovements(f.db,f.actor,[{poolId:f.pool.id,skuId:snapshot!.skuId,allocationId:snapshot!.allocationId,reservationId:r.body.reservationId!,type:"RESERVE",quantity:1,paymentMethod:"CARD"}])).rejects.toThrow(/Closed/);
+});
+it("fulfills overlapping bundle and ordinary lines without mixing their proofs or changing another storefront",async()=>{
+  const f=await reservationFixture(),bundle=await f.bundle();
+  await f.apply([{...f.base,allocationId:f.as[1]!.id,type:"ALLOCATE",quantity:20}]);
+  const [other]=await f.db.select().from(allocationBalances).where(eq(allocationBalances.allocationId,f.as[1]!.id));
+  await setFulfillmentMode(f.db,staff(f),createUuidV7(),{mode:"SIMPLIFIED_FULFILLMENT"});
+  const done=await reserveOrder(f.db,f.principal,createUuidV7(),{storefrontOrderRef:"MIXED-1",paymentMethod:"CASH_ON_DELIVERY",
+    items:[{skuId:bundle.sku.id,quantity:2},{skuId:f.sku.id,quantity:3}],confirmation:{...confirmation(bundle.sku.id),
+      prices:[...confirmation(bundle.sku.id).prices,...confirmation(f.sku.id).prices]}});
+  expect(done.body.status).toBe("HANDED_OVER");
+  const physical=await lines(f,done.body.fulfillmentRequestId!);
+  expect(physical).toHaveLength(3);expect(new Set(physical.map((l)=>l.reservationLineId)).size).toBe(3);
+  expect(physical.filter((l)=>l.skuId===f.sku.id).map((l)=>l.handedOverQuantity).sort()).toEqual([3,4]);
+  expect((await f.db.select().from(allocationBalances).where(eq(allocationBalances.allocationId,f.as[0]!.id)))[0]).toMatchObject({allocated:53,reserved:0,committed:0});
+  expect((await f.db.select().from(allocationBalances).where(eq(allocationBalances.allocationId,f.as[1]!.id)))[0]).toEqual(other);
 });

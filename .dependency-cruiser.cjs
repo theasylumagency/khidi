@@ -31,12 +31,12 @@ module.exports = {
     {
       name: "products-must-not-import-commerce-or-publishing",
       severity: "error",
-      comment: "[C5] packages/products must never import pricing, inventory, fulfillment, or publishing.",
+      comment: "[C5] packages/products must never import pricing, inventory, reservations, fulfillment, or publishing.",
       from: {
         path: "^packages/products/"
       },
       to: {
-        path: "^packages/(pricing|inventory|fulfillment|publishing|reports|notifications)/"
+        path: "^packages/(pricing|inventory|reservations|fulfillment|publishing|reports|notifications)/"
       }
     },
     {

@@ -1,5 +1,5 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { allocations, bundleComponents, fulfillmentHistory, fulfillmentLines, fulfillmentRequests, reservationExpiryJobs, reservationItems, reservationLines, reservations, skus, storefronts, type DbExecutor } from "@khidi/db";
+import { allocations, bundleComponents, fulfillmentHistory, fulfillmentLines, fulfillmentRequests, reservationExpiryJobs, reservationItems, reservationLines, reservations, scanTasks, storefronts, type DbExecutor } from "@khidi/db";
 import { acquireDomainLocks, IDENTITY_CATALOG_LOCK, INVENTORY_CONFIGURATION_LOCK, priceLockKey } from "@khidi/domain/locking";
 import type { DomainTransactionContext } from "@khidi/domain";
 import { applyWorkflowStockMovements, workflowActor, type WorkflowPrincipal } from "@khidi/inventory/workflow";
@@ -114,6 +114,8 @@ export async function commitInTransaction(ctx:DomainTransactionContext,p:Workflo
 export async function releaseQuantities(ctx:DomainTransactionContext,p:WorkflowPrincipal,state:LockedReservation,amounts:Map<string,number>,requestId?:string) {
   const movements=state.lines.flatMap((line)=>{const quantity=amounts.get(line.id)??0;return quantity>0 ? [movement(line,state.pools.get(line.allocationId)!,state.header.status==="COMMITTED" ? "COMMIT_RELEASE" : "RESERVATION_RELEASE",quantity,requestId)] : [];});
   if(movements.length) await applyWorkflowStockMovements(ctx.tx,p,movements);
+  if(movements.length && state.header.status==="COMMITTED") await ctx.emitOutboxEvent({eventType:"COMMIT_RELEASED",storefrontId:state.header.storefrontId,
+    aggregateType:"reservation",aggregateId:state.header.id,payload:{reservationId:state.header.id},consumers:["storefront:"+state.header.storefrontId]});
   for(const line of state.lines) {
     const quantity=amounts.get(line.id)??0;
     if(quantity) {line.releasedQuantity+=quantity;await ctx.tx.update(reservationLines).set({releasedQuantity:line.releasedQuantity}).where(eq(reservationLines.id,line.id));}
@@ -138,7 +140,12 @@ export async function expireLocked(ctx:DomainTransactionContext,p:WorkflowPrinci
   } else {
     await releaseQuantities(ctx,p,state,new Map(state.lines.map((l)=>[l.id,l.quantity-l.releasedQuantity])),request?.id);
     await closeRelease(ctx,state,"EXPIRED","RESERVATION_TIMEOUT");
-    if(request) await ctx.tx.update(fulfillmentRequests).set({status:"CANCELLED",cancelReason:"RESERVATION_TIMEOUT",cancelledAt:new Date()}).where(eq(fulfillmentRequests.id,request.id));
+    if(request) {
+      await ctx.tx.update(fulfillmentRequests).set({status:"CANCELLED",cancelReason:"RESERVATION_TIMEOUT",cancelledAt:new Date()}).where(eq(fulfillmentRequests.id,request.id));
+      await ctx.tx.update(scanTasks).set({status:"CANCELLED"}).where(eq(scanTasks.fulfillmentRequestId,request.id));
+      await ctx.emitOutboxEvent({eventType:"FULFILLMENT_STATUS_CHANGED",storefrontId:state.header.storefrontId,aggregateType:"fulfillment_request",aggregateId:request.id,
+        payload:{schemaVersion:1,reservationId:state.header.id,fulfillmentRequestId:request.id,status:"CANCELLED",reason:"RESERVATION_TIMEOUT"},consumers:["storefront:"+state.header.storefrontId]});
+    }
   }
   if(request) {
     const actor=workflowActor(p);

@@ -1,2 +1,7 @@
 # The existing CSP source assertion expects LF on every platform.
 apps/hub/next.config.ts text eol=lf
+# New M9 migrations keep identical checksum bytes across Windows and Linux.
+packages/db/migrations/0039_reservations_fulfillment.sql text eol=lf
+packages/db/migrations/0040_workflow_guards.sql text eol=lf
+packages/db/migrations/0041_closed_order_guards.sql text eol=lf
+packages/db/migrations/0042_expiry_job_guard.sql text eol=lf

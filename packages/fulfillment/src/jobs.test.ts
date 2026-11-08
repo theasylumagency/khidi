@@ -1,12 +1,12 @@
 import { expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { allocationBalances, auditLogs, fulfillmentLines, fulfillmentRequests, outboxDeliveries, reservationExpiryJobs, reservations, stockLedger } from "@khidi/db";
+import { allocationBalances, auditLogs, fulfillmentLines, fulfillmentRequests, outboxDeliveries, reservationExpiryJobs, reservations, scanTasks, stockLedger } from "@khidi/db";
 import { extendReservation, setFulfillmentMode } from "@khidi/reservations";
 import { applyWorkflowStockMovements } from "@khidi/inventory/workflow";
 import { createUuidV7 } from "@khidi/shared";
 import { createMediaJobRuntime, deployMediaJobs } from "../../media/src/jobs-runtime.ts";
 import { reservationFixture } from "../../reservations/src/reservation.test-fixture.ts";
-import { cancelFulfillment, confirmFulfillmentUnit, confirmOrder, reserveOrder } from "./index.ts";
+import { cancelFulfillment, confirmFulfillmentUnit, confirmOrder, releaseOrder, reserveOrder } from "./index.ts";
 import { dispatchReservationJobs, executeReservationExpiry } from "./jobs.ts";
 import { RESERVATION_QUEUE } from "./job-names.ts";
 
@@ -47,6 +47,12 @@ it("treats an old deadline as stale after extension, and commitments never expir
   expect((await executeReservationExpiry(f.db,job.id)).status).toBe("CLOSED");
   expect((await f.db.select().from(reservations).where(eq(reservations.id,confirmed.body.reservationId!)))[0]!.status).toBe("COMMITTED");
 });
+it("closes an unstarted controlled COD picking task when its reservation expires",async()=>{
+  const f=await reservationFixture();await setFulfillmentMode(f.db,staff(f),createUuidV7(),{mode:"CONTROLLED_FULFILLMENT"});
+  const r=await pending(f,true),job=await due(f,r.body.reservationId!);await executeReservationExpiry(f.db,job.id);
+  expect(await f.db.select().from(scanTasks).where(eq(scanTasks.fulfillmentRequestId,r.body.fulfillmentRequestId!))).toMatchObject([{status:"CANCELLED"}]);
+  expect((await f.db.select().from(reservations).where(eq(reservations.id,r.body.reservationId!)))[0]!.status).toBe("EXPIRED");
+});
 it("holds the entire staged COD reservation for ACTION_REQUIRED and preserves a pending cancellation through expiry",async()=>{
   const f=await reservationFixture();await setFulfillmentMode(f.db,staff(f),createUuidV7(),{mode:"CONTROLLED_FULFILLMENT"});
   const r=await pending(f,true),requestId=r.body.fulfillmentRequestId!,[line]=await f.db.select().from(fulfillmentLines).where(eq(fulfillmentLines.fulfillmentRequestId,requestId));
@@ -84,6 +90,17 @@ it("limits system-job and automatic-policy principals to their allowlists, deadl
   const automatic={type:"SYSTEM_WORKFLOW" as const,policy:"SIMPLIFIED_FULFILLMENT" as const,reservationId:r.body.reservationId!,storefrontId:f.store.id,triggerApiKeyId:f.principal.apiKeyId,triggerCallId:createUuidV7()};
   for(const type of ["RESERVE","RESERVATION_RELEASE","COMMIT_RELEASE"] as const)
     await expect(applyWorkflowStockMovements(f.db,automatic,[{...base,type}])).rejects.toMatchObject({code:"FORBIDDEN"});
+});
+it("allows only one of reservation release and payment commit to win, including controlled mode",async()=>{
+  const f=await reservationFixture();await setFulfillmentMode(f.db,staff(f),createUuidV7(),{mode:"CONTROLLED_FULFILLMENT"});
+  const r=await pending(f),id=r.body.reservationId!;
+  const results=await Promise.allSettled([confirmOrder(f.db,f.principal,createUuidV7(),{reservationId:id,confirmation:confirmation(f)}),
+    releaseOrder(f.db,f.principal,createUuidV7(),{reservationId:id,reason:"PAYMENT_FAILED"})]);
+  expect(results.filter((r)=>r.status==="fulfilled")).toHaveLength(1);
+  const [header]=await f.db.select().from(reservations).where(eq(reservations.id,id));
+  expect(["COMMITTED","RELEASED"]).toContain(header!.status);
+  const rows=await f.db.select().from(stockLedger).where(eq(stockLedger.reservationId,id));
+  expect(rows.filter((r)=>["COMMIT","RESERVATION_RELEASE"].includes(r.movementType))).toHaveLength(1);
 });
 it("enqueues expiry with its outbox acknowledgement atomically using only deployed queues and hub_app",async()=>{
   await deployMediaJobs([],[RESERVATION_QUEUE]);const boss=await createMediaJobRuntime();

@@ -8,6 +8,7 @@ import { setEntityRelationship } from "@khidi/entities";
 import { setOnlineAvailability } from "./availability.ts";
 import { applyStockMovements } from "./engine.ts";
 import { inventoryFixture } from "./test-fixture.ts";
+import { primitiveWorkflowFixture } from "./primitive-workflow.test-fixture.ts";
 
 async function fixture(seed=true) {
   const f=await inventoryFixture(seed);
@@ -49,6 +50,7 @@ it("serializes two absolute admin targets and does not apply a replay after an i
 });
 it("computes its difference after a concurrent reservation releases its allocation lock",async()=>{
   const f=await fixture(false);await f.set(10);
+  const prepared=await f.db.transaction((tx)=>primitiveWorkflowFixture(tx,f.actor.userId,[{...f.line,type:"RESERVE",quantity:2,paymentMethod:"CARD"}]));
   let pending:ReturnType<typeof f.set>|undefined;
   const tag="availability-"+createUuidV7();
   await f.db.transaction(async(tx)=>{
@@ -64,7 +66,7 @@ it("computes its difference after a concurrent reservation releases its allocati
       await new Promise((resolve)=>setTimeout(resolve,10));
     }
     expect(waiting).toBe(true);
-    await applyStockMovements(tx,f.actor,[{...f.line,type:"RESERVE",quantity:2,paymentMethod:"CARD"}]);
+    await applyStockMovements(tx,f.actor,prepared);
   });
   expect((await pending)!.body).toMatchObject({previousAvailable:8,delta:2,availableToSell:10,reserved:2});
   expect(await f.balance()).toMatchObject({allocated:12,availableToSell:10,reserved:2});

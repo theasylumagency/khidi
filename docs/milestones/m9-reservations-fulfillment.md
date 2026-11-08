@@ -102,3 +102,45 @@ dead-letter. Migration 0042 freezes job identity/deadline and final processing.
 Six focused timeout tests passed, including duplicate execution, both outcomes of the
 confirmation/expiry race, staged cancellation, principal allowlists and real pg-boss
 transaction rollback/replay on the isolated test database. Fulfillment/worker typecheck passed.
+
+### R5 — independent workflow model and final acceptance
+
+The existing lower-level inventory model remains intact. A companion unit oracle at the
+fulfillment layer extends coverage to reserve, extend, expire, commit, pick, return,
+handover, cancel, release, staging loss and composed bundles in both modes. It imports
+no production movement matrix and counts independently tracked units. Every generated
+command compares balances, immutable snapshots, header/request states and fulfillment
+counters; rejected commands must leave stock and ledger unchanged. Programs run inside
+rollback-only transactions with a printed replay seed.
+
+Review-driven regressions also cover a valid foreign storefront key, both directions of
+a mode switch, component-definition/listing/mapping/price changes after RESERVE, terminal
+DB/engine guards, UNIT_LOST webhook provenance, expired PICK-task closure and additional
+real staging losses during a pending cancellation. Reservation release is RESERVED-only
+so release-versus-commit has one winner; committed orders use fulfillment cancellation.
+The new M9 SQL files are pinned to LF without changing any pre-M9 migration bytes.
+
+The long model run passed **1000 programs**, seed **20261109**, in 1368.99 seconds.
+Replay with INVENTORY_PROPERTY_RUNS=1000 and INVENTORY_PROPERTY_SEED=20261109, running
+only packages/fulfillment/src/property.test.ts. The original inventory model also passes
+its 25-program default with this seed. All database runs use isolated loopback `_test`
+databases, filesystem media and synthetic fixtures; no shared server is used.
+
+The first full run revealed two legacy primitive fixtures that left an open fulfillment
+after releasing all held units. The fixture adapter now closes that work, and the lock
+race prepares genuine FK rows before taking balance locks. Their 39 focused checks pass;
+no existing assertion or production drain guard was weakened. Final full-suite acceptance
+ran from zero public tables in khidi_m9_final_test on isolated PostgreSQL 18.4:
+**515 passed, 1 optional S3/MinIO integration test skipped** (89 files passed, 1 skipped),
+393.02 seconds. The long run used khidi_m9_work_test. All final typecheck, lint,
+dependency-boundary and production-build checks passed. Build used temporary synthetic
+configuration and no deployment or storage calls; no production environment was changed.
+
+## Review boundary and follow-up
+
+Phase 1 stops here for enhanced owner review. No storefront transport, key-management
+endpoints, webhook delivery, OpenAPI, admin fulfillment screens or PICK/manual UI are
+added. Phase 2 must document the same confirmation payload in both modes and require
+storefronts to handle REQUESTED or HANDED_OVER/AUTO_ASSUMED without reading the mode.
+Partial fulfillment and consolidation require a future ADR; no ledger rewrite is needed.
+No new business ADR is proposed. Existing human deployment/restore/device gates stay pending.

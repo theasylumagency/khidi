@@ -15,12 +15,13 @@ async function reserve(f:Awaited<ReturnType<typeof reservationFixture>>,items=[{
     const {header}=await reserveInTransaction(ctx,f.principal,input,key);return {status:201,body:{reservationId:header.id,expiresAt:header.expiresAt.toISOString()}};
   });
 }
-it("rejects personal-data fields and opaque references that look like email or telephone numbers",()=>{
+it("rejects personal-data fields and opaque references that look like email or telephone numbers",async()=>{
   for(const ref of ["a@b.test","555123456","+995555123456","A 5",""]) expect(orderReferenceSchema.safeParse(ref).success).toBe(false);
   for(const ref of ["A-123456789","12345678","order_1.x"]) expect(orderReferenceSchema.safeParse(ref).success).toBe(true);
   const input={storefrontOrderRef:"A-1",paymentMethod:"CARD",items:[{skuId:createUuidV7(),quantity:1}]};
   for(const field of ["name","phone","email","address","customer"]) expect(reserveSchema.safeParse({...input,[field]:"private"}).success).toBe(false);
   expect(reserveSchema.safeParse({...input,items:[{...input.items[0],phone:"private"}]}).success).toBe(false);
+  await expect(workflowCommand({} as never,{type:"STOREFRONT_SERVICE",storefrontId:createUuidV7(),apiKeyId:createUuidV7()},"reserve","00000000----------------------------",{},async()=>{throw new Error("Must not connect");})).rejects.toMatchObject({code:"VALIDATION_ERROR"});
 });
 it("reserves only the availability-pool allocation, freezes accounting at RESERVE, and durably replays",async()=>{
   const f=await reservationFixture(),key=createUuidV7(),first=await reserve(f,undefined,key);
