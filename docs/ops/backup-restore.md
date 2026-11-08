@@ -87,75 +87,61 @@ PITR-ისთვის დაამატეთ UTC დრო, რომელ�
 გაიაროს შემოწმება, და მხოლოდ ამის შემდეგ განახლდეს აპლიკაციის კავშირი და
 ბექაფის არქივირება. საცდელი ასლი ავტომატურად არ ხდება ძირითადი სერვერი.
 
-## სრული შემოწმება
+## Current restore verification (M11)
 
-პირველი საერთო განთავსებისას, **პილოტურ მიღებამდე**, ადამიანმა უნდა ჩაატაროს
-ეს შემოწმება და შედეგი `AGENTS.md` §3-ში დააფიქსიროს. გაიმეორეთ კვარტალში
-ერთხელ და ინფრასტრუქტურის მნიშვნელოვანი ცვლილების შემდეგ.
+The owner performs the real backup/recovery exercise before pilot and repeats it after
+infrastructure changes. Keep source writers stopped for the consistent source snapshot and
+backup. Recover onto a separate isolated environment; never run seeds or the test suite on
+a shared server. The local synthetic command below is for a developer/CI machine only.
 
-1. შეაჩერეთ Hub, worker და სხვა ჩამწერი პროცესები წყაროზე. ზუსტი რაოდენობების
-   შედარებისთვის წყარო უცვლელი უნდა დარჩეს ბექაფის დასრულებამდე.
-2. შექმენით მხოლოდ საცდელი აღდგენისთვის ცარიელი დირექტორია. მოამზადეთ გარემო:
-   `SOURCE_WRITERS_STOPPED=yes`, `SOURCE_MIGRATOR_URL`, `RESTORE_MIGRATOR_URL`,
-   `RESTORE_APP_URL`, `RESTORE_TEST_MIGRATOR_URL`, `RESTORE_TEST_APP_URL`,
-   `RESTORE_PORT`, ზემოთ ჩამოთვლილი გზები და `RESTORE_REPORT`.
-   URL-ები საიდუმლოებების საცავიდან მიაწოდეთ. აღდგენილი ბაზა უნდა იყოს loopback-ზე,
-   სხვა პორტზე; აპლიკაციისა და მიგრაციების როლები განცალკევებულია.
-3. პროექტის ძირიდან გაუშვით:
+The low-level ops/verify-restore.ts requires SOURCE_WRITERS_STOPPED=yes, explicit source and
+restored URLs, separate app/migrator roles, a clean dedicated RESTORE_ROOT/RESTORE_PGDATA,
+RESTORE_PORT, a new RESTORE_REPORT path and separate RESTORE_MEDIA_* storage settings.
+RESTORE_TEST_APP_URL and RESTORE_TEST_MIGRATOR_URL identify a new _test database on the
+recovered instance, not the recovered original. Use RESTORE_ADMIN_URL only if needed for
+CREATEDB on that isolated instance. No existing database or report is overwritten.
 
-   ```sh
-   corepack pnpm exec tsx ops/verify-restore.ts
-   ```
+The verifier takes an encrypted full backup, restores it with archive_mode=off, checks the
+exact migration set/checksums without executing migrations, and compares every public and
+khidi_jobs table, not only the old 23-table list. It verifies sampled raw hashes and every
+recorded private raw/master/derivative/evidence/report reference. It then runs inventory:verify
+read-only on the recovered original, creates a writable clone with CREATE DATABASE ... TEMPLATE,
+and runs H6 A–D on that clone with no seeds or migrations. It never starts a recovered worker or
+replays arbitrary restored deliveries; only the new synthetic scenarios' own events are consumed.
+Finally it checks that the recovered original's table counts are unchanged and stops the recovered
+instance. Nonzero exit means failure; retain its private JSON report and resolve the cause.
 
-სკრიპტი იღებს წყაროს რაოდენობებს ერთ read-only snapshot-ში; აკეთებს ახალ სრულ
-ბექაფს; აღადგენს კონკრეტულ ბექაფს; ამოწმებს მიგრაციების ზუსტ სიასა და checksum-ებს
-მათი გაშვების გარეშე; ადარებს 23 ძირითად ცხრილსა და raw ფოტოების შერჩეულ SHA-256-ებს;
-შემდეგ აღდგენილი ბაზიდან ქმნის ახალ `_test` ასლს და სრულ ტესტებს მასზე უშვებს.
-`RESTORE_TEST_MIGRATOR_URL` და `RESTORE_TEST_APP_URL` უნდა მიუთითებდეს იმავე
-იზოლირებულ სერვერზე არსებულ ახალ, განცალკევებულ `_test` სახელზე.
-არსებული ბაზა არ გადაიწერება და არ წაიშლება. თუ მიგრატორს CREATEDB არ აქვს,
-`RESTORE_ADMIN_URL`-ით მიაწოდეთ იზოლირებული აღდგენის სერვერის შესაბამისი ანგარიში.
-აღდგენილი ძირითადი ბაზა ტესტებისგან უცვლელი რჩება.
-ბოლოს საცდელი კლასტერი ჩერდება და რჩება JSON ანგარიში. ჩავარდნა აბრუნებს
-არანულოვან კოდს; წყაროზე ტესტები არ ეშვება. `RESTORE_REPORT` ახალი ფაილის გზა უნდა
-იყოს — წინა ანგარიში არ გადაიწერება.
+Object copies can have different S3 version IDs. Reads first request the recorded version;
+only a missing version may fall back to the immutable key, and the recorded SHA-256 is always
+required. Corruption and permission failures never trigger fallback. Restore all private master
+versions and reports, not just the newest image or the public thumbnails. The local copy helper
+is deliberately limited to empty loopback MinIO targets; it is not a production backup copier.
 
-## ლოკალური შემოწმება Docker-ით
+## One-command local PostgreSQL + MinIO drill
 
-`ops/compose.restore-test.yml` ქმნის ცალკე ლოკალურ წყაროს `5436` პორტზე და აღდგენის
-ასლისთვის გამოყოფს `5437`-ს. ის პროექტის ჩვეულებრივ `5435` ბაზას არ იყენებს.
-სატესტო საცავი ლოკალური და დაშიფრულია; ამით off-server S3-ის გამართულობა არ მოწმდება.
+On a developer/isolated CI machine with Docker and installed locked dependencies, run:
 
-1. შექმენით შემთხვევითი `PGBACKREST_REPO1_CIPHER_PASS` დროებით გარემოში ან
-   იგნორირებულ `ops/.restore-test.env` ფაილში. გაუშვით:
+    corepack pnpm ops:restore-drill
 
-   ```sh
-   docker compose --env-file ops/.restore-test.env -f ops/compose.restore-test.yml up -d --build --wait
-   docker cp docker/postgres/init-roles.sh khidi-m3-restore-source:/tmp/init-roles.sh
-   docker exec khidi-m3-restore-source sh /tmp/init-roles.sh
-   docker exec --user root khidi-m3-restore-source install -d -o postgres -g postgres -m 700 /var/lib/pgbackrest /var/lib/postgresql/restore-drill/cluster
-   docker exec --user postgres khidi-m3-restore-source pgbackrest --config=/etc/pgbackrest/pgbackrest.conf --stanza=khidi stanza-create
-   ```
+No existing database URLs, credentials, env file or arguments are required. The command uses
+ops/compose.restore-test.yml with a random project name, new volumes and dynamically allocated
+loopback ports. It generates temporary credentials in process memory. It initializes/seeds only
+its proven-empty khidi_restore_test source, exercises A–D, and creates a private PDF and daily
+report files. It enables private MinIO Object Lock/versioning, copies all source objects into a
+second empty MinIO instance and checks SHA-256 for every copy. It performs encrypted pgBackRest
+backup/WAL recovery and invokes the verifier above against the recovered data and its clone.
 
-2. ამ ცარიელ ლოკალურ წყაროზე როლებს ზემოთ გაშვებული repository init-სკრიპტი ქმნის.
-   შექმენით ცალკე `agrotrade_hub_test` ბაზა `hub_migrator` მფლობელით და მიეცით
-   `hub_app`-ს CONNECT. შემდეგ `DATABASE_URL`/`DATABASE_MIGRATOR_URL`-ის `5436`
-   პორტითა და `_test` ბაზის სახელით გაუშვით ტესტები. `SOURCE_MIGRATOR_URL`-იც
-   ამ სატესტო ბაზას უნდა მიუთითებდეს; `agrotrade_hub` სახელზე ტესტები არ გაეშვება. უკვე
-   შექმნილ volume-ზე PostgreSQL-ის საწყისი ინიციალიზაცია ხელახლა არ მუშაობს; არ გამოიყენოთ სხვა პროექტის volume.
-3. verification-ისთვის მიუთითეთ `OPS_DOCKER_CONTAINER=khidi-m3-restore-source`,
-   `PGBACKREST_CONFIG=/etc/pgbackrest/pgbackrest.conf`,
-   `SOURCE_PGDATA=/var/lib/postgresql/18/khidi`,
-   `RESTORE_ROOT=/var/lib/postgresql/restore-drill`,
-   `RESTORE_PGDATA=/var/lib/postgresql/restore-drill/cluster`, `RESTORE_PORT=5433`.
-   წყაროს URL-ები იყენებს host-ის `5436` პორტს, აღდგენილის — `5437`-ს.
-   ეს სხვაობა მხოლოდ Docker-ის პორტების შესაბამისობაა.
-   `RESTORE_TEST_…` URL-ებში გამოიყენეთ `5437` და სხვა ახალი სახელი, მაგალითად
-   `khidi_restore_verification_test`; ის აღდგენილი `agrotrade_hub_test` ბაზისგანაც
-   განცალკევებული უნდა იყოს.
-4. გაუშვით `ops/verify-restore.ts` წინა განყოფილების წესით. არტეფაქტები და
-   დროებითი გასაღები Git-ში არ შეიტანოთ. დასრულების შემდეგ გააჩერეთ compose
-   გარემო; მონაცემების დირექტორიების წაშლა ამ სკრიპტების ნაწილი არ არის.
+The command removes only containers/volumes bearing its own unique project identity and retains
+a private ignored ops/.restore-test-*.json report. It does not reset the ordinary development DB,
+other containers, production configuration, real entities or shared data. If a cached image is
+unavailable, Compose builds the already pinned repository PostgreSQL/MinIO images. Docker bind
+mounts of the workspace are unnecessary; the non-secret test config is copied into the new container.
+
+The local run verifies tooling, not off-server S3 availability, production replication, access
+policies, recovery keys or real-device behavior. Those remain owner gates. See e2e-verification.md
+and pre-pilot-checklist.md. A local pgBackRest warning about mapping a root-owned fixture group
+to the recovery operator does not change content/hash verification; production ownership must
+be checked against the real service account during its own recovery exercise.
 
 ## მედია — M4
 

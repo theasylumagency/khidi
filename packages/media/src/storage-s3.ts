@@ -20,7 +20,14 @@ export class S3MediaStorage implements MediaStorage {
   async readPrivate(key: string, expectedSha256: string, versionId?: string): Promise<Uint8Array> {
     assertObjectKey(key, "private");
     try {
-      const result = await this.client.send(new GetObjectCommand({ Bucket: this.privateBucket, Key: key, VersionId: versionId }));
+      let result;
+      try { result = await this.client.send(new GetObjectCommand({ Bucket: this.privateBucket, Key: key, VersionId: versionId })); }
+      catch(error) {
+        if(!versionId || (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode!==404)throw error;
+        // A recovered replica can assign new version IDs. Immutable key + the recorded SHA
+        // remains authoritative; never fall back after corruption or an authorization failure.
+        result=await this.client.send(new GetObjectCommand({Bucket:this.privateBucket,Key:key}));
+      }
       if (!result.Body) throw new StorageMissingError();
       const bytes = await result.Body.transformToByteArray();
       checkDigest(bytes, expectedSha256);

@@ -19,7 +19,7 @@ export async function verifyRestore(env: NodeJS.ProcessEnv = process.env) {
   await runner.assertCleanRestoreDirectory();
   const reportPath = required("RESTORE_REPORT", env);
   // Reserve a new report, never overwrite an earlier restore record.
-  const report = { startedAt: new Date().toISOString(), backupSet: "", checksumsMatch: false, countsMatch: false, mediaHashesMatch: false, sampledRawFiles: 0, testDatabase: "", testsPassed: false };
+  const report = { startedAt: new Date().toISOString(), backupSet: "", checksumsMatch: false, countsMatch: false, mediaHashesMatch: false, sampledRawFiles: 0,privateReferencesVerified:0, testDatabase: "", inventoryVerified:false,recoveredUnchanged:false, testsPassed: false };
   await writeFile(reportPath, JSON.stringify(report, null, 2), { flag: "wx", mode: 0o600 });
   let started = false;
   try {
@@ -43,8 +43,13 @@ export async function verifyRestore(env: NodeJS.ProcessEnv = process.env) {
       report.sampledRawFiles = verified.sampledFiles;
     }
     report.mediaHashesMatch = true;
-    // Keep the recovered database unchanged; tests use a fresh empty _test database
-    // on the recovered server, then the test harness applies migrations and deterministic seeds.
+    const recoveredStorage=createMediaStorage(restoredMediaEnvironment(env));
+    for(const reference of restored.privateReferences??[]) {
+      const bytes=await recoveredStorage.readPrivate(reference.key,reference.sha256,reference.versionId??undefined);
+      if(reference.bytes!==null&&bytes.length!==reference.bytes)throw new Error("Restored private file size mismatch.");
+      report.privateReferencesVerified++;
+    }
+    // Clone the recovered state without seeds, migrations or arbitrary job dispatch.
     report.testDatabase = await createRestoreTestCopy(restoredMigrator, testMigrator, testApp, restoreAdmin);
     const testEnv: NodeJS.ProcessEnv = {
       PATH: process.env.PATH,
@@ -60,7 +65,11 @@ export async function verifyRestore(env: NodeJS.ProcessEnv = process.env) {
       DATABASE_URL: testApp,
       DATABASE_MIGRATOR_URL: testMigrator
     };
-    await runner.command("corepack", ["pnpm", "test"], { local: true, env: testEnv });
+    await runner.command(process.execPath,["--import","tsx","ops/inventory-verify.ts"],{local:true,env:{...testEnv,DATABASE_URL:restoredApp}});
+    report.inventoryVerified=true;
+    const mediaEnv=restoredMediaEnvironment(env);
+    await runner.command(process.execPath,["--import","tsx","ops/m11-e2e.ts"],{local:true,env:{...testEnv,...mediaEnv,NODE_ENV:"test",AI_PROVIDER:"disabled",KHIDI_API_HOST:"api.localhost:3100"}});
+    compareRestoreSnapshots(restored,await captureRestoreSnapshot(restoredMigrator));report.recoveredUnchanged=true;
     report.testsPassed = true;
     await writeFile(reportPath, JSON.stringify({ ...report, finishedAt: new Date().toISOString(), source, restored }, null, 2));
   } finally {

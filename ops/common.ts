@@ -27,14 +27,14 @@ export class OpsRunner {
     if (this.config.container && !options.local) {
       executable = "docker"; commandArgs = ["exec", "--user", "postgres", this.config.container, program, ...args];
     }
-    if (options.local && process.platform === "win32") {
+    if (options.local && process.platform === "win32" && program === "corepack") {
       if (program !== "corepack" || args.length !== 2 || args[0] !== "pnpm" || args[1] !== "test") throw new Error("Unsupported Windows local command.");
       executable = process.env.ComSpec ?? "cmd.exe";
       commandArgs = ["/d", "/s", "/c", "corepack pnpm test"];
     }
     return new Promise((resolve, reject) => {
       const child = spawn(executable, commandArgs, { stdio: options.capture ? ["ignore", "pipe", "pipe"] : "inherit",
-        env: options.env ?? process.env, shell: false });
+        env: options.env ?? process.env, shell: false,windowsHide:true });
       let stdout = "", stderr = "";
       child.stdout?.on("data", (data: Buffer) => { stdout += data.toString(); });
       child.stderr?.on("data", (data: Buffer) => { stderr += data.toString(); });

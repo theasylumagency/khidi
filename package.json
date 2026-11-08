@@ -28,7 +28,8 @@
     "inventory:verify": "node --env-file-if-exists=.env --import tsx ops/inventory-verify.ts",
     "api:openapi": "node --import tsx ops/storefront-openapi.ts",
     "api:test-client": "node --import tsx ops/storefront-local-smoke.ts",
-    "ops:e2e": "node --import tsx ops/m11-e2e.ts"
+    "ops:e2e": "node --import tsx ops/m11-e2e.ts",
+    "ops:restore-drill": "node --import tsx ops/restore-drill.ts"
   },
   "devDependencies": {
     "@types/node": "24.0.0",

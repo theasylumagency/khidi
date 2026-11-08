@@ -120,3 +120,11 @@ See [the combined PostgreSQL/media runbook](backup-restore.md) for writer shutdo
 PITR, checksum/count checks and the separate `_test` copy used by automated tests.
 Only the human owner can certify the shared-server replication and first restore before
 M4 deployment; local integration tests do not satisfy that deployment gate.
+
+## M11 recovery extension
+
+The verifier now checks every private raw/master/derivative/evidence/report reference, including
+reads through recorded version IDs after recovery. If a replica renumbers versions, only a missing
+version falls back to the immutable key and still requires the original SHA-256; authorization
+errors or mismatched bytes fail. The local PostgreSQL plus MinIO drill is one command,
+corepack pnpm ops:restore-drill, on a developer/isolated CI machine. See backup-restore.md.
