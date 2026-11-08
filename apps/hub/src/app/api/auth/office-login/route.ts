@@ -1,3 +1,4 @@
+import { assertHubRequestHost } from "../../../../lib/host-isolation.ts";
 import { NextResponse, type NextRequest } from "next/server";
 import { getDb } from "@khidi/db";
 import { loginOfficeUser, listOwnPasskeys } from "@khidi/auth";
@@ -13,6 +14,7 @@ const json: typeof NextResponse.json = (body, init) => NextResponse.json(body, {
 
 export async function POST(request: NextRequest) {
   try {
+    assertHubRequestHost(request);
     const body = (await request.json()) as {
       email?: string;
       password?: string;

@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { isStorefrontApiHost } from "@khidi/shared/hosts";
 
 const PUBLIC_PATHS = new Set([
   "/login",
@@ -34,6 +35,12 @@ export function hasSessionCookieFormat(rawCookieValue: string | undefined): bool
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const servicePath=pathname.startsWith("/api/v1/storefront/");
+  if(isStorefrontApiHost(request)) {
+    if(!servicePath) return new NextResponse(null,{status:404});
+    const response=NextResponse.next();response.headers.set("Cache-Control","no-store");return response;
+  }
+  if(servicePath) return new NextResponse(null,{status:404});
 
   if (isPublicRequestPath(pathname)) {
     return NextResponse.next();
@@ -61,5 +68,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|icons/|manifest\\.webmanifest|sw\\.js).*)"]
+  matcher: ["/:path*"]
 };

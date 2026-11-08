@@ -1,0 +1,33 @@
+import { expect, it } from "vitest";
+import { eq } from "drizzle-orm";
+import { getDb, idempotencyKeys, storefrontApiKeys, storefrontApiRateWindows } from "@khidi/db";
+import { createUuidV7 } from "@khidi/shared";
+import { reservationFixture } from "../../reservations/src/reservation.test-fixture.ts";
+import { serviceAdminFixture } from "./storefront-service.test-fixture.ts";
+import { consumeStorefrontRateLimit, manageStorefrontServiceKey, verifyStorefrontServiceCredential } from "./storefront-service.ts";
+it("issues neutral hashed keys, returns the secret once, rotates atomically and revokes immediately",async()=>{
+  const f=await reservationFixture(),p=await serviceAdminFixture(f.db),key=createUuidV7(),input={action:"ISSUE",storefrontId:f.store.id,name:"Server integration",rateLimitPerMinute:5};
+  const issued=await manageStorefrontServiceKey(f.db,p,key,input);expect(issued.body.rawApiKey).toMatch(/^sf_[a-f0-9]+_[a-f0-9]+$/);
+  expect((await manageStorefrontServiceKey(f.db,p,key,input)).body).not.toHaveProperty("rawApiKey");
+  const stored=await f.db.select().from(storefrontApiKeys).where(eq(storefrontApiKeys.id,issued.body.id));
+  expect(stored[0]).toMatchObject({rateLimitPerMinute:5});expect(JSON.stringify(stored)).not.toContain(issued.body.rawApiKey!);
+  expect(JSON.stringify(await f.db.select().from(idempotencyKeys).where(eq(idempotencyKeys.idempotencyKey,key)))).not.toContain(issued.body.rawApiKey!);
+  const credential={requestedStorefrontKey:f.store.key,rawApiKey:issued.body.rawApiKey!};
+  expect((await verifyStorefrontServiceCredential(f.db,credential)).apiKeyId).toBe(issued.body.id);
+  await expect(verifyStorefrontServiceCredential(f.db,{...credential,requestedStorefrontKey:f.stores[1]!.key})).rejects.toMatchObject({code:"FORBIDDEN"});
+  const rotated=await manageStorefrontServiceKey(f.db,p,createUuidV7(),{action:"ROTATE",keyId:issued.body.id,name:"Replacement",allowedIps:["192.0.2.10"]});
+  await expect(verifyStorefrontServiceCredential(f.db,credential)).rejects.toMatchObject({code:"UNAUTHORIZED"});
+  await expect(verifyStorefrontServiceCredential(f.db,{...credential,rawApiKey:rotated.body.rawApiKey!})).rejects.toMatchObject({code:"FORBIDDEN"});
+  await verifyStorefrontServiceCredential(f.db,{...credential,rawApiKey:rotated.body.rawApiKey!,clientIp:"192.0.2.10"});
+  await manageStorefrontServiceKey(f.db,p,createUuidV7(),{action:"REVOKE",keyId:rotated.body.id});
+  await expect(verifyStorefrontServiceCredential(f.db,{...credential,rawApiKey:rotated.body.rawApiKey!,clientIp:"192.0.2.10"})).rejects.toMatchObject({code:"UNAUTHORIZED"});
+});
+it("enforces per-key windows atomically across simultaneous requests and resets after a minute",async()=>{
+  const f=await reservationFixture(),p=await serviceAdminFixture(f.db),r=await manageStorefrontServiceKey(f.db,p,createUuidV7(),{action:"ISSUE",storefrontId:f.store.id,name:"Rate fixture",rateLimitPerMinute:3});
+  const credential=await verifyStorefrontServiceCredential(f.db,{requestedStorefrontKey:f.store.key,rawApiKey:r.body.rawApiKey!});
+  const results=await Promise.allSettled(Array.from({length:5},()=>consumeStorefrontRateLimit(f.db,credential)));
+  expect(results.filter((r)=>r.status==="fulfilled")).toHaveLength(3);
+  expect(results.filter((r)=>r.status==="rejected").every((r)=>r.status==="rejected"&&r.reason.details.retryAfter>0)).toBe(true);
+  await f.db.update(storefrontApiRateWindows).set({windowStartedAt:new Date(Date.now()-61000)}).where(eq(storefrontApiRateWindows.apiKeyId,r.body.id));
+  await consumeStorefrontRateLimit(f.db,credential);
+});

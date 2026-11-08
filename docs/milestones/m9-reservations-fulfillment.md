@@ -151,3 +151,15 @@ The owner approved Phase 1 and authorized R6, R7, R9 and R10; R8 stays deferred.
 Before Phase 2, USER COMMIT is limited to a controlled COD/PICKUP reservation and the
 immediately matching HANDOVER_OUT in the same command. CARD/BANK commitments remain
 storefront/system operations. Focused principal and fulfillment checks: 24 passed.
+
+### R6 — API v1
+
+Dedicated host guards cover proxy, routes and page authentication. Strict Zod contracts,
+opaque public projections, atomic idempotent order commands, scoped hashed keys, rotation,
+expiry, verified-proxy IP allowlists and PostgreSQL per-key rate windows are implemented.
+OpenAPI is generated from the request schemas (`ops/storefront-openapi.ts`). The optional
+fulfillment create call returns the complete request already created by confirmation.
+It never creates a second request. Raw credentials are returned once, never persisted in
+idempotency receipts. See `docs/ops/storefront-api.md` for proxy setup and client semantics.
+Focused API/host/key checks: 7 passed; auth/architecture compatibility checks: 12 passed.
+Targeted typecheck and dependency boundaries passed. No deployment or proxy changes made.

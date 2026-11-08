@@ -552,118 +552,6 @@ export async function listPinEnabledUsersForRegisteredDevice(
 /**
  * Scoped Storefront Service Key issuance and verification (§12.1, §16.2).
  */
-export async function issueStorefrontApiKey(
-  db: AppDatabase | DbExecutor,
-  adminPrincipal: AuthenticatedPrincipal,
-  input: {
-    storefrontId: string;
-    name: string;
-    allowedIps?: string[];
-  }
-): Promise<{ id: string; keyPrefix: string; rawApiKey: string }> {
-  assertRoleAllowed(adminPrincipal, ["ADMIN"]);
-
-  const [storefront] = await db
-    .select()
-    .from(storefronts)
-    .where(eq(storefronts.id, input.storefrontId))
-    .limit(1);
-
-  if (!storefront) {
-    throw new AppError("NOT_FOUND", `Storefront ${input.storefrontId} not found.`);
-  }
-
-  const randomPart = randomBytes(24).toString("hex");
-  const keyPrefix = `sf_${storefront.key.replace(/[^a-z0-9]/g, "").slice(0, 10)}`;
-  const rawApiKey = `${keyPrefix}_${randomPart}`;
-  const keyHash = sha256Hex(rawApiKey);
-  const id = createUuidV7();
-
-  await withDomainTransaction(db, { userId: adminPrincipal.userId }, async (ctx) => {
-    await assertRecentStrongAuth(ctx.tx, adminPrincipal);
-    await ctx.tx.insert(storefrontApiKeys).values({
-      id,
-      storefrontId: storefront.id,
-      name: input.name.trim(),
-      keyPrefix,
-      keyHash,
-      allowedIps: input.allowedIps ?? null,
-      active: true,
-      createdBy: adminPrincipal.userId
-    });
-
-    await ctx.recordAudit({
-      action: "STOREFRONT_API_KEY_ISSUED",
-      entityType: "storefront_api_key",
-      entityId: id,
-      after: { storefrontId: storefront.id, name: input.name.trim(), keyPrefix }
-    });
-  });
-
-  return { id, keyPrefix, rawApiKey };
-}
-
-export async function verifyStorefrontServiceCredential(
-  db: AppDatabase | DbExecutor,
-  input: {
-    requestedStorefrontKey: string;
-    rawApiKey: string;
-    clientIp?: string;
-  }
-): Promise<{ storefrontId: string; storefrontKey: string; sellerEntityId: string }> {
-  const keyHash = sha256Hex(input.rawApiKey);
-
-  const [keyRow] = await db
-    .select({
-      keyId: storefrontApiKeys.id,
-      keyActive: storefrontApiKeys.active,
-      revokedAt: storefrontApiKeys.revokedAt,
-      expiresAt: storefrontApiKeys.expiresAt,
-      allowedIps: storefrontApiKeys.allowedIps,
-      storefrontId: storefronts.id,
-      storefrontKey: storefronts.key,
-      storefrontActive: storefronts.active,
-      sellerEntityId: storefronts.sellerEntityId
-    })
-    .from(storefrontApiKeys)
-    .innerJoin(storefronts, eq(storefrontApiKeys.storefrontId, storefronts.id))
-    .where(eq(storefrontApiKeys.keyHash, keyHash))
-    .limit(1);
-
-  if (!keyRow || !keyRow.keyActive || keyRow.revokedAt || !keyRow.storefrontActive) {
-    throw new AppError("UNAUTHORIZED", "Invalid or revoked storefront service credential.");
-  }
-
-  if (keyRow.expiresAt && keyRow.expiresAt <= new Date()) {
-    throw new AppError("UNAUTHORIZED", "Storefront service credential has expired.");
-  }
-
-  // Strict storefront scope check: credential for Storefront A can never access Storefront B (§12, §17.1)
-  if (keyRow.storefrontKey !== input.requestedStorefrontKey) {
-    throw new AppError(
-      "FORBIDDEN",
-      `Storefront credential is scoped to "${keyRow.storefrontKey}" and cannot access "${input.requestedStorefrontKey}".`
-    );
-  }
-
-  if (keyRow.allowedIps && keyRow.allowedIps.length > 0) {
-    if (!input.clientIp || !keyRow.allowedIps.includes(input.clientIp)) {
-      throw new AppError("FORBIDDEN", "Client IP is not on the storefront credential allowlist.");
-    }
-  }
-
-  await db
-    .update(storefrontApiKeys)
-    .set({ lastUsedAt: new Date() })
-    .where(eq(storefrontApiKeys.id, keyRow.keyId));
-
-  return {
-    storefrontId: keyRow.storefrontId,
-    storefrontKey: keyRow.storefrontKey,
-    sellerEntityId: keyRow.sellerEntityId
-  };
-}
-
 export async function listUsersWithMemberships(
   db: AppDatabase | DbExecutor,
   adminPrincipal: AuthenticatedPrincipal
@@ -690,3 +578,5 @@ export async function listUsersWithMemberships(
     createdAt: u.createdAt
   }));
 }
+
+export * from "./storefront-service.ts";

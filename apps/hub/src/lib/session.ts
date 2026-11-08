@@ -1,5 +1,6 @@
-import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
+import { cookies, headers } from "next/headers";
+import { redirect, notFound } from "next/navigation";
+import { storefrontApiHost } from "@khidi/shared/hosts";
 import { getDb } from "@khidi/db";
 import {
   verifySessionToken,
@@ -18,6 +19,7 @@ export async function isSharedWarehouseBrowser(): Promise<boolean> {
 }
 
 export async function getCurrentPrincipal(options?: { throwOnUnavailable: boolean }): Promise<AuthenticatedPrincipal | null> {
+  if((await headers()).get("host")?.toLowerCase()===storefrontApiHost()) notFound();
   const cookieStore = await cookies();
   const rawToken = cookieStore.get(KHIDI_SESSION_COOKIE)?.value;
   if (!rawToken) {

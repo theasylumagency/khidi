@@ -3,7 +3,7 @@ import { reservations, type DbExecutor } from "@khidi/db";
 import { workflowCommand } from "./commands.ts";
 import { demand, expireLocked, lockReservation, scheduleExpiry, type StorefrontPrincipal } from "./internal.ts";
 import { extendSchema, parseInput, type OrderResponse } from "./contracts.ts";
-export { reserveSchema, commitSchema, releaseSchema, confirmationSchema, orderReferenceSchema, isCod, parseInput, type Confirmation, type ReserveInput, type CommitInput, type FulfillmentMode, type OrderResponse } from "./contracts.ts";
+export { reserveSchema, commitSchema, extendSchema, releaseSchema, confirmationSchema, orderReferenceSchema, isCod, parseInput, type Confirmation, type ReserveInput, type CommitInput, type FulfillmentMode, type OrderResponse } from "./contracts.ts";
 export { getFulfillmentMode, setFulfillmentMode } from "./mode.ts";
 export type { StorefrontPrincipal } from "./internal.ts";
 

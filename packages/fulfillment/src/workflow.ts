@@ -179,7 +179,7 @@ export async function handoverOrder(db:DbExecutor,p:Staff,key:string,raw:unknown
   });
 }
 
-async function cancelLocked(ctx:DomainTransactionContext,p:WorkflowPrincipal,state:LockedReservation,reason:string) {
+export async function cancelLocked(ctx:DomainTransactionContext,p:WorkflowPrincipal,state:LockedReservation,reason:string) {
   demand(["RESERVED","COMMITTED"].includes(state.header.status),"This order is already closed.");
   const [request]=await ctx.tx.select().from(fulfillmentRequests).where(eq(fulfillmentRequests.reservationId,state.header.id));
   const lines=request ? await ctx.tx.select().from(fulfillmentLines).where(eq(fulfillmentLines.fulfillmentRequestId,request.id)) : [];

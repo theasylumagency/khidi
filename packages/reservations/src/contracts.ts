@@ -28,7 +28,7 @@ export interface OrderResponse extends Record<string,unknown> {
   confirmation?:"SCAN"|"MANUAL"|"AUTO_ASSUMED"; requiresReturnToShelf?:boolean;
 }
 export function isCod(payment:string) {return payment==="CASH_ON_DELIVERY" || payment==="PAY_ON_PICKUP";}
-export function parseInput<T>(schema:z.ZodType<T>,input:unknown):T {
+export function parseInput<S extends z.ZodTypeAny>(schema:S,input:unknown):z.output<S> {
   const parsed=schema.safeParse(input);
   if(!parsed.success) throw new AppError("VALIDATION_ERROR","Invalid order workflow payload.");
   return parsed.data;

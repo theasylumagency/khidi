@@ -103,11 +103,17 @@ export const storefrontApiKeys = pgTable("storefront_api_keys", {
   keyHash: text("key_hash").notNull().unique(),
   allowedIps: text("allowed_ips").array(),
   active: boolean("active").notNull().default(true),
+  rateLimitPerMinute:integer("rate_limit_per_minute").notNull().default(120),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
   createdBy: uuid("created_by").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   revokedAt: timestamp("revoked_at", { withTimezone: true })
+});
+
+export const storefrontApiRateWindows=pgTable("storefront_api_rate_windows",{
+  apiKeyId:uuid("api_key_id").primaryKey().references(()=>storefrontApiKeys.id),
+  windowStartedAt:timestamp("window_started_at",{withTimezone:true}).notNull(),requests:integer("requests").notNull()
 });
 
 export const userEntityMemberships = pgTable(
@@ -261,6 +267,7 @@ export const webhookDeliveries = pgTable("webhook_deliveries", {
   succeeded: boolean("succeeded").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
 });
+
 
 export const idempotencyKeys = pgTable(
   "idempotency_keys",

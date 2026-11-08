@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./jobs": "./src/jobs.ts",
-    "./job-names": "./src/job-names.ts"
+    "./job-names": "./src/job-names.ts",
+    "./storefront-api": "./src/storefront-api.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
