@@ -47,14 +47,15 @@ If two sources conflict and this list does not resolve it, stop and ask. Do not 
 | ADR-011 Part A / ADR-012 | Merged to `main` (PR #12); Part B remains Proposed |
 | M7 Pricing | Merged to `main` (PR #14) |
 | M8 Inventory core | Merged to `main` (PR #15); I6 disabled by Accepted ADR-013 |
-| M9 Reservations and fulfillment | Phase 1 R1–R5 implemented on `m9-reservations-fulfillment` for Draft PR and enhanced owner review; Phase 2 not started |
+| M9 Reservations and fulfillment | Phase 1 owner-approved; Phase 2 R6/R7/R9/R10 implemented on `m9-reservations-fulfillment` for Draft PR review; R8 deferred under ADR-014 |
 | M10–M11 | Not started |
 
-Current task: M9 Phase 1 under Accepted ADR-013 and ADR-014; see
+Current task: M9 Phase 2 under Accepted ADR-013 and ADR-014; see
 [the milestone record](docs/milestones/m9-reservations-fulfillment.md) and
 [the owner specification](docs/task-m9-reservations-fulfillment-api.md). Keep the PR in draft
-and stop for enhanced owner review before Phase 2. Storefront transport, webhook delivery,
-OpenAPI and admin screens are not implemented in Phase 1; PICK UI remains deferred.
+and stop for enhanced owner review before M10. Storefront API v1, scoped service keys,
+signed durable webhooks, OpenAPI and office fulfillment views are implemented; PICK and
+manual-confirmation UI remain deferred. No deployment or merge is authorized.
 ADR-011 Part B remains Proposed.
 
 Human checks still pending (the owner updates these lines):

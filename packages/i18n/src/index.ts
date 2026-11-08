@@ -147,6 +147,7 @@ const SCANNING_LABELS = {
   "fulfillment.expiry_hint":"უახლოესი 100 ვადა თბილისის დროით. დადასტურებულ ვალდებულებას ვადა აღარ ეწურება.",
   "fulfillment.payment":"გადახდა",
   "fulfillment.expires":"ვადის ამოწურვა",
+  "fulfillment.expires_tbilisi":"ვადის ამოწურვა თბილისის დროით",
   "fulfillment.product":"პროდუქტი",
   "fulfillment.quantity":"რაოდენობა",
   "fulfillment.picked":"აღებულია",

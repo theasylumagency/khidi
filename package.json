@@ -24,7 +24,9 @@
     "ops:bootstrap-admin": "node --env-file-if-exists=.env --import tsx ops/bootstrap-admin.ts",
     "ops:recover-user": "node --env-file-if-exists=.env --import tsx ops/recover-user.ts",
     "ops:check-config": "node --env-file-if-exists=.env --import tsx ops/check-production-config.ts",
-    "inventory:verify": "node --env-file-if-exists=.env --import tsx ops/inventory-verify.ts"
+    "inventory:verify": "node --env-file-if-exists=.env --import tsx ops/inventory-verify.ts",
+    "api:openapi": "node --import tsx ops/storefront-openapi.ts",
+    "api:test-client": "node --import tsx ops/storefront-local-smoke.ts"
   },
   "devDependencies": {
     "@types/node": "24.0.0",

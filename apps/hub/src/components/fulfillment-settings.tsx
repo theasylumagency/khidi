@@ -24,12 +24,12 @@ export function FulfillmentSettings({mode,stores,keys,deliveries}:{mode:string;s
     </form>
     <h3>{t("fulfillment.service_keys")}</h3><p>{t("fulfillment.secret_hint")}</p>
     <form onSubmit={(e)=>{e.preventDefault();const data=new FormData(e.currentTarget);void run("/api/storefront-keys",{action:"ISSUE",storefrontId:storeId,name:String(data.get("name")),allowedIps:String(data.get("ips")??"").split(/[\s,]+/).filter(Boolean),
-      rateLimitPerMinute:Number(data.get("rate")),...(data.get("expires") ? {expiresAt:new Date(String(data.get("expires"))).toISOString()} : {})});}}>
+      rateLimitPerMinute:Number(data.get("rate")),...(data.get("expires") ? {expiresAt:new Date(String(data.get("expires"))+":00+04:00").toISOString()} : {})});}}>
       <fieldset disabled={busy||!stores.length}><label>{t("inventory.store")}<select value={storeId} onChange={(e)=>setStoreId(e.target.value)}>{stores.map((s)=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
         <label>{t("fulfillment.key_name")}<input name="name" required maxLength={100} autoComplete="off"/></label>
         <label>{t("fulfillment.allowed_ips")}<input name="ips" autoComplete="off" placeholder={t("fulfillment.ips_hint")}/></label>
         <label>{t("fulfillment.rate")}<input name="rate" type="number" min={1} max={10000} defaultValue={120} required/></label>
-        <label>{t("fulfillment.expires")}<input name="expires" type="datetime-local"/></label><button>{t("fulfillment.issue_key")}</button>
+        <label>{t("fulfillment.expires_tbilisi")}<input name="expires" type="datetime-local"/></label><button>{t("fulfillment.issue_key")}</button>
       </fieldset>
     </form>
     <div className="inventory-scroll"><table><thead><tr>{["store","key_name","prefix","rate","expires","last_used","actions"].map((k)=><th key={k}>{t(("fulfillment."+k) as TranslationKey)}</th>)}</tr></thead><tbody>{keys.map((k)=><tr key={k.id}>

@@ -24,7 +24,11 @@ if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, "/")}` || proc
   const dispatch = async () => {
     if (running) return;
     running = true;
-    try { await dispatchMediaJobs(db, boss); await dispatchAiJobs(db, boss); await dispatchReservationJobs(db,boss); await fanoutStorefrontEvents(db); await dispatchStorefrontWebhooks(db); }
+    try {
+      const outcomes=await Promise.allSettled([dispatchMediaJobs(db,boss),dispatchAiJobs(db,boss),dispatchReservationJobs(db,boss),
+        (async()=>{await fanoutStorefrontEvents(db);await dispatchStorefrontWebhooks(db);})()]);
+      if(outcomes.some((result)=>result.status==="rejected"))throw new Error("A durable consumer failed.");
+    }
     catch { console.error("Khidi job dispatch failed; pending events remain durable."); }
     finally { running = false; }
   };

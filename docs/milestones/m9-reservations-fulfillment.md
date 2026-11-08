@@ -189,3 +189,39 @@ ADMIN can resolve a staged loss even after cancellation. Closed handed-over requ
 have no stock action. Warehouse PICK/manual-confirmation/return capture UI stays deferred
 under R8/ADR-014. All new UI labels are Georgian translations.
 Focused office/behavior tests: 3 passed; architecture authorization checks: 5 passed.
+
+### R10 — local storefront client and acceptance
+
+The loopback-only client executes CARD reserve → payment confirmation → fulfillment
+get/ensure and checks idempotent reserve/commit replay. A real HTTP receiver verifies
+the timestamped signature and AUTO_ASSUMED. Automated checks additionally cover scope,
+host denial, missing idempotency keys, rotation/revocation and HTTP 429. An independent
+local Next.js 16.4.3 development server on 127.0.0.1:3123 passed the same flow, receiving
+four signed fulfillment events; login was refused on the API host. No real storefront
+or shared server was used. `ops/storefront-local-smoke.ts` documents and enforces its
+loopback/test-database scope; it never reads `.env` or prints credentials.
+
+Final review added an explicit two-storefront independent-delivery regression, catalog
+delta coverage for listing/media records, PostgreSQL-clock scheduling (avoiding a
+host/database clock race), per-consumer worker isolation and poison-message dead letters.
+No new business ADR or unresolved business decision. R8 remains deferred, and no merge,
+deployment, partial shipment or reservation consolidation is included.
+
+Final acceptance ran the full suite **once**, from zero public tables in the isolated
+PostgreSQL 18.4 database `khidi_m9p2_final_test`: **536 passed, 1 optional S3/MinIO test
+skipped** (96 files passed, 1 skipped), 513.43 seconds. Both independent models passed
+their default 25 programs (inventory seed -232060060; fulfillment seed -1332414667).
+The previous Phase 1 1000-program stress run remains recorded above.
+Typecheck, lint, dependency boundaries and the final production build passed. A native
+Node 24 hostname-lookup regression exposed address-family callback handling during final
+review; the corrected transport passes the hostname/redirect regression, the focused
+webhook tests and final build. No full-suite rerun was needed.
+
+New Phase 2 migrations are 0043 and 0044 only. Phase 2 uses existing pinned Zod and
+workspace modules; no external dependency version was added or upgraded. The create
+fulfillment endpoint is deliberately an ensure/read of the complete request created
+by order confirmation, respecting the owner's atomic-call and one-request rules.
+Documents changed in this phase: this record, `docs/ops/storefront-api.md`,
+`docs/architecture/locking.md`, and the milestone status/current-task text in `AGENTS.md`.
+There are no unresolved business decisions. Keep PR #16 in draft and stop for enhanced
+owner review before M10; no deployment or merge performed.

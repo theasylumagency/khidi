@@ -23,7 +23,10 @@ export async function storefrontProducts(db:DbExecutor,storefrontId:string,input
   const rows=await db.select({id:skus.id}).from(skus).innerJoin(storefrontListings,eq(storefrontListings.skuId,skus.id))
     .where(and(eq(storefrontListings.storefrontId,storefrontId),input.cursor ? gt(skus.id,input.cursor) : undefined,since ? sql`(
       ${skus.updatedAt}>=${since} OR EXISTS(SELECT 1 FROM outbox_events e WHERE e.created_at>=${since} AND (e.storefront_id IS NULL OR e.storefront_id=${storefrontId})
-      AND (e.aggregate_id=${skus.id} OR e.aggregate_id IN(SELECT component_sku_id FROM bundle_components WHERE bundle_sku_id=${skus.id}))))` : undefined))
+      AND (e.aggregate_id=${skus.id} OR e.aggregate_id IN(SELECT component_sku_id FROM bundle_components WHERE bundle_sku_id=${skus.id})
+        OR e.aggregate_id IN(SELECT id FROM product_images WHERE sku_id=${skus.id})
+        OR e.aggregate_id IN(SELECT id FROM image_publications WHERE sku_id=${skus.id})
+        OR e.aggregate_id IN(SELECT id FROM storefront_listings WHERE sku_id=${skus.id} AND storefront_id=${storefrontId}))))` : undefined))
     .orderBy(asc(skus.id)).limit(input.limit);
   const items=[];
   for(const row of rows) {

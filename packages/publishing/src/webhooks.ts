@@ -80,11 +80,11 @@ export async function dispatchStorefrontWebhooks(db:DbExecutor,options:{transpor
   let delivered=0;
   for(let n=0;n<20;n++) {
     const claimed=await withDomainTransaction(db,{},async(ctx)=>{
-      const now=new Date();
+      const clock=await ctx.tx.execute(sql`SELECT clock_timestamp() AS now`),now=new Date((clock.rows[0] as {now:Date}).now);
       const [row]=await ctx.tx.select({delivery:outboxDeliveries,event:outboxEvents,store:storefronts}).from(outboxDeliveries)
         .innerJoin(outboxEvents,eq(outboxEvents.id,outboxDeliveries.outboxEventId))
         .innerJoin(storefronts,sql`${outboxDeliveries.consumer}='storefront:' || ${storefronts.id}::text`)
-        .where(and(eq(outboxDeliveries.status,"PENDING"),lte(outboxDeliveries.nextAttemptAt,now),or(isNull(outboxDeliveries.leasedUntil),lte(outboxDeliveries.leasedUntil,now)),
+        .where(and(eq(outboxDeliveries.status,"PENDING"),lte(outboxDeliveries.nextAttemptAt,sql`clock_timestamp()`),or(isNull(outboxDeliveries.leasedUntil),lte(outboxDeliveries.leasedUntil,sql`clock_timestamp()`)),
           eq(storefronts.active,true),sql`${storefronts.webhookUrl} IS NOT NULL AND ${storefronts.webhookSecretEncrypted} IS NOT NULL`,options.onlyDeliveryId ? eq(outboxDeliveries.id,options.onlyDeliveryId) : undefined))
         .orderBy(asc(outboxDeliveries.nextAttemptAt)).limit(1).for("update",{of:outboxDeliveries,skipLocked:true});
       if(!row)return null;
@@ -95,7 +95,12 @@ export async function dispatchStorefrontWebhooks(db:DbExecutor,options:{transpor
       }
       let [message]=await ctx.tx.select().from(webhookMessages).where(eq(webhookMessages.deliveryId,d.id));
       if(!message) {
-        const payload=await projectWebhook(ctx.tx,row.event,row.store.id);
+        let payload:Awaited<ReturnType<typeof projectWebhook>>;
+        try{payload=await ctx.tx.transaction(tx=>projectWebhook(tx,row.event,row.store.id));}
+        catch{
+          await ctx.tx.update(outboxDeliveries).set({status:"DEAD_LETTER",lastErrorCode:"PROJECTION_ERROR",leaseToken:null,leasedUntil:null}).where(eq(outboxDeliveries.id,d.id));
+          await changed(ctx,d.id,"WEBHOOK_DEAD_LETTER",{code:"PROJECTION_ERROR"});return {skipped:true as const};
+        }
         if(!payload) {
           await ctx.tx.update(outboxDeliveries).set({status:"DELIVERED",deliveredAt:now}).where(eq(outboxDeliveries.id,d.id));
           await changed(ctx,d.id,"WEBHOOK_NONPUBLIC_SKIPPED",{});return {skipped:true as const};
@@ -103,7 +108,10 @@ export async function dispatchStorefrontWebhooks(db:DbExecutor,options:{transpor
         const body=JSON.stringify(payload);
         [message]=await ctx.tx.insert(webhookMessages).values({deliveryId:d.id,body,sha256:sha256Hex(body)}).returning();
       }
-      if(sha256Hex(message!.body)!==message!.sha256)throw new Error("WEBHOOK_MESSAGE_INTEGRITY");
+      if(sha256Hex(message!.body)!==message!.sha256){
+        await ctx.tx.update(outboxDeliveries).set({status:"DEAD_LETTER",lastErrorCode:"MESSAGE_INTEGRITY",leaseToken:null,leasedUntil:null}).where(eq(outboxDeliveries.id,d.id));
+        await changed(ctx,d.id,"WEBHOOK_DEAD_LETTER",{code:"MESSAGE_INTEGRITY"});return {skipped:true as const};
+      }
       const token=createUuidV7();
       await ctx.tx.update(outboxDeliveries).set({attempts:d.attempts+1,leaseToken:token,leasedUntil:new Date(now.getTime()+LEASE_MS)}).where(eq(outboxDeliveries.id,d.id));
       await changed(ctx,d.id,"WEBHOOK_ATTEMPT_STARTED",{attempt:d.attempts+1});
@@ -123,7 +131,7 @@ export async function dispatchStorefrontWebhooks(db:DbExecutor,options:{transpor
       const succeeded=code===null,dead=!succeeded&&d.attempts>=max;
       await ctx.tx.insert(webhookDeliveries).values({id:createUuidV7(),outboxEventId:claimed.event.id,outboxDeliveryId:d.id,storefrontId:claimed.store.id,responseStatus:status,durationMs:Math.max(0,Math.round(durationMs)),succeeded});
       await ctx.tx.update(outboxDeliveries).set({status:succeeded ? "DELIVERED" : dead ? "DEAD_LETTER" : "PENDING",deliveredAt:succeeded ? new Date() : null,
-        nextAttemptAt:new Date(Date.now()+Math.min(3600000,1000*2**Math.min(d.attempts,12))),leaseToken:null,leasedUntil:null,lastErrorCode:code}).where(eq(outboxDeliveries.id,d.id));
+        nextAttemptAt:sql`clock_timestamp()+make_interval(secs=>${Math.min(3600,2**Math.min(d.attempts,12))})`,leaseToken:null,leasedUntil:null,lastErrorCode:code}).where(eq(outboxDeliveries.id,d.id));
       await changed(ctx,d.id,succeeded ? "WEBHOOK_DELIVERED" : dead ? "WEBHOOK_DEAD_LETTER" : "WEBHOOK_RETRY_SCHEDULED",{attempt:d.attempts,status,code});
     });
     delivered++;

@@ -82,6 +82,9 @@ Receivers verify `X-Khidi-Signature: v1=<hex>` using HMAC-SHA256 over
 `X-Khidi-Timestamp + "." + exact UTF-8 body`, reject timestamps outside five minutes,
 then deduplicate `id`. A delivery's body is immutable across retries. Delivery is at
 least once; a crash after acceptance can cause a duplicate.
+Delivery order is not guaranteed. Treat catalog/price/stock events as invalidations and
+fetch the current resource from the own-store API; do not apply an older snapshot over
+a newer one. Fulfillment snapshots identify their original event time and id as well.
 
 Workers claim 30-second leases, send outside transactions with a five-second timeout,
 never follow redirects, and pin DNS to an allowed destination. Production endpoints
@@ -90,3 +93,19 @@ client. Failures back off exponentially (2 seconds initially, capped at one hour
 After eight failed/abandoned attempts the delivery is DEAD_LETTER. An ADMIN may retry it;
 the audit and append-only attempt history remain, with the same event id and bytes.
 Disabling an endpoint leaves pending events durable until it is enabled again.
+
+## Local test client
+
+`pnpm api:openapi` prints the v1 contract without connecting to a database.
+`pnpm api:test-client` creates synthetic fixtures in a previously migrated/seeded,
+dedicated loopback `_test` database and calls an already running local Hub. It never
+loads `.env`. Set both database URLs explicitly and keep the same URLs in the Hub
+process. Never run this script, seeds or tests on a shared server.
+
+Start a local development Hub on 127.0.0.1:3123 with
+`KHIDI_API_HOST=api.localhost:3123`. In a second terminal use `NODE_ENV=test`,
+the same API host, and `KHIDI_TEST_API_URL=http://127.0.0.1:3123`, then run the client.
+It checks reserve/payment replay, automatic completion, fulfillment get/ensure,
+host isolation and a real local receiver verifying signed AUTO_ASSUMED webhooks.
+Credentials stay in memory and are never printed. The automated HTTP fixture also
+checks cross-storefront denial, revoked keys, mandatory idempotency and HTTP 429.

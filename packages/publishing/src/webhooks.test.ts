@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { createServer } from "node:http";
 import { and, eq } from "drizzle-orm";
 import { auditLogs, outboxDeliveries, outboxEvents, storefrontListings, webhookDeliveries, webhookMessages } from "@khidi/db";
 import { withDomainTransaction } from "@khidi/domain";
@@ -7,8 +8,16 @@ import { webhookSignature } from "@khidi/shared/webhook-signature";
 import { setFulfillmentMode } from "../../reservations/src/index.ts";
 import { reserveOrder } from "../../fulfillment/src/index.ts";
 import { reservationFixture } from "../../reservations/src/reservation.test-fixture.ts";
-import { configureStorefrontWebhook, dispatchStorefrontWebhooks, fanoutStorefrontEvents, retryWebhook, verifyWebhookSignature, webhookUrl } from "./webhooks.ts";
+import { configureStorefrontWebhook, dispatchStorefrontWebhooks, fanoutStorefrontEvents, retryWebhook, sendWebhook, verifyWebhookSignature, webhookUrl } from "./webhooks.ts";
 afterEach(()=>vi.unstubAllEnvs());
+it("pins a hostname lookup with Node's address-family selection and never follows redirects",async()=>{
+  let calls=0;
+  const server=createServer((req,res)=>{req.resume();calls++;res.writeHead(calls===1?204:302,{location:"http://127.0.0.1:1/private"});res.end();});
+  await new Promise<void>(r=>server.listen(0,"127.0.0.1",r));
+  try{const url="http://localhost:"+(server.address() as import("node:net").AddressInfo).port+"/hook";
+    expect((await sendWebhook(url,"{}",{})).status).toBe(204);expect((await sendWebhook(url,"{}",{})).status).toBe(302);expect(calls).toBe(2);
+  }finally{await new Promise<void>(r=>server.close(()=>r()));}
+});
 async function fixture(){const f=await reservationFixture();const configured=await configureStorefrontWebhook(f.db,f.actor,createUuidV7(),{storefrontId:f.store.id,url:"http://127.0.0.1:3909/hook"});return {...f,secret:configured.body.secret!};}
 it("signs exact immutable bytes, keeps provenance, and never forwards internal fields",async()=>{
   const f=await fixture();await setFulfillmentMode(f.db,{type:"USER",userId:f.actor.userId},createUuidV7(),{mode:"SIMPLIFIED_FULFILLMENT"});
@@ -61,4 +70,14 @@ it("returns a webhook secret once, validates endpoints and rejects stale signatu
   expect((await configureStorefrontWebhook(f.db,f.actor,key,input)).body.secret).toBeDefined();expect((await configureStorefrontWebhook(f.db,f.actor,key,input)).body.secret).toBeUndefined();
   expect(()=>webhookUrl("http://127.0.0.1:3000",true)).toThrow();expect(()=>webhookUrl("https://app.khidi.app")).toThrow();expect(()=>webhookUrl("https://user:secret@example.test")).toThrow();
   const timestamp=String(Math.floor(Date.now()/1000)-301);expect(verifyWebhookSignature("secret",timestamp,"{}",webhookSignature("secret",timestamp,"{}"))).toBe(false);
+});
+it("delivers one event to two storefronts independently when one receiver fails",async()=>{
+  const f=await fixture(),other=f.stores[1]!;
+  await f.db.insert(storefrontListings).values({id:createUuidV7(),storefrontId:other.id,skuId:f.sku.id,enabled:false});
+  await configureStorefrontWebhook(f.db,f.actor,createUuidV7(),{storefrontId:other.id,url:"http://127.0.0.1:3909/second"});
+  const {deliveryIds}=await withDomainTransaction(f.db,f.actor,ctx=>ctx.emitOutboxEvent({eventType:"PRODUCT_UPDATED",aggregateType:"sku",aggregateId:f.sku.id,payload:{private:"never forward"},consumers:["storefront:"+f.store.id,"storefront:"+other.id]}));
+  await dispatchStorefrontWebhooks(f.db,{onlyDeliveryId:deliveryIds[0],maxAttempts:1,transport:async()=>({status:500,durationMs:1})});
+  await dispatchStorefrontWebhooks(f.db,{onlyDeliveryId:deliveryIds[1],transport:async(_url,body)=>{expect(JSON.stringify(JSON.parse(body).data.products)).not.toContain(f.sku.internalSku);expect(JSON.parse(body).data.products.every((p:{unpublished?:boolean})=>p.unpublished)).toBe(true);return {status:204,durationMs:1};}});
+  const rows=await f.db.query.outboxDeliveries.findMany({where:(d,{inArray})=>inArray(d.id,deliveryIds)});
+  expect(rows.find((d)=>d.id===deliveryIds[0])!.status).toBe("DEAD_LETTER");expect(rows.find((d)=>d.id===deliveryIds[1])!.status).toBe("DELIVERED");
 });
