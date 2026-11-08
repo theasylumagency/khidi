@@ -1,8 +1,8 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { allocations, bundleComponents, fulfillmentLines, fulfillmentRequests, reservationExpiryJobs, reservationItems, reservationLines, reservations, skus, storefronts, type DbExecutor } from "@khidi/db";
+import { allocations, bundleComponents, fulfillmentHistory, fulfillmentLines, fulfillmentRequests, reservationExpiryJobs, reservationItems, reservationLines, reservations, skus, storefronts, type DbExecutor } from "@khidi/db";
 import { acquireDomainLocks, IDENTITY_CATALOG_LOCK, INVENTORY_CONFIGURATION_LOCK, priceLockKey } from "@khidi/domain/locking";
 import type { DomainTransactionContext } from "@khidi/domain";
-import { applyWorkflowStockMovements, type WorkflowPrincipal } from "@khidi/inventory/workflow";
+import { applyWorkflowStockMovements, workflowActor, type WorkflowPrincipal } from "@khidi/inventory/workflow";
 import type { StockMovement } from "@khidi/inventory";
 import { getSkuReserveEligibility } from "@khidi/publishing";
 import { AppError, createUuidV7 } from "@khidi/shared";
@@ -129,15 +129,21 @@ export async function expireLocked(ctx:DomainTransactionContext,p:WorkflowPrinci
   if(state.header.status!=="RESERVED" || state.header.expiresAt>await databaseNow(ctx.tx)) return false;
   const [request]=await ctx.tx.select().from(fulfillmentRequests).where(eq(fulfillmentRequests.reservationId,state.header.id));
   const staged=request ? await ctx.tx.select().from(fulfillmentLines).where(eq(fulfillmentLines.fulfillmentRequestId,request.id)) : [];
-  if(staged.some((l)=>l.pickedQuantity>l.returnedQuantity+l.lostQuantity+l.handedOverQuantity)) {
+  const held=staged.some((l)=>l.pickedQuantity>l.returnedQuantity+l.lostQuantity+l.handedOverQuantity);
+  if(held) {
     await ctx.tx.update(fulfillmentRequests).set({status:"ACTION_REQUIRED"}).where(eq(fulfillmentRequests.id,request!.id));
     await ctx.recordAudit({action:"FULFILLMENT_EXPIRY_HELD",entityType:"fulfillment_request",entityId:request!.id,after:{status:"ACTION_REQUIRED"}});
-    await ctx.emitOutboxEvent({eventType:"FULFILLMENT_STATUS_CHANGED",aggregateType:"fulfillment_request",aggregateId:request!.id,
-      payload:{reservationId:state.header.id,status:"ACTION_REQUIRED",reason:"EXPIRED_WITH_STAGED_UNITS"},consumers:["notifications"]});
+    await ctx.emitOutboxEvent({eventType:"FULFILLMENT_STATUS_CHANGED",storefrontId:state.header.storefrontId,aggregateType:"fulfillment_request",aggregateId:request!.id,
+      payload:{schemaVersion:1,reservationId:state.header.id,fulfillmentRequestId:request!.id,status:"ACTION_REQUIRED",reason:"EXPIRED_WITH_STAGED_UNITS"},consumers:["notifications","storefront:"+state.header.storefrontId]});
   } else {
     await releaseQuantities(ctx,p,state,new Map(state.lines.map((l)=>[l.id,l.quantity-l.releasedQuantity])),request?.id);
     await closeRelease(ctx,state,"EXPIRED","RESERVATION_TIMEOUT");
     if(request) await ctx.tx.update(fulfillmentRequests).set({status:"CANCELLED",cancelReason:"RESERVATION_TIMEOUT",cancelledAt:new Date()}).where(eq(fulfillmentRequests.id,request.id));
+  }
+  if(request) {
+    const actor=workflowActor(p);
+    await ctx.tx.insert(fulfillmentHistory).values({id:createUuidV7(),fulfillmentRequestId:request.id,fromStatus:request.status,
+      toStatus:held ? "ACTION_REQUIRED" : "CANCELLED",action:"FULFILLMENT_EXPIRED",actorType:p.type,actorId:actor.principalId!,reason:"RESERVATION_TIMEOUT"});
   }
   return true;
 }

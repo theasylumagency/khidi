@@ -87,3 +87,18 @@ Focused fulfillment, primitive and principal checks: 46 passed. All four payment
 produce identical completed balances in both modes; bundles auto-complete for all four.
 Concurrent/replayed confirmation, manual permissions, wrong scans, partial cancellation,
 lost units, same-transaction proof reuse and later proof reuse are covered.
+
+### R4 — durable timeouts
+
+Every new/extended deadline writes an expiry intent and transactional outbox event. The
+existing migrator-only media:jobs:deploy command also deploys the reservation queue and
+dead-letter queue; hub_app only uses deployed queues. Dispatch inserts the pg-boss job
+and acknowledges its consumer in the same transaction. Retries serialize on the header;
+old deadlines become stale, commitments never expire, and staging becomes ACTION_REQUIRED
+without releasing any component. Pending cancellation survives that attention state.
+The worker records the real expiry job, retries failures with backoff and notifies on
+dead-letter. Migration 0042 freezes job identity/deadline and final processing.
+
+Six focused timeout tests passed, including duplicate execution, both outcomes of the
+confirmation/expiry race, staged cancellation, principal allowlists and real pg-boss
+transaction rollback/replay on the isolated test database. Fulfillment/worker typecheck passed.
