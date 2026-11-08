@@ -47,15 +47,15 @@ If two sources conflict and this list does not resolve it, stop and ask. Do not 
 | ADR-011 Part A / ADR-012 | Merged to `main` (PR #12); Part B remains Proposed |
 | M7 Pricing | Merged to `main` (PR #14) |
 | M8 Inventory core | Merged to `main` (PR #15); I6 disabled by Accepted ADR-013 |
-| M9 Reservations and fulfillment | Phase 1 owner-approved; Phase 2 R6/R7/R9/R10 implemented on `m9-reservations-fulfillment` for Draft PR review; R8 deferred under ADR-014 |
-| M10–M11 | Not started |
+| M9 Reservations and fulfillment | Merged to `main` (PR #16), owner-reviewed; R8 deferred under ADR-014 |
+| M10 Reports, notifications and audit | N1–N5 implemented on `m10-reports-notifications` for Draft PR review |
+| M11 | Not started |
 
-Current task: M9 Phase 2 under Accepted ADR-013 and ADR-014; see
-[the milestone record](docs/milestones/m9-reservations-fulfillment.md) and
-[the owner specification](docs/task-m9-reservations-fulfillment-api.md). Keep the PR in draft
-and stop for enhanced owner review before M10. Storefront API v1, scoped service keys,
-signed durable webhooks, OpenAPI and office fulfillment views are implemented; PICK and
-manual-confirmation UI remain deferred. No deployment or merge is authorized.
+Current task: M10; see [the milestone record](docs/milestones/m10-reports-notifications.md)
+and [the owner specification](docs/task-m10-reports-notifications-audit.md).
+Scoped in-app/Web Push notifications, snapshot movement reports, private daily reports
+and filtered/redacted audit history are implemented. Keep the PR in draft; no deployment
+or merge is authorized. M9 PICK and manual-confirmation UI remain deferred.
 ADR-011 Part B remains Proposed.
 
 Human checks still pending (the owner updates these lines):

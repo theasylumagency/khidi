@@ -20,6 +20,11 @@ The owner task is recorded in `docs/task-m10-reports-notifications-audit.md`.
 1. Seller periods use COMMIT; owner periods use HANDOVER_OUT. A later pre-handover
    COMMIT_RELEASE is a separate correction on its own day using the original accounting
    snapshot. Prior daily output stays immutable; this is not a post-handover return.
+   Owner-approved bundle exception: a controlled composed bundle has one full-price
+   correction on the first FULFILLMENT_CANCELLED decision date (only if committed).
+   Component COMMIT_RELEASE rows remain unpriced quantity corrections on their actual
+   dates, including later returns from staging. The correction uses original COMMIT
+   component accounting snapshots and never allocates the bundle price between them.
 2. The owner clarified that M9's one availability pool also means one owner per bundle.
    Enforce it with a domain check/test. Normally the full bundle price contributes to the
    owner's total, with unpriced component snapshots. Mixed-owner defensive reporting
@@ -95,7 +100,8 @@ and notification clicks are constrained to the Hub origin.
 Focused push/session/service-worker checks: 20 passed; notification and Hub typechecks
 passed. No push was sent to a real device. Operations are in
 `docs/ops/notifications-reports.md`; private production configuration remains untouched.
-### N3 — movement reports
+
+## N3 — movement reports
 
 Implemented seller COMMIT / COMMIT_RELEASE corrections and owner HANDOVER_OUT periods in
 Asia/Tbilisi, immutable C18 accounting snapshots, final cart prices, separate transfer and
@@ -116,8 +122,15 @@ New migration 0048 snapshots price ID and vat_included at reservation time. Lega
 reservations have no recorded VAT snapshot and are explicitly shown as unknown; current
 prices or accounting mappings are never used to invent historical values.
 
-Focused verification: reports 6/6, reservations 6/6; reports and Hub type checks passed.
-### N4 — daily reports
+Focused verification: initial reports 6/6, reservations 6/6; reports and Hub type checks
+passed. The approved staged-bundle cancellation rule adds a seventh report regression:
+one money correction on the cancellation day, no duplicate component quantities, later
+component releases on their own dates and zero money over the whole order period.
+Session-local temporary timestamp fixtures leave the real append-only records unchanged.
+Cancellation headers retain original component accounting snapshots without fabricating
+a bundle accounting code. Each view's DTO strips the other entity's accounting fields.
+
+## N4 — daily reports
 
 Migration 0049 freezes one report snapshot per entity/Tbilisi day and append-only CSV/XLSX
 file references. pg-boss runs at 00:05 Asia/Tbilisi with retry/backoff and a dead-letter
@@ -126,3 +139,57 @@ receives a daily notification only when configured as an entity report recipient
 other authorized recipients. A storage outage can be retried without changing the snapshot.
 Five-minute signed links bind the user and recheck current scope before hash-verified reads.
 No email. Operations includes manual catch-up for missed days and orphan-object handling.
+
+Focused daily-report tests 2/2 and notification regression tests 5/5 passed, including a
+storage outage/retry, unchanged snapshot, single ready event, private file integrity,
+cross-user/expired URL rejection and an actual deployed pg-boss Tbilisi cron definition.
+
+## N5 — audit and inventory history
+
+ADMIN gets date, actor kind/ID, object type/ID, legal entity, action and correlation filters,
+before/after/reason/document/correlation details, and cursor pagination. Secret redaction
+occurs before transport/rendering, including nested auth data, encrypted values, credentials,
+bearer/raw-key material and common sensitive free-text patterns. STOCK_MANAGER gets only
+its own entities' ledger projection, with no accounting or actor-secret payloads; OPERATOR
+and WAREHOUSE cannot open general history.
+
+Migration 0050 backfills a separate append-only legal-entity scope index and maintains it
+transactionally by an audit INSERT trigger. Original audit content remains untouched.
+Scope comes from the audit's recorded IDs and linked workflow/entity identities, not
+current accounting names. Historical missing actor attribution stays unknown; M10's
+consumer/push/report worker writes record SYSTEM_JOB attribution going forward.
+
+## Acceptance verification and handoff
+
+- Full suite, once on a fresh isolated PostgreSQL 18.4 database
+  `khidi_m10_acceptance_test` (zero public tables before setup): **561 passed, 1 skipped**,
+  102 passing files / 1 skipped file. The optional MinIO S3 test was skipped because no
+  MinIO endpoint was supplied. Existing authentication, migrations, ledger, reservations,
+  fulfillment, idempotency and offline-queue regressions passed.
+- Final report review tightened cancellation component quantities and stripped the
+  other side's accounting fields from DTOs; the complete affected report package was
+  then rerun: **13/13 passed** (reports 7, daily 2, audit 4), including next-day staged
+  returns and CONSIGNMENT confidentiality. No second full-suite run.
+- Root typecheck, lint (including dependency boundaries), and production build passed.
+  After the final report changes, report typecheck/lint and boundaries were rerun.
+  The production build was repeated with ephemeral synthetic secrets and local test DB
+  configuration; no production service, data, environment or deployment was touched.
+- `git diff --check` is clean. Migrations 0045–0050 are new; LF attributes keep their
+  checksum bytes stable on Windows/Linux. Existing migrations are unchanged.
+
+No new ADR was needed; the owner-confirmed period rules, single-owner bundle invariant,
+controlled-bundle cancellation exception and installment reminder policy are recorded
+above. The task document also records the approved bundle cancellation exception.
+Open decision #8 (price allocation between bundle components) remains open; no split
+was invented. Legacy VAT snapshots remain explicitly unknown.
+
+Owner/device checks before rollout:
+
+- Android and installed iPhone PWA: opt in explicitly, test lock-screen delivery, deep
+  links after reauthentication, INFO opt-in/mute, logout and device-revocation cleanup.
+  No real push service/device was contacted during automated verification.
+- Run the documented queue deployment and verify the 00:05 Tbilisi schedule only when
+  the owner deploys M10; download a generated report as ADMIN and an authorized entity
+  accountant, then revoke access and confirm the link no longer works.
+- Existing backup/restore, thermal-printer and other deployment checks in AGENTS.md are
+  still pending. No merge or deployment is authorized by this work.

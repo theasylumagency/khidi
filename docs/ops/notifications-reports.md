@@ -67,6 +67,12 @@ Investigate report-dead-letter via the audit screen, fix storage/database availa
 use the same command for the failed date. Do not run tests or seeds on a shared server.
 The task does not deploy this schedule or worker to a shared environment.
 
+The History page is ADMIN-only for the audit journal, with cursor pagination and filters
+for Tbilisi date range, actor type/ID, action, object and legal entity. STOCK_MANAGER sees
+only its own entities' inventory ledger projection. Secrets are redacted in the domain
+result before React receives it. Historical missing actor attribution remains unknown;
+the legal-scope index is separate append-only metadata, not a rewrite of historical logs.
+
 Storage writes precede the append-only file-reference transaction. A crash at that boundary
 can leave an unreferenced private immutable object; retry creates a fresh random object key.
 Do not automatically delete such files or overwrite them. Referenced snapshots/files never

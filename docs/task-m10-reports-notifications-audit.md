@@ -78,6 +78,12 @@ Before writing code, add a short gap inventory to `docs/milestones/m10-reports-n
 8. **Bundles in reports.** A composed bundle appears as one priced bundle line followed by its
    component lines with their accounting snapshots and no price. Splitting the bundle price
    across components is open decision #8; do not invent a split.
+   Owner clarification: for a committed composed bundle in controlled mode, record one
+   money correction for the full storefront bundle unit price × quantity on the date of
+   the first fulfillment CANCELLED decision. Label it cancellation before handover and
+   retain the original seller COMMIT component snapshots. Component COMMIT_RELEASE
+   movements are unpriced quantity lines on their actual dates, even when a staged unit
+   returns later. Ordinary products retain corrections on each COMMIT_RELEASE date.
 9. **Daily report delivery.** A scheduled pg-boss job generates the previous day's report per
    legal entity and stores it in private storage; recipients get `DAILY_REPORT_READY` with a
    download link. **No email in this milestone.** Files are private, served through signed

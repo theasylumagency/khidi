@@ -62,7 +62,7 @@ export const NAVIGATION_ITEMS: readonly NavItem[] = [
     href: "/history",
     labelKa: "ისტორია",
     labelEn: "Audit History",
-    allowedRoles: ["ADMIN", "OPERATOR", "STOCK_MANAGER"]
+    allowedRoles: ["ADMIN", "STOCK_MANAGER"]
   },
   {
     key: "settings",
@@ -127,6 +127,14 @@ export function formatStaffName(fullName: string): string {
 }
 
 const SCANNING_LABELS = {
+ "history.audit":"აუდიტის ჟურნალი","history.inventory":"მარაგის მოძრაობის ისტორია",
+ "history.audit_hint":"უცვლელი ჩანაწერები: ვინ, როდის და რა შეცვალა. საიდუმლო მონაცემები დამალულია. დრო — თბილისი.",
+ "history.inventory_hint":"აქ ჩანს მხოლოდ თქვენი იურიდიული პირის მარაგი. ცვლილებები: თარო / მოსამზადებელი / გამოყოფილი / რეზერვი / დადასტურებული.",
+ "history.all":"ყველა","history.reset":"ფილტრების გასუფთავება","history.time":"დრო","history.actor":"შემსრულებელი","history.actorId":"შემსრულებლის იდენტიფიკატორი",
+ "history.actor.USER":"მომხმარებელი","history.actor.STOREFRONT_SERVICE":"მაღაზიის API გასაღები","history.actor.SYSTEM_JOB":"სისტემური დავალება","history.actor.SYSTEM_WORKFLOW":"სამუშაო პოლიტიკა",
+ "history.entityType":"ობიექტის ტიპი","history.entityId":"ობიექტის იდენტიფიკატორი","history.action":"ქმედება","history.correlationId":"დაკავშირების იდენტიფიკატორი",
+ "history.object":"ობიექტი","history.before":"ცვლილებამდე","history.after":"ცვლილების შემდეგ","history.reason":"მიზეზი / დოკუმენტი",
+ "history.sku":"SKU","history.quantity":"რაოდენობა","history.pool":"მარაგის ჯგუფი","history.deltas":"რაოდენობის ცვლილებები",
  "reports.title":"მოძრაობის ანგარიშები","reports.entity":"იურიდიული პირი","reports.from":"პერიოდის დასაწყისი","reports.to":"პერიოდის ბოლო",
  "reports.daily":"დღიური ანგარიშები","reports.private_download":"ბმული მხოლოდ თქვენთვისაა და 5 წუთში ამოიწურება. საჭიროებისას განაახლეთ გვერდი.",
  "reports.bundle_cancelled":"ბანდლის გაუქმება გადაცემამდე",

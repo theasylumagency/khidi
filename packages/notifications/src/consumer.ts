@@ -8,7 +8,7 @@ import { notificationVisibility } from "./access.ts";
 
 /** Ordered per-consumer transition processing, without locking immutable events. */
 export async function consumeNotifications(db:DbExecutor,onlyEventId?:string) {
- return withDomainTransaction(db,{},async(ctx)=>{
+ return withDomainTransaction(db,{principalType:"SYSTEM_JOB",principalId:"notifications-consumer"},async(ctx)=>{
   const lock=await ctx.tx.execute(sql`SELECT pg_try_advisory_xact_lock(hashtextextended('notifications:consumer',0)) AS acquired`);
   if(!(lock.rows[0] as {acquired:boolean}).acquired)return 0;
   const rows=await ctx.tx.select({delivery:outboxDeliveries,event:outboxEvents}).from(outboxDeliveries).innerJoin(outboxEvents,eq(outboxEvents.id,outboxDeliveries.outboxEventId))

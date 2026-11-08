@@ -16,7 +16,7 @@ export function safePushPayload(deepLink:string){
  return JSON.stringify({title:"Khidi",body:t("notification.push_body"),url:deepLink});
 }
 export async function createPushIntents(db:DbExecutor,onlyNotificationId?:string){
- return withDomainTransaction(db,{},async(ctx)=>{
+ return withDomainTransaction(db,{principalType:"SYSTEM_JOB",principalId:"push-intents"},async(ctx)=>{
   const rows=await ctx.tx.select({delivery:outboxDeliveries,event:outboxEvents}).from(outboxDeliveries).innerJoin(outboxEvents,eq(outboxEvents.id,outboxDeliveries.outboxEventId))
    .where(and(eq(outboxDeliveries.consumer,"notification-push"),eq(outboxDeliveries.status,"PENDING"),onlyNotificationId?eq(outboxEvents.aggregateId,onlyNotificationId):undefined)).limit(50).for("update",{of:outboxDeliveries,skipLocked:true});
   for(const {delivery,event}of rows){
@@ -42,7 +42,7 @@ async function validSubscription(db:DbExecutor,sub:typeof pushSubscriptions.$inf
 export async function dispatchPush(db:DbExecutor,options:{transport?:PushTransport;onlyDeliveryId?:string}={}){
  let attempts=0;
  for(let i=0;i<20;i++){
-  const claim=await withDomainTransaction(db,{},async(ctx)=>{
+  const claim=await withDomainTransaction(db,{principalType:"SYSTEM_JOB",principalId:"push-dispatch"},async(ctx)=>{
    const [delivery]=await ctx.tx.select().from(pushDeliveries).where(and(eq(pushDeliveries.status,"PENDING"),lte(pushDeliveries.nextAttemptAt,sql`clock_timestamp()`),or(isNull(pushDeliveries.leasedUntil),lte(pushDeliveries.leasedUntil,sql`clock_timestamp()`)),options.onlyDeliveryId?eq(pushDeliveries.id,options.onlyDeliveryId):undefined))
      .orderBy(asc(pushDeliveries.nextAttemptAt)).limit(1).for("update",{skipLocked:true});
    if(!delivery)return null;
