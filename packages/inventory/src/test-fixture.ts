@@ -3,6 +3,7 @@ import { createSkuDraft } from "@khidi/products";
 import { createUuidV7 } from "@khidi/shared";
 import { applyStockMovements } from "./engine.ts";
 import type { StockMovement } from "./types.ts";
+import { primitiveWorkflowFixture } from "./primitive-workflow.test-fixture.ts";
 
 export async function inventoryFixture(seed = true) {
   const db=getDb();
@@ -15,9 +16,9 @@ export async function inventoryFixture(seed = true) {
   const as=await db.insert(allocations).values([0,1].map((i)=>({id:createUuidV7(),poolId:pools[0]!.id,storefrontId:stores[i]!.id,skuId:sku.id}))).returning();
   const base={poolId:pools[0]!.id,skuId:sku.id};
   const line={...base,allocationId:as[0]!.id,reservationId:createUuidV7(),fulfillmentRequestId:createUuidV7()};
-  // Trusted workflow adapters are supplied by Phase 2/M9. These fixtures stand in for them.
+  // Count/loss fixture hooks are separate from the real database unit-confirmation gate.
   const proofs={assertApprovedCountLine:async()=>{},assertScanConfirmedReturn:async()=>{},cancelLostFulfillmentLine:async()=>{}};
-  const apply=(movements: StockMovement[])=>applyStockMovements(db,actor,movements,proofs);
+  const apply=(movements: StockMovement[])=>db.transaction(async(tx)=>applyStockMovements(tx,actor,await primitiveWorkflowFixture(tx,admin.id,movements),proofs));
   if(seed) await apply([{...base,type:"STOCK_IN",quantity:100},{...base,allocationId:as[0]!.id,type:"ALLOCATE",quantity:60}]);
   return {db,actor,sku,entities,stores,pools,as,base,line,apply,proofs};
 }

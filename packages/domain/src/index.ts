@@ -73,7 +73,10 @@ export const DOMAIN_EVENT_TYPES = [
   "EVIDENCE_UPDATED",
   "AI_JOB_REQUESTED",
   "AI_JOB_UPDATED",
-  "PRODUCT_CONTENT_RULES_UPDATED"
+  "PRODUCT_CONTENT_RULES_UPDATED",
+  "RESERVATION_UPDATED",
+  "RESERVATION_JOB_REQUESTED",
+  "FULFILLMENT_MODE_CHANGED"
 ] as const;
 
 export type DomainEventType = (typeof DOMAIN_EVENT_TYPES)[number];
@@ -82,6 +85,10 @@ export interface DomainActor {
   userId?: string;
   storefrontId?: string;
   correlationId?: string;
+  principalType?: "USER" | "STOREFRONT_SERVICE" | "SYSTEM_JOB" | "SYSTEM_WORKFLOW";
+  principalId?: string;
+  triggerApiKeyId?: string;
+  triggerCallId?: string;
 }
 
 export interface AuditLogInput {
@@ -130,6 +137,10 @@ export function createDomainTransactionContext(
         id: auditId,
         actorUserId: actor.userId ?? null,
         actorStorefrontId: actor.storefrontId ?? null,
+        actorType: actor.principalType ?? (actor.userId ? "USER" : null),
+        actorId: actor.principalId ?? actor.userId ?? null,
+        triggerApiKeyId: actor.triggerApiKeyId ?? null,
+        triggerCallId: actor.triggerCallId ?? null,
         action: input.action,
         entityType: input.entityType,
         entityId: input.entityId,

@@ -9,5 +9,6 @@ export interface StockMovement {
   type: LedgerMovementType; poolId: string; skuId: string; quantity: number; variant?: string; allocationId?: string;
   reason?: string; documentRef?: string; transferKey?: string;
   reservationId?: string; fulfillmentRequestId?: string; paymentMethod?: PaymentMethod;
+  reservationLineId?: string; unitConfirmationIds?: string[];
   approvedCountLineId?: string; scanConfirmed?: boolean; cancelLostLine?: boolean;
 }

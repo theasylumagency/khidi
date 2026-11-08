@@ -5,6 +5,7 @@ import {
   text,
   boolean,
   timestamp,
+  date,
   integer,
   bigint,
   numeric,
@@ -201,6 +202,10 @@ export const auditLogs = pgTable("audit_logs", {
   id: uuid("id").primaryKey(),
   actorUserId: uuid("actor_user_id").references(() => users.id),
   actorStorefrontId: uuid("actor_storefront_id").references(() => storefronts.id),
+  actorType: text("actor_type"),
+  actorId: text("actor_id"),
+  triggerApiKeyId: uuid("trigger_api_key_id").references(() => storefrontApiKeys.id),
+  triggerCallId: uuid("trigger_call_id"),
   action: text("action").notNull(),
   entityType: text("entity_type").notNull(),
   entityId: text("entity_id").notNull(),
@@ -517,6 +522,7 @@ export const accountingMappings = pgTable("accounting_mappings", {
   accountingName: text("accounting_name").notNull(),
   legacyCode: text("legacy_code"),
   active: boolean("active").notNull().default(true),
+  isPrimary: boolean("is_primary").notNull().default(false),
   sharedItemConfirmedBy: uuid("shared_item_confirmed_by").references(() => users.id),
   sharedItemConfirmedAt: timestamp("shared_item_confirmed_at", { withTimezone: true }),
   notes: text("notes"),
@@ -583,7 +589,8 @@ export const scanTasks = pgTable("scan_tasks", {
   status: text("status").notNull().default("OPEN"),
   targetCount: integer("target_count"),
   completedCount: integer("completed_count").notNull().default(0),
-  createdBy: uuid("created_by").notNull().references(() => users.id),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdByApiKeyId: uuid("created_by_api_key_id").references(() => storefrontApiKeys.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true })
 });
@@ -915,7 +922,16 @@ export const stockLedger = pgTable("stock_ledger", {
   ownerEntityId: uuid("owner_entity_id").notNull().references(() => legalEntities.id, { onDelete: "restrict" }),
   sellerEntityId: uuid("seller_entity_id").references(() => legalEntities.id, { onDelete: "restrict" }), storefrontId: uuid("storefront_id").references(() => storefronts.id, { onDelete: "restrict" }),
   relationshipMode: text("relationship_mode").$type<"PURCHASE" | "CONSIGNMENT">(), crossEntity: boolean("cross_entity").notNull(),
-  documentRef: text("document_ref"), reason: text("reason"), actorUserId: uuid("actor_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  documentRef: text("document_ref"), reason: text("reason"), actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "restrict" }),
+  actorType: text("actor_type").notNull().default("USER"),
+  actorId: text("actor_id").generatedAlwaysAs(sql`coalesce(actor_user_id::text,actor_api_key_id::text,actor_job_id::text,actor_workflow_policy)`),
+  actorApiKeyId: uuid("actor_api_key_id").references(() => storefrontApiKeys.id),
+  actorJobId: uuid("actor_job_id").references((): AnyPgColumn => reservationExpiryJobs.id),
+  actorWorkflowPolicy: text("actor_workflow_policy"),
+  triggerApiKeyId: uuid("trigger_api_key_id").references(() => storefrontApiKeys.id),
+  triggerCallId: uuid("trigger_call_id"),
+  reservationLineId: uuid("reservation_line_id").references((): AnyPgColumn => reservationLines.id),
+  unitConfirmationIds: uuid("unit_confirmation_ids").array().notNull().default([]),
   correlationId: text("correlation_id").notNull(), reservationId: uuid("reservation_id"), fulfillmentRequestId: uuid("fulfillment_request_id"), paymentMethod: text("payment_method"),
   countLineId: uuid("count_line_id"), scanConfirmed: boolean("scan_confirmed").notNull().default(false),
   sellerAccountingItemId: text("seller_accounting_item_id"), sellerAccountingName: text("seller_accounting_name"), ownerAccountingItemId: text("owner_accounting_item_id"), ownerAccountingName: text("owner_accounting_name"),
@@ -932,4 +948,117 @@ export const inventoryNotifications = pgTable("inventory_notifications", {
   id: uuid("id").primaryKey(), allocationId: uuid("allocation_id").notNull().references(() => allocations.id, { onDelete: "restrict" }),
   status: text("status").notNull(), availableToSell: integer("available_to_sell").notNull(), ownerEntityId: uuid("owner_entity_id").notNull().references(() => legalEntities.id, { onDelete: "restrict" }),
   recipientUserIds: uuid("recipient_user_ids").array().notNull().default([]), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+
+export const reservations = pgTable("reservations", {
+  id: uuid("id").primaryKey(),
+  storefrontId: uuid("storefront_id").notNull().references(() => storefronts.id),
+  storefrontOrderRef: text("storefront_order_ref").notNull(),
+  paymentMethod: text("payment_method").notNull(),
+  fulfillmentMode: text("fulfillment_mode").notNull(),
+  status: text("status").notNull().default("RESERVED"),
+  expiresAt: timestamp("expires_at", {withTimezone:true}).notNull(),
+  committedAt: timestamp("committed_at", {withTimezone:true}),
+  handedOverAt: timestamp("handed_over_at", {withTimezone:true}),
+  releasedAt: timestamp("released_at", {withTimezone:true}),
+  releaseReason: text("release_reason"),
+  createdByApiKeyId: uuid("created_by_api_key_id").notNull().references(() => storefrontApiKeys.id),
+  idempotencyKey: uuid("idempotency_key").notNull(),
+  createdAt: timestamp("created_at", {withTimezone:true}).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", {withTimezone:true}).notNull().defaultNow()
+}, (t)=>[unique().on(t.storefrontId,t.idempotencyKey)]);
+
+export const reservationItems = pgTable("reservation_items", {
+  id:uuid("id").primaryKey(),
+  reservationId:uuid("reservation_id").notNull().references(()=>reservations.id),
+  skuId:uuid("sku_id").notNull().references(()=>skus.id),
+  quantity:integer("quantity").notNull(),
+  composedBundle:boolean("composed_bundle").notNull(),
+  basePriceMinor:bigint("base_price_minor",{mode:"number"}).notNull(),
+  currency:text("currency").notNull(),
+  finalUnitPriceMinor:bigint("final_unit_price_minor",{mode:"number"})
+});
+
+export const reservationLines = pgTable("reservation_lines", {
+  id:uuid("id").primaryKey(),
+  reservationId:uuid("reservation_id").notNull().references(()=>reservations.id),
+  itemId:uuid("item_id").notNull().references(()=>reservationItems.id),
+  allocationId:uuid("allocation_id").notNull().references(()=>allocations.id),
+  skuId:uuid("sku_id").notNull().references(()=>skus.id),
+  parentBundleSkuId:uuid("parent_bundle_sku_id").references(()=>skus.id),
+  quantity:integer("quantity").notNull(),
+  releasedQuantity:integer("released_quantity").notNull().default(0),
+  sellerMappingId:uuid("seller_mapping_id").notNull().references(()=>accountingMappings.id),
+  sellerAccountingItemId:text("seller_accounting_item_id").notNull(),
+  sellerAccountingName:text("seller_accounting_name").notNull(),
+  ownerMappingId:uuid("owner_mapping_id").notNull().references(()=>accountingMappings.id),
+  ownerAccountingItemId:text("owner_accounting_item_id").notNull(),
+  ownerAccountingName:text("owner_accounting_name").notNull()
+});
+
+export const fulfillmentRequests = pgTable("fulfillment_requests", {
+  id:uuid("id").primaryKey(),
+  reservationId:uuid("reservation_id").notNull().references(()=>reservations.id).unique(),
+  storefrontId:uuid("storefront_id").notNull().references(()=>storefronts.id),
+  storefrontOrderRef:text("storefront_order_ref").notNull(),
+  deliveryMethod:text("delivery_method").notNull(),
+  shipBy:date("ship_by").notNull(),
+  status:text("status").notNull().default("REQUESTED"),
+  cancelReason:text("cancel_reason"),
+  requiresReturnToShelf:boolean("requires_return_to_shelf").notNull().default(false),
+  pickedAt:timestamp("picked_at",{withTimezone:true}),
+  handedOverAt:timestamp("handed_over_at",{withTimezone:true}),
+  cancelledAt:timestamp("cancelled_at",{withTimezone:true}),
+  createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()
+});
+export const fulfillmentLines=pgTable("fulfillment_request_lines",{
+  id:uuid("id").primaryKey(),
+  fulfillmentRequestId:uuid("fulfillment_request_id").notNull().references(()=>fulfillmentRequests.id),
+  reservationId:uuid("reservation_id").notNull().references(()=>reservations.id),
+  reservationLineId:uuid("reservation_line_id").notNull().references(()=>reservationLines.id).unique(),
+  skuId:uuid("sku_id").notNull().references(()=>skus.id),
+  parentBundleSkuId:uuid("parent_bundle_sku_id").references(()=>skus.id),
+  allocationId:uuid("allocation_id").notNull().references(()=>allocations.id),
+  quantity:integer("quantity").notNull(),
+  pickedQuantity:integer("picked_quantity").notNull().default(0),
+  returnedQuantity:integer("returned_quantity").notNull().default(0),
+  lostQuantity:integer("lost_quantity").notNull().default(0),
+  handedOverQuantity:integer("handed_over_quantity").notNull().default(0)
+});
+export const reservationExpiryJobs=pgTable("reservation_expiry_jobs",{
+  id:uuid("id").primaryKey(),
+  reservationId:uuid("reservation_id").notNull().references(()=>reservations.id),
+  expiresAt:timestamp("expires_at",{withTimezone:true}).notNull(),
+  processedAt:timestamp("processed_at",{withTimezone:true})
+});
+export const workflowCommands=pgTable("workflow_commands",{
+  id:uuid("id").primaryKey(),scope:text("scope").notNull(),
+  requestKey:uuid("request_key").notNull(),requestHash:text("request_hash").notNull(),
+  responseStatus:integer("response_status").notNull(),
+  responseJson:jsonb("response_json").$type<Record<string,unknown>>().notNull(),
+  createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()
+});
+export const unitConfirmations=pgTable("unit_confirmations",{
+  id:uuid("id").primaryKey(),
+  reservationId:uuid("reservation_id").notNull().references(()=>reservations.id),
+  fulfillmentRequestId:uuid("fulfillment_request_id").notNull().references(()=>fulfillmentRequests.id),
+  reservationLineId:uuid("reservation_line_id").notNull().references(()=>reservationLines.id),
+  skuId:uuid("sku_id").notNull().references(()=>skus.id),
+  allocationId:uuid("allocation_id").notNull().references(()=>allocations.id),
+  action:text("action").notNull(),method:text("method").notNull(),
+  quantity:integer("quantity").notNull(),scannedIdentifier:text("scanned_identifier"),
+  reason:text("reason"),actorUserId:uuid("actor_user_id").references(()=>users.id),
+  triggerApiKeyId:uuid("trigger_api_key_id").references(()=>storefrontApiKeys.id),
+  triggerCallId:uuid("trigger_call_id"),
+  createdTxid:text("created_txid").notNull().default(sql`pg_current_xact_id()::text`),
+  createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()
+});
+export const fulfillmentHistory=pgTable("fulfillment_history",{
+  id:uuid("id").primaryKey(),fulfillmentRequestId:uuid("fulfillment_request_id").notNull().references(()=>fulfillmentRequests.id),
+  fromStatus:text("from_status"),toStatus:text("to_status").notNull(),action:text("action").notNull(),
+  confirmation:text("confirmation"),actorType:text("actor_type").notNull(),actorId:text("actor_id").notNull(),
+  triggerApiKeyId:uuid("trigger_api_key_id").references(()=>storefrontApiKeys.id),
+  triggerCallId:uuid("trigger_call_id"),reason:text("reason"),
+  createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()
 });
