@@ -77,7 +77,7 @@ export async function applyMergeUncertainty(ctx: DomainTransactionContext, skuId
             fields.set(field, { status: "NOT_FOUND", value: null, strong: false, evidenceIds: current?.evidenceIds ?? [] });
         const previous = decisions.get(field);
         decisions.set(field, { skuId, fieldName: field, status: "NOT_FOUND", value: null, evidenceIds: [],
-            confirmedEvidenceId: null, decidedBy: null, decidedAt: null, ...previous,
+            confirmedEvidenceId: null, decidedBy: null, decidedAt: null, observationId:null,observationReason:null,...previous,
             notDeterminableReason: previous?.notDeterminableReason ?? "MERGE_ACKNOWLEDGED_UNKNOWN" });
     }
     const next = [...unresolved].sort();

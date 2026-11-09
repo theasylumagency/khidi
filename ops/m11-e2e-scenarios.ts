@@ -12,6 +12,7 @@ import { receiveIntake } from "../packages/scanning/src/index.ts";
 import { classifySkuProductType,submitSkuEvidence,reviewSkuEvidence } from "../packages/evidence/src/registry.ts";
 import { upsertProductType,upsertAccountingMapping,transitionSkuLifecycle,transitionSkuToReady,setStorefrontListing,saveCanonicalVersion,approveCanonicalVersion } from "../packages/products/src/index.ts";
 import { receivePhoto } from "../packages/media/src/upload.ts";
+import { reportPhotoAttention } from "../packages/media/src/capture.ts";
 import { fixturePhoto } from "../packages/media/src/test-fixtures.ts";
 import { processImage } from "../packages/media/src/processing.ts";
 import { manageImage } from "../packages/media/src/management.ts";
@@ -50,6 +51,7 @@ export async function runM11Scenarios(storage:MediaStorage) {
   const type=await upsertProductType(db,actor,{key:"H11_"+suffix.toUpperCase(),defaultCategoryId:category.id,nameKa:"ინვენტარი",nameEn:"Pilot tool",distinguishingAttributes:["wheel_type"],
    attributeSchemaJson:[{key:"wheel_type",labelKa:"ბორბლები",labelEn:"Wheels",dataType:"enum",enumValues:["RUBBER","IRON"],tier:"REQUIRED_IDENTITY",filterCandidate:true,observable:true}],photoInstructionsJson:[]});
   const intake=await receiveIntake(db,admin,{idempotencyKey:createUuidV7(),userId:admin.userId,deviceId:createUuidV7(),scannedAt:new Date().toISOString(),sourceMode:"QUICK_SCAN",isNoBarcode:true});
+  await reportPhotoAttention(db,admin,{idempotencyKey:createUuidV7(),userId:admin.userId,deviceId:createUuidV7(),capturedAt:new Date().toISOString(),intakeId:intake.body.id,slots:["IDENTIFICATION"],outcome:"PLATE_ABSENT",reason:"PLATE_ABSENT"});
   assert.equal(intake.body.resultState,"NEW_DRAFT");const skuId=intake.body.matchedSkuId!;
   await classifySkuProductType(db,actor,skuId,type.id,"Synthetic observable product without supplier documents");
   const imageIds:string[]=[];
@@ -66,6 +68,7 @@ export async function runM11Scenarios(storage:MediaStorage) {
   const content=await saveCanonicalVersion(db,actor,{skuId,locale:"ka"});await approveCanonicalVersion(db,actor,{skuId,versionId:content.version.id});
   await transitionSkuToReady(db,actor,skuId,{humanConfirmedMediumConfidence:true,allowHouseSlugSuffix:true});
   const sku=await db.query.skus.findFirst({where:(s,{eq})=>eq(s.id,skuId)});assert.equal(sku!.identityKind,"HOUSE_DEFINED");assert.equal(sku!.identityConfidence,"MEDIUM");
+  assert.equal((await db.query.skuFieldProvenance.findFirst({where:(f,{and,eq})=>and(eq(f.skuId,skuId),eq(f.fieldName,"model_code"))}))!.observationReason,"PLATE_ABSENT");
   for(const store of stores){await setStorefrontListing(db,actor,{skuId,storefrontId:store.id,enabled:true,reason:"Synthetic pilot listing"});await setPrice(db,actor,{skuId,storefrontId:store.id,basePriceMinor:10000});}
   await synchronizePublicMedia(db,storage,skuId);
   const declare=(i:number,target:number,replenishmentRequestId?:string)=>setOnlineAvailability(db,actor,{skuId,storefrontId:stores[i]!.id,target,idempotencyKey:createUuidV7(),...(replenishmentRequestId?{replenishmentRequestId}:{})});

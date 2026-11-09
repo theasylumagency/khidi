@@ -73,7 +73,13 @@ Do not remove real users or reference data to make bootstrap work.
    encryption/VAPID settings as the app. It must not receive DATABASE_MIGRATOR_URL or backup
    cipher/IAM keys. Both processes run the runtime preflight; the Hub start command uses
    ops/check-production-config.ts --runtime before opening its listener.
-10. **First ADMIN.** Only if users is completely empty, in an unrecorded interactive terminal,
+10. **Reference catalog, then first ADMIN.** With the explicit target DATABASE_URL, run
+    corepack pnpm ops:reference-data for a preview. Review it against docs/catalog/README.md,
+    then run corepack pnpm ops:reference-data --apply --expect-database=<actual-database-name>.
+    This audited command installs only approved neutral categories/types (33 types); it never
+    runs a development seed or creates accounts, entities, stores, pools, products or stock.
+    Re-running unchanged data is a no-op. See docs/milestones/m11-h10-reference-setup.md.
+    Only if users is completely empty, in an unrecorded interactive terminal,
     run corepack pnpm ops:bootstrap-admin. Enter email, name and password interactively; password
     and confirmation are hidden. No account credentials are accepted from arguments/env.
     The command creates one audited ADMIN with mandatory TOTP enrollment and no session, entities,
@@ -86,12 +92,13 @@ Do not remove real users or reference data to make bootstrap work.
     webhooks, backup/WAL age and daily report completion. Never dispatch restored deliveries
     during a recovery drill. Set journal size/retention or daily log rotation (e.g. 14 compressed
     days, root-readable), monitor disk, and avoid debug SQL/request logging.
-12. **People and pilot.** The first ADMIN completes TOTP. Confirm that the installation has
-    supported administration forms for every required business setting before proceeding.
-    The current entities page is read-only and some taxonomy/Product Type configuration forms
-    remain missing; see CURRENT-STATE.md. This blocks a completely empty-server pilot until
-    resolved. Never substitute development seeds or improvised SQL for that configuration.
-    Configure real storefronts, mappings, pools and users through their supported UI as available.
+12. **People and pilot.** The first ADMIN completes TOTP. Create real legal entities and VAT
+    settings on the entities page, then storefronts on the stores page. In inventory's ADMIN
+    controls create owner pools, record commercial relationships and select storefront pools.
+    Existing consignment/drain safeguards apply. Set mappings and users through their UI.
+    Products → subtype management permits audited key/KA/EN additions only for ACCESSORY,
+    POWER_TOOL and FARM_PROCESSOR, without guessing required specs. Do not use development
+    seeds or improvised SQL for any customer's business configuration.
     Create the second ADMIN through the H9
     users screen, privately hand over its one-time link, and independently verify its TOTP
     login before pilot. See user-management.md and user-recovery.md. Complete the restore and
@@ -105,7 +112,9 @@ Do not remove real users or reference data to make bootstrap work.
 2. Stop Hub, workers and other writers. Capture current counts/checksums, take a fresh full
    database backup/WAL recovery point and verify object replica/version availability. Record
    the release SHA and backup set; do not proceed if recovery prerequisites are unavailable.
-3. Apply new migrations and media:jobs:deploy using operations credentials. Do not run tests,
+3. Apply new migrations and media:jobs:deploy using operations credentials. Review the reference
+   catalog preview and apply its approved changes with the exact target name if needed; inspect
+   any resulting identity re-verification. No SKU is automatically reclassified. Do not run tests,
    seeds or bootstrap on the existing shared database.
 4. Switch release directories, restart app and worker with runtime credentials, then smoke:
    app health/database, office login/TOTP, authorized admin read, API-key-scoped product/stock

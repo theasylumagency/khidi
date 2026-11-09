@@ -38,8 +38,8 @@ function metricHorsepower(fact: CanonicalFact) {
   return candidate > 0 && normalizePowerToKw(`${candidate} HP`).valueKw === fact.value ? candidate : null;
 }
 
-function formatFact(fact: CanonicalFact, locale: string) {
-  const hp = metricHorsepower(fact);
+function formatFact(fact: CanonicalFact, locale: string,field?:string) {
+  const hp = field==="power_kw"?metricHorsepower(fact):null;
   if (hp !== null) return `${hp} ${locale === "ka" ? "ცხ.ძ." : "HP"}`;
   if (locale === "ka" && typeof fact.value === "boolean") return fact.value ? "კი" : "არა";
   return typeof fact.value === "number" && fact.unit ? `${fact.value} ${fact.unit}` : String(fact.value);
@@ -48,12 +48,12 @@ function formatFact(fact: CanonicalFact, locale: string) {
 export function generateCanonicalDraft(context: CanonicalContentContext, locale: string): CanonicalDraft {
   const isKa = locale === "ka";
   const typeName = isKa ? context.typeNameKa : context.typeNameEn;
-  const value = (field: string) => context.facts[field] ? formatFact(context.facts[field]!, locale) : null;
+  const value = (field: string) => context.facts[field] ? formatFact(context.facts[field]!, locale,field) : null;
   const differentiators = context.distinguishing.flatMap((field) => {
     const fact = context.facts[field];
     if (!fact) return [];
-    const reading = formatFact(fact, locale);
-    const shared = Object.entries(context.facts).some(([other, candidate]) => other !== field && formatFact(candidate, locale) === reading);
+    const reading = formatFact(fact, locale,field);
+    const shared = Object.entries(context.facts).some(([other, candidate]) => other !== field && formatFact(candidate, locale,other) === reading);
     return [shared ? `${isKa ? fact.labelKa : fact.labelEn} ${reading}` : reading];
   }).join(", ");
   const brand = value("brand");
@@ -63,7 +63,7 @@ export function generateCanonicalDraft(context: CanonicalContentContext, locale:
   const displayName = context.identityKind === "MANUFACTURER_IDENTIFIED" ? (isKa ? names.displayNameKa : names.displayNameEn) ?? typeName
     : [[brand, typeName].filter(Boolean).join(" "), differentiators].filter(Boolean).join(", ");
   const detail = Object.entries(context.facts).filter(([field]) => !["product_type", "brand", "model_code"].includes(field))
-    .map(([, fact]) => `${isKa ? fact.labelKa : fact.labelEn}: ${formatFact(fact, locale)}`);
+    .map(([field, fact]) => `${isKa ? fact.labelKa : fact.labelEn}: ${formatFact(fact, locale,field)}`);
   return {
     displayName, shortDescription: displayName, fullDescription: [displayName, ...detail].join("\n"),
     searchAliases: [...new Set(context.typeAliases.flatMap((alias) => [alias, transliterateGeorgianToAscii(alias)]))]
@@ -137,6 +137,9 @@ function technicalMatcher(rules: ContentValidationRules) {
       parameters.set(keyOf(label), fields);
     }
     if (unit) {
+      // Every alias of a unit must recognize the type-specific fields for that unit.
+      // Prefix parameter labels still restrict a reading to its corresponding field.
+      for(const group of units.values())if(keyOf(group.unit)===keyOf(unit))group.fields.add(key);
       const existing = units.get(keyOf(unit)) ?? { unit, fields: new Set() };
       existing.fields.add(key);
       units.set(keyOf(unit), existing);

@@ -28,7 +28,7 @@ export async function runProductsSeed() {
   assertSeedDatabaseSafety();
   const db = getDb();
 
-  // 1. Always ensure 9 categories (8 public + UNCLASSIFIED) and 30 initial Product Types exist
+  // 1. Always ensure 9 categories (8 public + UNCLASSIFIED) and 33 approved Product Types exist
   const taxonomyStats = await seedTaxonomyAndProductTypes(db);
 
   // 2. Check if initial seed SKU KH-000001 already exists

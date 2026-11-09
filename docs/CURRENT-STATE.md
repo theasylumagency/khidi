@@ -54,6 +54,16 @@ expose shared-Hub, supplier, accounting or customer details. Customer personal d
   recent-strong-authenticated user changes, one-time employee setup, mandatory TOTP for every
   new office account and registered-device warehouse PIN setup. Deactivation/reset/access
   changes revoke obsolete sessions immediately; no user deletion. See user-management.md.
+- Reference/configuration: H10 installs the eight public categories, internal UNCLASSIFIED
+  and 33 approved types with a previewable, audited reference-data command. Real legal entities,
+  stores, pools and relationships are created through ADMIN UI, never seeds or a business-data
+  command. ACCESSORY/POWER_TOOL/FARM_PROCESSOR permit audited KA/EN subtype additions with no
+  required specs until the owner defines them. Reference updates preserve these additions.
+- Identification capture distinguishes actual photos, checked plate absence and later capture.
+  Engine/generator plates are separate. PLATE_ABSENT is an attributed NOT_FOUND observation,
+  not a technical reading; accepted evidence wins. LATER stays pending. Admin review asks for
+  documents/supplier evidence for absence, not a nonexistent plate reshoot. Class A stays
+  intake-only until resolution; HOUSE_DEFINED/MEDIUM/confirmed READY still works without plates.
 
 ## Accepted decisions and superseded text
 
@@ -77,8 +87,9 @@ expose shared-Hub, supplier, accounting or customer details. Customer personal d
 Specification §17.3's old pilot scenarios are replaced by M11 H6 A–D, documented in
 [E2E verification](ops/e2e-verification.md). Specification §17.2's seeds are developer fixtures,
 never shared-server setup. Production setup is roles → migrations → queue deployment →
-interactive first ADMIN, then real business configuration and H9 second ADMIN. The M6 owner
-clarifications separately define fact-snapshot suspension, the four content checks and distinct
+reviewed reference-data application → interactive first ADMIN, then real business configuration
+and H9 second ADMIN. The M6 owner clarifications separately define fact-snapshot suspension,
+the four content checks and distinct
 publication/sale evaluations. Accepted ADRs override the older plan on their topics.
 
 ## Remaining decisions and pilot gates
@@ -92,10 +103,13 @@ publication/sale evaluations. Accepted ADRs override the older plan on their top
 - Daily report email delivery is deferred; files, in-app notification and opted-in push exist.
 - Proposed ADR-015: Zod 4 migration. The residual high advisory is mitigated, not declared patched;
   see [dependency audit](security/dependency-audit.md). No unsupported provider is introduced.
-- A fresh production installation still needs its real legal entities/taxonomy/configuration.
-  The current entities page is a list, and not every catalog-configuration domain service has
-  an administration form. Do not use seeds to bridge a missing setup UI; record and schedule
-  the missing configuration surface before a completely empty-server pilot.
+- Annex A's complete subtype/spec tables for ACCESSORY, POWER_TOOL and FARM_PROCESSOR remain
+  open until the owner reviews the first intake wave. Existing vocabularies remain; new ADMIN
+  additions have empty required-spec lists. Later owner-approved requirements are applied with
+  the same reference-data command, without schema changes. Gloves classification remains open.
+- Catalog source subcategories/filters are recommendations, not implemented public navigation.
+  Compatibility, fit_status, engine_models, uses_engine, inheritance, spec matching, two-stage
+  publishing and parts finder require a separate milestone/ADR. WordPress IDs remain hints only.
 - [Pre-pilot checklist](ops/pre-pilot-checklist.md): real-server restore, physical phones behind
   the gateway, offline ownership, printer, keys, second ADMIN and secure API-key handover.
 

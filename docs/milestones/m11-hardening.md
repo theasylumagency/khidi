@@ -91,7 +91,8 @@ No gateway configuration, shared service or environment file was changed.
 
 `pnpm ops:restore-drill` passed with PostgreSQL 18.4, pgBackRest 2.60.0 and separate MinIO
 source/recovery storage. An encrypted full backup plus WAL was restored into clean PGDATA.
-All 54 migration checksums and 98 table counts matched. All 37 copied objects matched SHA-256;
+The initial drill verified 54 migrations and 98 table counts; the H10 repeat verified 55 and 99.
+All 37 copied objects matched SHA-256 in both drills;
 25 private database references, including raw, masters, derivatives, PDF evidence and reports,
 were readable and correct, including two raw samples. Inventory verification and A–D passed.
 The recovered original's counts stayed unchanged while H6 ran on a separate writable clone.
@@ -119,7 +120,7 @@ The owner checklist covers real recovery, keys/protection, a second ADMIN, phone
 camera/offline/push, labels, API-key handover and the accepted declared-stock/automatic-handover
 risks. No real-device or shared-server box is marked complete by local tests.
 
-## Final acceptance
+## H1–H9 acceptance
 
 - Full suite on fresh `khidi_m11_acceptance_test`: **114 files, 628 tests passed**, no skips,
   including real MinIO S3 integration, in 399.47 seconds.
@@ -148,10 +149,9 @@ The final fresh-database run above followed these demonstrated fixes; no test wa
 - Zod remains at 3.24.2 under the task's explicit mitigation path, pending ADR-015 approval.
 - pnpm 12 overrides live in `pnpm-workspace.yaml`, where the ExcelJS UUID override is effective.
 - H6 uses a writable clone of the recovered state so the recovered original remains unchanged.
-- A completely empty production installation still lacks some ADMIN configuration forms for
-  legal entities/taxonomy/Product Types. The owner was asked whether to extend M11 or track this
-  separately; no answer has been received. It remains an explicit pilot blocker, not an
-  authorization to seed the shared server or silently add another management scope.
+- The owner resolved the empty-installation blocker in H10: approved neutral catalog reference
+  data gets its own command, and all real business setup uses ADMIN UI. See the [H10 record](m11-h10-reference-setup.md)
+  for the complete taxonomy comparison, missing future subtype/spec tables and plate observations.
 - Existing open decisions (#2 operating ownership/contract, #8 component price allocation,
   ADR-011 Part B) and deferred R8/physical counts/report email/live AI remain unchanged.
 - Real-server restore and all human pre-pilot checks remain the owner's responsibility.

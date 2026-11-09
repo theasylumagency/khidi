@@ -39,6 +39,7 @@ export default async function ProductsWorkspacePage({ searchParams }: {
 
   return (
     <div style={{ display: "grid", gap: "1.5rem" }}>
+      {principal.role==="ADMIN"?<Link href="/products/configuration">{t("setup.subtypes")}</Link>:null}
       {/* Header & Summary */}
       <section
         style={{

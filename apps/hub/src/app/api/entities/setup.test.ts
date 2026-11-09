@@ -1,0 +1,30 @@
+import { afterEach,expect,it,vi } from "vitest";
+import { getDb } from "@khidi/db";
+import { createUuidV7 } from "@khidi/shared";
+import type { AuthenticatedPrincipal } from "@khidi/auth";
+import { serviceAdminSessionFixture } from "../../../../../../packages/auth/src/storefront-service.test-fixture.ts";
+const state=vi.hoisted(()=>({principal:null as AuthenticatedPrincipal|null}));
+vi.mock("../../../lib/session.ts",()=>({getCurrentPrincipal:async()=>state.principal}));
+import { POST as entity } from "./route.ts";
+import { POST as subtype } from "../products/subtypes/route.ts";
+const request=(path:string,body:unknown,key=createUuidV7(),origin="http://localhost:3100")=>new Request("http://localhost:3100/api/"+path,{method:"POST",headers:{Origin:origin,"Content-Type":"application/json","Idempotency-Key":key},body:JSON.stringify(body)});
+afterEach(()=>{state.principal=null;vi.useRealTimers();});
+it("guards entity/subtype configuration with ADMIN, same origin and persisted recent strong proof",async()=>{
+ for(const handler of [entity,subtype])expect((await handler(request("setup",{}))).status).toBe(401);
+ const auth=await serviceAdminSessionFixture(getDb());state.principal={...auth.principal,role:"STOCK_MANAGER"};for(const handler of [entity,subtype])expect((await handler(request("setup",{}))).status).toBe(403);
+ state.principal=auth.principal;for(const handler of [entity,subtype])expect((await handler(request("setup",{},createUuidV7(),"https://foreign.invalid"))).status).toBe(403);
+ vi.useFakeTimers({toFake:["Date"]});vi.setSystemTime(Date.now()+601000);
+ expect((await entity(request("entities",{key:"E_"+createUuidV7().slice(-8).toUpperCase(),legalName:"Synthetic entity",taxId:"000000000",pricesIncludeVat:true}))).status).toBe(428);
+ expect((await subtype(request("products/subtypes",{productTypeKey:"POWER_TOOL",key:"DRIVER",labelKa:"სახელი",labelEn:"Name"}))).status).toBe(428);
+});
+it("creates an empty-configuration entity and audited controlled subtype idempotently, never choosing user credentials or seeding stock",async()=>{
+ const db=getDb(),auth=await serviceAdminSessionFixture(db);state.principal=auth.principal;
+ const input={key:"E_"+createUuidV7().slice(-8).toUpperCase(),legalName:"Synthetic setup entity",taxId:"000000000",pricesIncludeVat:false},key=createUuidV7();
+ const first=await entity(request("entities",input,key)),again=await entity(request("entities",input,key));expect(first.status).toBe(201);expect(await first.json()).toEqual(await again.json());
+ const name="NEW_"+createUuidV7().slice(-8).toUpperCase(),data={productTypeKey:"ACCESSORY",key:name,labelKa:"ახალი აქსესუარი",labelEn:"New accessory"},subkey=createUuidV7();
+ expect((await subtype(request("products/subtypes",data,subkey))).status).toBe(201);expect((await subtype(request("products/subtypes",data,subkey))).status).toBe(201);
+ const row=await db.query.productTypes.findFirst({where:(type,{eq})=>eq(type.key,"ACCESSORY")});
+ expect(row!.attributeSchemaJson.find(f=>f.key==="consumable_kind")!.enumValueMetadata?.[name]?.requiredSpecFields).toEqual([]);
+ expect(await db.query.auditLogs.findMany({where:(log,{and,eq})=>and(eq(log.entityId,row!.id),eq(log.action,"PRODUCT_SUBTYPE_ADDED"))})).toEqual(expect.arrayContaining([expect.objectContaining({actorUserId:auth.principal.userId})]));
+ expect((await subtype(request("products/subtypes",{...data,productTypeKey:"SPARE_PART"}))).status).toBe(400);
+});

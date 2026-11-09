@@ -6,6 +6,7 @@ import type {
   SkuAttributeValueEntry
 } from "@khidi/db";
 import { AppError } from "@khidi/shared";
+import { CATALOG_ADDITIONS,SPARE_PART_FIELDS } from "./catalog-additions.ts";
 
 export const TOP_LEVEL_CATEGORY_KEYS = [
   "AGRI_MACHINERY",
@@ -129,7 +130,10 @@ export const INITIAL_PRODUCT_TYPE_KEYS = [
   "WHEEL_RIM",
   "ENGINE",
   "SPARE_PART",
-  "ACCESSORY"
+  "ACCESSORY",
+  "GENERATOR",
+  "LADDER",
+  "CONSUMABLE"
 ] as const;
 
 export type InitialProductTypeKey = (typeof INITIAL_PRODUCT_TYPE_KEYS)[number];
@@ -200,6 +204,7 @@ function makeProductTypeDef(input: {
   ];
   const targetSpecificationFields = input.attributeSchema
     .filter((f) => f.tier !== "REQUIRED_IDENTITY")
+    .filter((f)=>input.key!=="SPARE_PART"||f.key!=="compatible_engine_or_machine")
     .map((f) => f.key);
 
   return {
@@ -223,7 +228,7 @@ function makeProductTypeDef(input: {
 }
 
 /**
- * §5.8 Product Type Matrix v1 — All 30 initial product types.
+ * §5.8 Product Type Matrix v1 — The original 30 types plus the 3 approved Annex B additions.
  */
 export const INITIAL_PRODUCT_TYPES: readonly ProductTypeSeedDef[] = [
   makeProductTypeDef({
@@ -1110,7 +1115,7 @@ export const INITIAL_PRODUCT_TYPES: readonly ProductTypeSeedDef[] = [
         labelKa: "თავსებადი ძრავა / დანადგარი",
         labelEn: "Compatible Engine / Machine",
         dataType: "string",
-        tier: "REQUIRED_IDENTITY",
+        tier: "OPTIONAL_SPEC",
         filterCandidate: true
       },
       {
@@ -1121,16 +1126,17 @@ export const INITIAL_PRODUCT_TYPES: readonly ProductTypeSeedDef[] = [
         tier: "IMPORTANT_SPEC",
         filterCandidate: true,
         enumValues: ["ENGINE_INTERNAL", "FUEL_SYSTEM", "IGNITION", "TRANSMISSION", "CHASSIS", "ELECTRICAL", "OTHER"]
-      }
+      },
+      ...SPARE_PART_FIELDS
     ]
   }),
   makeProductTypeDef({
     key: "ACCESSORY",
     defaultCategoryKey: "SPARE_PARTS_ACCESSORIES",
-    nameKa: "სახარჯი მასალა / აქსესუარი",
-    nameEn: "Consumable / Accessory",
-    searchAliasesKa: ["ძუა", "ხერხის ჯაჭვი", "ზეთი", "სათיბის დისკი"],
-    searchAliasesEn: ["trimmer line", "saw chain", "cutting blade", "lubricant"],
+    nameKa: "აქსესუარი",
+    nameEn: "Accessory",
+    searchAliasesKa: [],
+    searchAliasesEn: [],
     attributeSchema: [
       {
         key: "consumable_kind",
@@ -1142,7 +1148,8 @@ export const INITIAL_PRODUCT_TYPES: readonly ProductTypeSeedDef[] = [
         enumValues: ["TRIMMER_LINE", "CUTTING_DISC", "SAW_CHAIN", "GUIDE_BAR", "OIL_LUBRICANT", "PPE", "OTHER"]
       }
     ]
-  })
+  }),
+  ...CATALOG_ADDITIONS
 ] as const;
 
 export const skuAttributeStatusSchema = z.enum([

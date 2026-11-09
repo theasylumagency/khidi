@@ -19,7 +19,7 @@ interface Item {
   comparisonRelation:string;acknowledgedUnknowns:Record<string,string>;
 }
 interface Field {
-  fieldName: string; status: string; value: FactValue | null; notDeterminableReason: string | null; evidenceIds: string[];
+  fieldName: string; status: string; value: FactValue | null; notDeterminableReason: string | null; evidenceIds: string[];observationReason?:string|null;
 }
 
 export function EvidenceReview({ skuId, kind, items, fields, distinguishing, photoUrls, productTypes, productTypeId, editableType, fieldOptions, incomingComparisons }: {
@@ -113,7 +113,7 @@ export function EvidenceReview({ skuId, kind, items, fields, distinguishing, pho
             const source = incomingComparisons.find((item) => item.id === id);
             return <p key={id}><a href={`${source ? `/products/${source.skuId}` : ""}#evidence-${id}`}>{t("evidence.source")}</a></p>;
           })}
-        </td><td>{t(`evidence.status.${field?.status ?? "NOT_FOUND"}` as TranslationKey)}{field?.notDeterminableReason ? <p>{field.notDeterminableReason}</p> : null}</td>
+        </td><td>{t(`evidence.status.${field?.status ?? "NOT_FOUND"}` as TranslationKey)}{field?.observationReason==="PLATE_ABSENT"?<p>{t("plate.documents")}</p>:null}{field?.notDeterminableReason ? <p>{field.notDeterminableReason}</p> : null}</td>
           <td>{medium.length || canMarkUndetermined ? <form onSubmit={(event) => void send(event, { action: "field", skuId, field: key })}>
             <select name="evidenceId" aria-label={t("evidence.review")} required={!canMarkUndetermined}>
               {canMarkUndetermined ? <option value="">{t("evidence.not_determinable")}</option> : <option value="">—</option>}

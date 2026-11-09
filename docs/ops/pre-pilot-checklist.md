@@ -22,9 +22,13 @@ QR/TOTP secrets, session cookies, API/webhook keys or unredacted private documen
 - [ ] RP/origin are app.khidi.app / https://app.khidi.app; API host is api.khidi.app.
   App-only Access gateway, static bootstrap exceptions, TLS, trusted-proxy headers/IP handling,
   body/time/rate limits, neutral naming and safe log rotation are verified.
-- [ ] New install can configure real legal entities, taxonomy/types, storefronts, accounting
-  mappings and availability pools without development seeds. Any missing configuration UI
-  remains a pilot blocker until explicitly resolved; do not improvise reference data.
+- [ ] Reference-data preview/application reviewed against approved catalog source statuses:
+  eight public categories + UNCLASSIFIED, 33 types, no WordPress import or recommended public
+  navigation. Real entities/VAT, storefronts, pools/relationships and mappings created through
+  ADMIN UI. No customer business value is embedded in a command or a deployment seed.
+- [ ] ADMIN subtype additions tested for the three permitted types; KA/EN labels and audit
+  exist, required specs stay empty until the owner supplies them. Repeat reference application
+  preserves the added entry. The owner tracks the missing complete subtype/spec tables.
 
 ## People and access
 
@@ -51,6 +55,10 @@ QR/TOTP secrets, session cookies, API/webhook keys or unredacted private documen
 - [ ] Barcode scan, native rear-camera and gallery return/cancel/retake work; no lost file
   after backgrounding/lock. Required slots, missing-photo completion and duplicate behavior
   match the task. Device quality success survives server advisory disagreement.
+- [ ] Generator and engine plate prompts are separate. Engine capture / no plate / later works
+  online and offline. Checked absence shows author/time and NOT_FOUND/PLATE_ABSENT, no pretend
+  photo; later remains pending. Generic identification absence suggests packaging/sticker/
+  marking; review requests document/supplier evidence rather than another nonexistent plate.
 - [ ] Offline scan plus photos survive closing/reopening, upload in dependency order and keep
   per-user ownership after switching accounts. Class A reaches admin review; Class B remains
   visible. Explicit scan discard includes photo count; no silent blob deletion.

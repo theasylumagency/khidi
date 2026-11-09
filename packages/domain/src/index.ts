@@ -15,6 +15,8 @@ import {
 } from "@khidi/shared";
 
 export const DOMAIN_EVENT_TYPES = [
+  "LEGAL_ENTITY_CREATED",
+  "REFERENCE_DATA_UPDATED",
   "PRODUCT_APPROVED",
   "PRODUCT_UPDATED",
   "PRODUCT_ARCHIVED",

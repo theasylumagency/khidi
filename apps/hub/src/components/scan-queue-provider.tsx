@@ -14,9 +14,9 @@ type ScanDraft = Pick<IntakeInput, "sourceMode" | "taskId" | "scannedValue" | "i
 interface QueueContextValue {
   ready: boolean; enqueue: (draft: ScanDraft) => Promise<string>;
   lastDelivery: { key: string; result: QueueTransportResult } | null;
-  photos: QueuedPhoto[]; photoVersion: number; usage: StorageUsage | null; photoReceipts: ReadonlySet<string>;
+  photos: QueuedPhoto[]; photoReports:QueuedPhotoReport[];photoVersion: number; usage: StorageUsage | null; photoReceipts: ReadonlySet<string>;
   enqueuePhoto: (target: Partial<PhotoTarget>, photo: { blob: Blob; slot: PhotoSlot; capturedAt: string; quality: QualityReport }) => Promise<string>;
-  enqueueAttention: (target: Partial<PhotoTarget>, reason: string, slots: PhotoSlot[]) => Promise<void>;
+  enqueueAttention: (target: Partial<PhotoTarget>, reason: string, slots: PhotoSlot[],outcome?:"PLATE_ABSENT"|"LATER") => Promise<void>;
   duplicate: (taskId: string, value: string) => Promise<CachedTaskIdentifier | null>;
   cacheTask: (taskId: string) => Promise<void>;
   checkStorage: () => Promise<void>;
@@ -148,9 +148,9 @@ export function ScanQueueProvider({ user, children }: {
     setPhotoVersion((v) => v + 1); void controller.flush();
     return identity.idempotencyKey;
   }
-  async function enqueueAttention(target: Partial<PhotoTarget>, reason: string, slots: PhotoSlot[]) {
+  async function enqueueAttention(target: Partial<PhotoTarget>, reason: string, slots: PhotoSlot[],outcome?:"PLATE_ABSENT"|"LATER") {
     const identity = await photoIdentity(), controller = photoQueue.current!;
-    await controller.store.report({ skuId: null, intakeId: null, intakeIdempotencyKey: null, photoRequestTaskId: null, ...target, ...identity, reason, slots, capturedAt: new Date().toISOString() }, fullName!);
+    await controller.store.report({ skuId: null, intakeId: null, intakeIdempotencyKey: null, photoRequestTaskId: null, ...target, ...identity, reason, slots,...(outcome?{outcome}:{}),capturedAt: new Date().toISOString() }, fullName!);
     setPhotoReports(await controller.store.reports());
     setPhotoVersion((v) => v + 1); void controller.flush();
   }
@@ -166,7 +166,7 @@ export function ScanQueueProvider({ user, children }: {
     await controller.store.cacheIdentifiers(userId, taskId, entries);
   }
   const own = pending.find((row) => row.userId === userId);
-  return <QueueContext.Provider value={{ ready: ready && !sessionChanged, enqueue, lastDelivery, photos: photos.filter((photo) => photo.userId === userId), photoVersion, usage, photoReceipts, enqueuePhoto, enqueueAttention, cacheTask,
+  return <QueueContext.Provider value={{ ready: ready && !sessionChanged, enqueue, lastDelivery, photos: photos.filter((photo) => photo.userId === userId),photoReports:photoReports.filter(report=>report.userId===userId), photoVersion, usage, photoReceipts, enqueuePhoto, enqueueAttention, cacheTask,
     duplicate: async (taskId, value) => photoQueue.current && userId ? photoQueue.current.store.duplicate(userId, taskId, value) : null,
     checkStorage: async () => setUsage(await storageUsage(navigator.storage, 0, true)) }}>
     {user ? <aside aria-live="polite" className="scan-queue-status">

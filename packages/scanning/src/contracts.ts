@@ -46,7 +46,7 @@ export const createScanTaskSchema = z.object({
   productTypeId: z.string().max(36).uuid().nullable().default(null),
   targetCount: z.number().int().positive().max(2147483647).nullable().default(null),
   photosRequired: z.boolean().default(true), targetSkuId: z.string().max(36).uuid().nullable().default(null),
-  requestedPhotoSlots: z.array(z.enum(PHOTO_SLOTS)).min(1).max(4).refine((slots) => new Set(slots).size === slots.length, "Duplicate slots.").nullable().default(null),
+  requestedPhotoSlots: z.array(z.enum(PHOTO_SLOTS)).min(1).max(PHOTO_SLOTS.length).refine((slots) => new Set(slots).size === slots.length, "Duplicate slots.").nullable().default(null),
   photoRequestNote: z.string().trim().min(1).max(4000).nullable().default(null),
   dueDate: z.string().max(128).datetime({ offset: true }).nullable().default(null)
 }).strict().refine((input) => Number(input.assigneeUserId !== null) + Number(input.assigneeRole !== null) === 1, "Choose one assignee user or role.").superRefine((input, ctx) => {

@@ -66,6 +66,7 @@ it("maps all producer families to safe recipient audiences and translated titles
   ["FULFILLMENT_STATUS_CHANGED","fulfillment_request",{status:"ACTION_REQUIRED"},"RESERVATION_ACTION_REQUIRED"],
   ["FULFILLMENT_MODE_CHANGED","user",{mode:"SIMPLIFIED_FULFILLMENT"},"FULFILLMENT_MODE_CHANGED"],
   ["PHOTO_ATTENTION_REPORTED","photo_attention",{},"PHOTO_RETAKE_REQUIRED"],["OFFLINE_PHOTO_DISCARDED","offline_photo",{},"PHOTO_RETAKE_REQUIRED"],
+  ["PHOTO_ATTENTION_REPORTED","photo_attention",{reason:"PLATE_ABSENT",outcome:"PLATE_ABSENT"},"PRODUCT_REVIEW_REQUIRED"],
   ["IMAGE_TIER2_CHECKED","product_image",{needsRetake:true},"PHOTO_RETAKE_REQUIRED"],["IMAGE_QUALITY_DISAGREEMENT","product_image",{},"PRODUCT_REVIEW_REQUIRED"]
  ] as const;
  for(const [eventType,aggregateType,payload,type]of cases) {

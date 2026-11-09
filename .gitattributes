@@ -17,3 +17,4 @@ packages/db/migrations/0051_user_management.sql text eol=lf
 packages/db/migrations/0052_pending_user_setup.sql text eol=lf
 packages/db/migrations/0053_pending_office_pin_compatibility.sql text eol=lf
 packages/db/migrations/0054_admin_guard_schema.sql text eol=lf
+packages/db/migrations/0055_identification_observations.sql text eol=lf

@@ -11,6 +11,14 @@ const scan = (): IntakeInput => ({ idempotencyKey: createUuidV7(), userId: owner
 const photo = (intakeIdempotencyKey: string, userId = owner): PhotoUploadInput => ({ idempotencyKey: createUuidV7(), userId, deviceId, capturedAt: new Date().toISOString(), slot: "MAIN", intakeIdempotencyKey, intakeId: null, photoRequestTaskId: null, skuId: null });
 const ok = { accepted: true, status: 201 };
 describe("P5 durable photos, intake dependencies and explicit loss reports", () => {
+  it("retains attributed plate absence/later reports across reopen, behind their intake and per-user ownership",async()=>{
+    const factory=new IDBFactory();let store=await openScanQueue(factory),photos=new PhotoQueueStore(store);const input=scan();await store.add(input,"Owner");
+    for(const outcome of ["LATER","PLATE_ABSENT"] as const)await photos.report({intakeId:null,intakeIdempotencyKey:input.idempotencyKey,skuId:null,photoRequestTaskId:null,idempotencyKey:createUuidV7(),userId:owner,deviceId,capturedAt:new Date().toISOString(),slots:["ENGINE_IDENTIFICATION"],outcome,reason:outcome},"Owner");
+    store.close();store=await openScanQueue(factory);photos=new PhotoQueueStore(store);expect(await photos.reports(owner)).toHaveLength(2);
+    const sent=vi.fn(async()=>ok);let current=other;const queue=new OfflinePhotoQueue(photos,{currentUserId:async()=>current,send:async()=>ok,report:sent});
+    await queue.flush();current=owner;await queue.flush();expect(sent).not.toHaveBeenCalled();
+    await store.acceptScan(input,{...ok,intakeId:createUuidV7()});await queue.flush();expect(sent).toHaveBeenCalledTimes(2);expect(await photos.reports(owner)).toEqual([]);store.close();
+  });
   it("does not make session/network requests when the photo queue is empty", async () => {
     const store = await openScanQueue(new IDBFactory()), currentUserId = vi.fn(async () => owner);
     await new OfflinePhotoQueue(new PhotoQueueStore(store), { currentUserId, send: async () => ok, report: async () => ok }).flush();

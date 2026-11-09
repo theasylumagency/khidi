@@ -65,6 +65,8 @@ export async function createLegalEntity(
   const input = createLegalEntitySchema.parse(rawInput);
 
   return withDomainTransaction(db, actor, async (ctx) => {
+    const [admin] = actor.userId ? await ctx.tx.select({id:users.id}).from(users).where(and(eq(users.id,actor.userId),eq(users.active,true),eq(users.role,"ADMIN"))) : [];
+    if(!admin)throw new AppError("FORBIDDEN","Entity creation requires ADMIN.");
     const id = createUuidV7();
     const [created] = await ctx.tx
       .insert(legalEntities)
@@ -94,6 +96,7 @@ export async function createLegalEntity(
       }
     });
 
+    await ctx.emitOutboxEvent({eventType:"LEGAL_ENTITY_CREATED",aggregateType:"legal_entity",aggregateId:created.id,payload:{id:created.id},consumers:[]});
     return created;
   });
 }

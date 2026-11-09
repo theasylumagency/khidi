@@ -12,7 +12,7 @@ live AI, push delivery, accounting connection or arbitrary restored outbox dispa
 Only new scenario-specific webhook and notification events are consumed. The previous Hub
 fulfillment mode is restored at the end. Never run this command on a shared server.
 
-- A: no-barcode intake, observable inspection without supplier documents, verified reference
+- A: no-barcode intake, attributed checked plate absence, observable inspection without supplier documents, verified reference
   photos, HOUSE_DEFINED/MEDIUM and explicit ADMIN READY confirmation, approved KA, both
   listings/prices and declared availability produce sellable projections. Repeated runs use
   the existing explicit house-slug suffix consent; they never modify an earlier product.

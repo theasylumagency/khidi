@@ -8,6 +8,15 @@ const quality: QualityReport = { passed: true, reasons: [], width: 2400, height:
 const blob = new Blob(["original camera bytes"], { type: "image/jpeg" });
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; }
 describe("native/picker auto-save photo workflow", () => {
+  it("records checked absence durably before resolving the engine step and stores no pretend photo",async()=>{
+    const committed=deferred<void>(),workflow=new PhotoWorkflow([{slot:"ENGINE_IDENTIFICATION",required:true},{slot:"MAIN",required:true}],[],{check:async()=>quality,save:async()=>"photo",taken:()=>{}});
+    const saving=workflow.recordAbsentEnginePlate(()=>committed.promise);expect(workflow.snapshot()).toMatchObject({phase:"saving",accepted:[],saved:[]});
+    committed.resolve();await saving;expect(workflow.snapshot()).toMatchObject({current:"MAIN",accepted:["ENGINE_IDENTIFICATION"],saved:[],phase:"idle"});
+  });
+  it("does not resolve a plate when observation storage fails",async()=>{
+    const workflow=new PhotoWorkflow([{slot:"ENGINE_IDENTIFICATION",required:true}],[],{check:async()=>quality,save:async()=>"photo",taken:()=>{}});
+    await expect(workflow.recordAbsentEnginePlate(async()=>{throw new Error("Storage unavailable");})).rejects.toThrow();expect(workflow.snapshot()).toMatchObject({accepted:[],saved:[],phase:"idle",failure:"storage"});
+  });
   it("checks then persists once, advancing only after durable storage, in configured required order", async () => {
     const checked = deferred<QualityReport>(), committed = deferred<string>();
     const save = vi.fn(() => committed.promise), workflow = new PhotoWorkflow(slots, [], { check: () => checked.promise, save, taken: () => {} });

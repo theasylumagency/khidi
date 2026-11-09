@@ -27,7 +27,19 @@ All in `docs/`:
 2. `AgroTrade Hub — Technical Specification v1.2.md` — the specification.
 3. `AgroTrade Hub — Implementation Plan v1.1.md` — the milestone plan.
 4. `docs/adr/` — accepted ADRs override the plan on their own topic.
-5. Section 9 of this file (errata) overrides all of the above where it applies.
+5. `docs/catalog/` — reference taxonomy, under the owner-approved status boundaries below.
+6. Section 9 of this file (errata) overrides all of the above where it applies.
+
+Catalog source status (owner decision, 2026-11-08): Architecture v1.0 agrees eight public
+categories, the original 30 Product Types and default mappings. Second-level public
+subcategories/filters are recommendations; do not implement public navigation from them.
+Annex B approves GENERATOR, LADDER, CONSUMABLE (33 types), their attributes, subtypes,
+photo/naming/research contracts; gloves remain open. WordPress IDs are intake hints, not imports.
+Annex A contributes only controlled subtype/spec reference data now. ACCESSORY, POWER_TOOL
+and FARM_PROCESSOR keep their existing vocabularies; ADMIN may add audited KA/EN subtype
+labels with no required specs until the owner supplies the full tables. Compatibility,
+fit_status, engine_models, uses_engine, inheritance, two-stage publishing and parts finder
+are outside M11 and require a separate milestone/ADR. See docs/catalog/README.md.
 
 **Superseded — do not use:** `AgroTrade Hub — Corrections to Implementation Plan.md`
 (the older C1–C13 version without the v1.1 suffix).
@@ -49,7 +61,7 @@ If two sources conflict and this list does not resolve it, stop and ask. Do not 
 | M8 Inventory core | Merged to `main` (PR #15); I6 disabled by Accepted ADR-013 |
 | M9 Reservations and fulfillment | Merged to `main` (PR #16), owner-reviewed; R8 deferred under ADR-014 |
 | M10 Reports, notifications and audit | Merged to `main` (PR #17) |
-| M11 Hardening, restore, E2E and user management | Implemented and locally verified on `m11-hardening`; Draft PR review, human pilot gates pending |
+| M11 Hardening, restore, E2E, user management and reference setup | H1–H10 implemented and locally verified on `m11-hardening`; Draft PR #18 review, human pilot gates pending |
 
 Working mode: maintenance; no new milestone is assigned. M11 is the final planned candidate,
 under Draft PR review; see [current state](docs/CURRENT-STATE.md) and

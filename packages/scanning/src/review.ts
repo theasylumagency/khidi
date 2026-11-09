@@ -1,7 +1,8 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
 import { type DbExecutor, getSplitCandidates, getSkuLineageIds, intakeReviewActions, labelEvents, productIntakes, scanTasks,
-  skuSplitTargets, skus, users } from "@khidi/db";
+  skuSplitTargets, skus, users,identificationObservations } from "@khidi/db";
+import { lockIdentityCatalog,recomputeSkuIdentity } from "@khidi/evidence";
 import { executeIdempotent, withDomainTransaction } from "@khidi/domain";
 import { resolveSkuByScannedIdentifier, type SkuIdentifierType } from "@khidi/products";
 import { AppError, createUuidV7, sha256Hex, uuidSchema } from "@khidi/shared";
@@ -34,6 +35,7 @@ export async function resolveIntakeReview(db: DbExecutor, principal: Authenticat
   const requestHash = sha256Hex(JSON.stringify(payload));
   return executeIdempotent(db, { scope: "scanning:review", idempotencyKey: input.idempotencyKey, payload }, (tx) =>
     withDomainTransaction(tx, { userId: principal.userId }, async (ctx) => {
+      await lockIdentityCatalog(ctx.tx);
       const [receipt] = await ctx.tx.select().from(intakeReviewActions).where(eq(intakeReviewActions.id, input.idempotencyKey)).limit(1);
       if (receipt) {
         if (receipt.requestHash !== requestHash) throw new AppError("IDEMPOTENCY_CONFLICT", "Review key already used.");
@@ -41,7 +43,7 @@ export async function resolveIntakeReview(db: DbExecutor, principal: Authenticat
       }
       const [context] = await ctx.tx.select({ taskId: productIntakes.taskId }).from(productIntakes).where(eq(productIntakes.id, input.intakeId)).limit(1);
       if (!context) throw new AppError("NOT_FOUND", "Intake not found.");
-      // Same lock order as receiveIntake: task, identifier, then affected intake rows.
+      // Catalog projection lock precedes the existing task/identifier/intake order.
       let task: typeof scanTasks.$inferSelect | undefined;
       if (context.taskId) [task] = await ctx.tx.select().from(scanTasks).where(eq(scanTasks.id, context.taskId)).for("update");
       const [original] = await ctx.tx.select().from(productIntakes).where(eq(productIntakes.id, input.intakeId)).for("update");
@@ -102,6 +104,8 @@ export async function resolveIntakeReview(db: DbExecutor, principal: Authenticat
       }
       const [updated] = await ctx.tx.update(productIntakes).set(changes).where(eq(productIntakes.id, original.id)).returning();
       if (resolved && updated!.matchedSkuId && input.resolution !== "DISMISS") await linkIntakeImagesToSku(ctx, original.id, updated!.matchedSkuId);
+      if(resolved&&updated!.matchedSkuId&&input.resolution!=="DISMISS"&&(await ctx.tx.select({id:identificationObservations.id}).from(identificationObservations).where(eq(identificationObservations.intakeId,original.id)).limit(1)).length)
+        await recomputeSkuIdentity(ctx,updated!.matchedSkuId);
       const body = { id: original.id, resolved, resolution: updated!.reviewResolution, reviewReason: updated!.reviewReason,
         matchedSkuId: updated!.matchedSkuId, labelStatus: updated!.labelStatus };
       await ctx.recordAudit({ action: resolved ? "INTAKE_REVIEW_RESOLVED" : "INTAKE_REVIEW_STILL_REQUIRED", entityType: "product_intake", entityId: original.id,

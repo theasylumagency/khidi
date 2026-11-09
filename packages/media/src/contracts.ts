@@ -1,5 +1,5 @@
 import { z } from "zod";
-export const PHOTO_SLOTS = ["MAIN", "SECONDARY", "IDENTIFICATION", "EXTRA"] as const;
+export const PHOTO_SLOTS = ["MAIN", "SECONDARY", "IDENTIFICATION", "ENGINE_IDENTIFICATION", "EXTRA"] as const;
 export type PhotoSlot = (typeof PHOTO_SLOTS)[number];
 export const MAX_PHOTO_BYTES = 15 * 1024 * 1024;
 export const uuidV7 = z.string().max(36).uuid().refine((value) => value[14] === "7", "UUIDv7 required");
@@ -28,8 +28,10 @@ export type PhotoTarget = z.infer<typeof photoTargetSchema>;
 export const photoAttentionSchema = z.object({ ...PHOTO_TARGET_FIELDS,
   idempotencyKey: uuidV7, userId: z.string().max(36).uuid(), deviceId: z.string().max(36).uuid(),
   capturedAt: z.string().max(128).datetime({ offset: true }), reason: z.string().trim().min(1).max(4000),
-  slots: z.array(z.enum(PHOTO_SLOTS)).min(1).max(4)
-}).strict().refine((value) => [value.intakeId, value.intakeIdempotencyKey, value.photoRequestTaskId, value.skuId].filter(Boolean).length === 1, "Choose one photo target.");
+  slots: z.array(z.enum(PHOTO_SLOTS)).min(1).max(PHOTO_SLOTS.length),
+  outcome:z.enum(["PLATE_ABSENT","LATER"]).optional()
+}).strict().refine((value) => [value.intakeId, value.intakeIdempotencyKey, value.photoRequestTaskId, value.skuId].filter(Boolean).length === 1, "Choose one photo target.")
+ .refine(value=>!value.outcome||value.slots.length===1&&["IDENTIFICATION","ENGINE_IDENTIFICATION"].includes(value.slots[0]!),"Identification observation requires one plate slot.");
 export const photoDiscardSchema = z.object({ ...PHOTO_TARGET_FIELDS, idempotencyKey: uuidV7, userId: z.string().max(36).uuid(), deviceId: z.string().max(36).uuid(), reason: z.string().trim().min(1).max(4000), photo: discardedPhotoSchema }).strict().refine((value) => [value.intakeId, value.intakeIdempotencyKey, value.photoRequestTaskId, value.skuId].filter(Boolean).length === 1, "Choose one photo target.");
 export type PhotoAttentionInput = z.infer<typeof photoAttentionSchema>;
 export type PhotoDiscardInput = z.infer<typeof photoDiscardSchema>;

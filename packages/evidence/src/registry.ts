@@ -2,7 +2,7 @@ import { boundedRecord } from "@khidi/shared/input-limits";
 import { and, eq, inArray, ne, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
-  evidence, evidenceAttributions, getAffectedSkuIds, getSkuImages, getSkuLineageIds, imageBelongsToSku,
+  evidence, evidenceAttributions, getAffectedSkuIds, getSkuImages, getSkuLineageIds, imageBelongsToSku,identificationObservations,
   productImages, productIntakes, productTypes, resolveActiveSku, scanTasks, skuFieldProvenance, skuSplitBasis, skus, users,
   type DbExecutor, type EvidenceClaimSource, type EvidenceValue, type ProductTypeAttributeFieldDef
 } from "@khidi/db";
@@ -258,9 +258,15 @@ async function projectSkuIdentity(ctx: DomainTransactionContext, skuId: string) 
   ]);
   const decisions = new Map(priorFields.map((field) => [field.fieldName, field]));
   const distinguishingAttributes = productType?.distinguishingAttributes ?? [];
+  const observationRows=await ctx.tx.select({observation:identificationObservations,intake:productIntakes}).from(identificationObservations)
+    .leftJoin(productIntakes,eq(identificationObservations.intakeId,productIntakes.id))
+    .where(or(inArray(identificationObservations.skuId,lineage),inArray(productIntakes.matchedSkuId,lineage)));
+  const observations=observationRows.filter(({observation,intake})=>observation.skuId&&lineage.includes(observation.skuId)
+    ||intake?.matchedSkuId&&lineage.includes(intake.matchedSkuId)&&(!intake.reviewOriginalReason||["LINK_EXISTING","ACCEPT_FOR_TASK"].includes(intake.reviewResolution??"")))
+    .map(row=>row.observation).sort((a,b)=>b.createdAt.getTime()-a.createdAt.getTime()||b.id.localeCompare(a.id));
   const allowedFields = new Set(evidenceFieldOptions(productType).map((field) => field.key));
   const fieldNames = new Set([...identityTextFields, ...distinguishingAttributes, ...decisions.keys(),
-    ...items.flatMap((item) => Object.keys(item.claims))]);
+    ...items.flatMap((item) => Object.keys(item.claims)),...observations.map(row=>row.fieldName)]);
   const fields = new Map<string, ResolvedField>();
   for (const fieldName of fieldNames) {
     const decision = decisions.get(fieldName);
@@ -277,7 +283,9 @@ async function projectSkuIdentity(ctx: DomainTransactionContext, skuId: string) 
       field = { ...field, status: "NOT_FOUND", value: null, strong: false };
     }
     fields.set(fieldName, field);
-    const projection = { value: field.value, status: field.status, evidenceIds: field.evidenceIds };
+    const observed=observations.find(row=>row.fieldName===fieldName);
+    const absent=field.status==="NOT_FOUND"&&observed?.outcome==="PLATE_ABSENT"&&!photos.some(photo=>photo.slot===observed.slot&&photo.createdAt>observed.createdAt);
+    const projection = { value: field.value, status: field.status, evidenceIds: field.evidenceIds,observationId:absent?observed.id:null,observationReason:absent?"PLATE_ABSENT":null };
     await ctx.tx.insert(skuFieldProvenance).values({ skuId, fieldName, ...projection })
       .onConflictDoUpdate({ target: [skuFieldProvenance.skuId, skuFieldProvenance.fieldName], set: nowVerified
         ? { ...projection, notDeterminableReason: null, decidedBy: null, decidedAt: null } : projection });

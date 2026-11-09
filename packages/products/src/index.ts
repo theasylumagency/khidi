@@ -58,6 +58,7 @@ import {
 } from "./identifiers.ts";
 
 export * from "./taxonomy.ts";
+export * from "./subtypes.ts";
 /** The primary choice is catalog configuration; existing reservations retain their snapshots. */
 export async function setPrimaryAccountingMapping(db:DbExecutor,actor:DomainActor,key:string,raw:unknown) {
   const parsed=z.object({mappingId:z.string().max(36).uuid()}).strict().safeParse(raw);
@@ -163,7 +164,7 @@ export type PublicAttachableIdentifierType = Exclude<
 >;
 
 /**
- * Seeds the 8 public top-level categories + UNCLASSIFIED (§5.7) and the 30 initial Product Types (§5.8).
+ * Seeds the 8 public top-level categories + UNCLASSIFIED (§5.7) and the 33 approved Product Types (§5.8).
  * Idempotent: safe to call repeatedly.
  */
 export async function seedTaxonomyAndProductTypes(db: AppDatabase | DbExecutor): Promise<{

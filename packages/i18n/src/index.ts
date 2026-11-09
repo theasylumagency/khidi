@@ -1021,9 +1021,43 @@ const USER_LABELS = {
   "users.permission.evidence.view_invoices": "შიდა ინვოისების ნახვა"
 } as const;
 
+const SETUP_LABELS = {
+    "setup.choose":"აირჩიეთ",
+    "media.slot.ENGINE_IDENTIFICATION":"ძრავის ფირფიტა",
+    "media.instruction.ENGINE_IDENTIFICATION":"ახლოდან გადაიღეთ ძრავის ფირფიტა ან მონიშნეთ მისი არყოფნა.",
+    "plate.absent":"ფირფიტა არ აქვს",
+    "plate.later":"მოგვიანებით",
+    "plate.pending":"ფირფიტის გადაღება მოლოდინშია",
+    "plate.documents":"ფირფიტის არყოფნა შემოწმებულია. მონაცემები მოიძიეთ დოკუმენტში ან მომწოდებელთან; ხელახალი ფირფიტის ფოტო საჭირო არ არის.",
+    "plate.alternatives":"ფირფიტის არყოფნა ჩაიწერა. გადაიღეთ სხვა საიდენტიფიკაციო წყარო: შეფუთვა, სტიკერი ან ამოტვიფრული მარკირება. მონაცემები შეიძლება დოკუმენტით ან მომწოდებელთან დაზუსტდეს.",
+    "plate.observations":"საიდენტიფიკაციო დაკვირვებები",
+    "setup.next_steps":"საწყისი კონფიგურაციის შემდეგი ნაბიჯები",
+    "setup.stores":"მაღაზიების შექმნა",
+    "setup.pools_relationships":"მარაგის მფლობელი ჯგუფები და კომპანიებს შორის ურთიერთობა",
+    "setup.yes":"კი",
+    "setup.no":"არა",
+    "setup.effective":"ძალაშია",
+    "setup.relationship_help":"მფლობელი ჯგუფები და ურთიერთობები მარაგის გვერდის ადმინისტრაციულ ნაწილში იმართება. მაღაზიის მფლობელის შეცვლისა და კონსიგნაციის შეზღუდვები ძალაში რჩება.",
+    "setup.entity_create":"იურიდიული პირის დამატება",
+    "setup.entity_help":"შეიყვანეთ რეალური იურიდიული პირის მონაცემები და გადაამოწმეთ დღგ-ს რეჟიმი.",
+    "setup.key":"კოდი",
+    "setup.legal_name":"იურიდიული დასახელება",
+    "setup.tax_id":"საიდენტიფიკაციო კოდი",
+    "setup.vat":"ფასები დღგ-ს შეიცავს",
+    "setup.create":"დამატება",
+    "setup.subtypes":"პროდუქტის ქვეტიპების მართვა",
+    "setup.subtypes_help":"დაამატეთ მიღებისას აღმოჩენილი ქვეტიპი. სავალდებულო მახასიათებლები მოგვიანებით, შეთანხმებული ცნობარით განისაზღვრება. ეს თავსებადობას არ ადასტურებს.",
+    "setup.product_type":"პროდუქტის ტიპი",
+    "setup.label_ka":"ქართული დასახელება",
+    "setup.label_en":"ინგლისური დასახელება",
+    "setup.required_specs":"სავალდებულო მახასიათებლები",
+    "setup.specs_pending":"ველები ჯერ განსაზღვრული არ არის",
+} as const;
+
 export const DICTIONARY = {
   ka: {
     ...USER_LABELS,
+    ...SETUP_LABELS,
     ...INVENTORY_LABELS,
     ...PRICING_LABELS,
     ...SCANNING_LABELS,
@@ -1043,6 +1077,7 @@ export const DICTIONARY = {
   },
   en: {
     ...USER_LABELS,
+    ...SETUP_LABELS,
     ...INVENTORY_LABELS,
     ...PRICING_LABELS,
     ...SCANNING_LABELS,
