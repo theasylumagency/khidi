@@ -47,6 +47,7 @@ import {
   upsertProductType,
   validateTypeAttributesAgainstSchema
 } from "./index.ts";
+import { INITIAL_CATEGORIES } from "./taxonomy.ts";
 
 describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9], Bundles & Labels", () => {
   const db = getDb();
@@ -86,10 +87,12 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
 
   it("seeds 8 public top-level categories + 1 internal UNCLASSIFIED category and 30 initial Product Types (§5.7, §5.8)", async () => {
     const cats = await listCategories(db);
-    const publicCats = cats.filter((c) => !c.isUnclassified);
-    const unclassifiedCats = cats.filter((c) => c.isUnclassified);
+    const seedKeys = new Set<string>(INITIAL_CATEGORIES.map((category) => category.key));
+    const publicCats = cats.filter((category) => seedKeys.has(category.key) && !category.isUnclassified);
+    const unclassifiedCats = cats.filter((category) => category.isUnclassified);
 
     expect(publicCats).toHaveLength(8);
+    expect(publicCats.every((category) => category.parentId === null)).toBe(true);
     expect(unclassifiedCats).toHaveLength(1);
     expect(unclassifiedCats[0]?.key).toBe("UNCLASSIFIED");
     // No public Miscellaneous / სხვადასხვა category (§5.7)
@@ -598,13 +601,16 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
     expect(lookupAfterArchive.matches[0]?.hasCollision).toBe(false);
 
     // 6. [C9] Multi-entity accounting mappings using legal_entity_id, preserving exact string & name
+    const accountingSuffix = createUuidV7();
+    const agroAccountingItemId = `1610/00004/0099-${accountingSuffix}`;
+    const newBrandAccountingItemId = `NB-WM-1100-99-${accountingSuffix}`;
     const mapAgro = await upsertAccountingMapping(
       db,
       { userId: adminUserId },
       {
         skuId: skuA.id,
         legalEntityId: agroEntityId,
-        accountingItemId: "1610/00004/0099",
+        accountingItemId: agroAccountingItemId,
         accountingName: "  მოტობლოკი WEIMA WM1100 (ზუსტი ბუღალტრული სახელი)  "
       }
     );
@@ -614,15 +620,16 @@ describe("@khidi/products — Milestone 2: Product Master, Taxonomy, [C7, C8, C9
       {
         skuId: skuA.id,
         legalEntityId: newBrandEntityId,
-        accountingItemId: "NB-WM-1100-99",
+        accountingItemId: newBrandAccountingItemId,
         accountingName: "WEIMA WM1100 Motoblock"
       }
     );
 
     expect(mapAgro.legalEntityId).toBe(agroEntityId);
-    expect(mapAgro.accountingItemId).toBe("1610/00004/0099");
+    expect(mapAgro.accountingItemId).toBe(agroAccountingItemId);
     expect(mapAgro.accountingName).toBe("  მოტობლოკი WEIMA WM1100 (ზუსტი ბუღალტრული სახელი)  ");
     expect(mapNewBrand.legalEntityId).toBe(newBrandEntityId);
+    expect(mapNewBrand.accountingItemId).toBe(newBrandAccountingItemId);
 
     const activeMappings = await listAccountingMappingsForSku(db, skuA.id, { activeOnly: true });
     expect(activeMappings).toHaveLength(2);

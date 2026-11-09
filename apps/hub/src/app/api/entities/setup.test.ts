@@ -19,7 +19,14 @@ it("guards entity/subtype configuration with ADMIN, same origin and persisted re
 });
 it("creates an empty-configuration entity and audited controlled subtype idempotently, never choosing user credentials or seeding stock",async()=>{
  const db=getDb(),auth=await serviceAdminSessionFixture(db);state.principal=auth.principal;
- const input={key:"E_"+createUuidV7().slice(-8).toUpperCase(),legalName:"Synthetic setup entity",taxId:"000000000",pricesIncludeVat:false},key=createUuidV7();
+ const entityFixtureId = createUuidV7();
+ const input = {
+  key: "E_" + entityFixtureId.slice(-8).toUpperCase(),
+  legalName: "Synthetic setup entity",
+  taxId: entityFixtureId.replaceAll("-", ""),
+  pricesIncludeVat: false
+ };
+ const key = createUuidV7();
  const first=await entity(request("entities",input,key)),again=await entity(request("entities",input,key));expect(first.status).toBe(201);expect(await first.json()).toEqual(await again.json());
  const name="NEW_"+createUuidV7().slice(-8).toUpperCase(),data={productTypeKey:"ACCESSORY",key:name,labelKa:"ახალი აქსესუარი",labelEn:"New accessory"},subkey=createUuidV7();
  expect((await subtype(request("products/subtypes",data,subkey))).status).toBe(201);expect((await subtype(request("products/subtypes",data,subkey))).status).toBe(201);
