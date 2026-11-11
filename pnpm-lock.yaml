@@ -196,6 +196,9 @@ importers:
       '@khidi/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@khidi/catalog-review':
+        specifier: workspace:*
+        version: link:../../packages/catalog-review
       '@khidi/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -362,6 +365,30 @@ importers:
       otpauth:
         specifier: 9.3.6
         version: 9.3.6
+      zod:
+        specifier: 3.24.2
+        version: 3.24.2
+
+  packages/catalog-review:
+    dependencies:
+      '@khidi/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@khidi/db':
+        specifier: workspace:*
+        version: link:../db
+      '@khidi/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@khidi/media':
+        specifier: workspace:*
+        version: link:../media
+      '@khidi/shared':
+        specifier: workspace:*
+        version: link:../shared
+      drizzle-orm:
+        specifier: 0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.11.11)(pg@8.13.3)
       zod:
         specifier: 3.24.2
         version: 3.24.2

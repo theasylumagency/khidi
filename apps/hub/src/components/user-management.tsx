@@ -16,8 +16,8 @@ function UserEditor({user,entities,roles,permissions,busy,self,onSave}:{user?:Us
   <label>{t("users.name")}<input name="fullName" required maxLength={200} defaultValue={user?.fullName}/></label>
   <label>{t("users.role")}<select value={role} disabled={self} onChange={e=>setRole(e.target.value as UserRole)}>{roles.map(r=><option key={r} value={r}>{t(`scanning.role.${r}`)}</option>)}</select></label>
   {role!=="WAREHOUSE"?<label>{t("auth.email")}<input name="email" type="email" autoCapitalize="none" autoCorrect="off" maxLength={254} required defaultValue={user?.email??""}/></label>:null}
-  <fieldset><legend>{t("users.entities")}</legend>{entities.map(entity=><label key={entity.id}><input type="checkbox" name="entityIds" value={entity.id} defaultChecked={user?.entityIds.includes(entity.id)}/>{entity.key}</label>)}</fieldset>
-  {role!=="WAREHOUSE"?<fieldset><legend>{t("users.permissions")}</legend>{permissions.map(permission=><label key={permission}><input type="checkbox" name="permissions" value={permission} defaultChecked={user?.permissions.includes(permission)}/>{t(`users.permission.${permission}` as TranslationKey)}</label>)}</fieldset>:null}
+  {role!=="CATALOG_REVIEWER"?<fieldset><legend>{t("users.entities")}</legend>{entities.map(entity=><label key={entity.id}><input type="checkbox" name="entityIds" value={entity.id} defaultChecked={user?.entityIds.includes(entity.id)}/>{entity.key}</label>)}</fieldset>:null}
+  {role!=="WAREHOUSE"&&role!=="CATALOG_REVIEWER"?<fieldset><legend>{t("users.permissions")}</legend>{permissions.map(permission=><label key={permission}><input type="checkbox" name="permissions" value={permission} defaultChecked={user?.permissions.includes(permission)}/>{t(`users.permission.${permission}` as TranslationKey)}</label>)}</fieldset>:null}
   <button>{t(user?"users.save":"users.create")}</button>
  </fieldset></form>;
 }

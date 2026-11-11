@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   if (typeof body?.sessionId !== "string" || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(body.sessionId)) return json({ ok: false }, 400);
   try {
     if (body.action === "status") {
-      const timing = (await getCurrentPrincipal({ throwOnUnavailable: true }))?.sessionTiming;
+      const timing = (await getCurrentPrincipal({ throwOnUnavailable: true, allowCatalogReviewer: true }))?.sessionTiming;
       return timing && timing.sessionId === body.sessionId ? json(timing) : denied();
     }
     if (body.action !== "activity" || typeof body.lastActivityAtMs!=="number" || !Number.isSafeInteger(body.lastActivityAtMs) || body.lastActivityAtMs <= 0) return json({ ok: false }, 400);

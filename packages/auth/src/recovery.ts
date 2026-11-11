@@ -5,12 +5,13 @@ import { users, sessions, userPasskeys, type DbExecutor } from "@khidi/db";
 import { withDomainTransaction } from "@khidi/domain";
 import { AppError } from "@khidi/shared";
 import { officePassword } from "./password-policy.ts";
+import { OFFICE_ROLES } from "./principal.ts";
 
 type RecoveryUser = Pick<typeof users.$inferSelect,
   "role" | "email" | "passwordHash" | "totpEnabled" | "totpEverEnabled" | "totpEnrollmentRequired">;
 
 export function hasOfficeLogin(user: RecoveryUser): boolean {
-  return ["ADMIN", "STOCK_MANAGER", "OPERATOR", "ORDER_MANAGER"].includes(user.role)
+  return OFFICE_ROLES.some((role) => role === user.role)
     && Boolean(user.email && user.passwordHash);
 }
 

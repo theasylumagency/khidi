@@ -1,0 +1,24 @@
+{
+  "name": "@khidi/catalog-review",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./import": "./src/import.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@khidi/auth": "workspace:*",
+    "@khidi/db": "workspace:*",
+    "@khidi/domain": "workspace:*",
+    "@khidi/media": "workspace:*",
+    "@khidi/shared": "workspace:*",
+    "drizzle-orm": "0.45.4",
+    "zod": "3.24.2"
+  }
+}
