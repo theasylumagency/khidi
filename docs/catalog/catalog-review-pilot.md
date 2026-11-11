@@ -12,6 +12,8 @@ The pilot adds an editorial queue to the existing Hub. It uses the same sessions
 
 The legacy records and photos have no canonical Product Master or SKU association. In this pilot, verification of specifications and identities remains with the existing evidence workflow. READY, publishing, pricing, stock and sellability retain their existing lifecycle. Any future promotion of reviewed material needs an explicitly approved mapping and existing verification gates.
 
+The queue supports search by name or WordPress ID and filters for category and decision status. A product opens at its first pending field. Saving a new decision continues to the next pending field or to the product history. The photo panel shows only the original WordPress archive previews. When the archive has no photo, the reviewer can defer that field and leave a note.
+
 ## Run locally
 
 Use the repository's pinned Node/pnpm and a dedicated loopback PostgreSQL database ending in `_dev` or `_test`. Set both `DATABASE_URL` and `DATABASE_MIGRATOR_URL` to this database with their respective roles. Set `MEDIA_STORAGE_DRIVER=filesystem` or leave it unset. The importer rejects production mode, external hosts, connection overrides and non-filesystem media. Keep real workbooks, the selection, the generated bundle and copied originals outside version control.

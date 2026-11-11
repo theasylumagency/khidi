@@ -13,16 +13,19 @@ type Props = {
   photos?: Photo[];
   proposedPhotoId: string | null;
   currentPhotoId: string | null;
+  continueHref?: string;
 };
 
-export function CatalogDecisionForm({ id, revision, text, photos, proposedPhotoId, currentPhotoId }: Props) {
+export function CatalogDecisionForm({ id, revision, text, photos, proposedPhotoId, currentPhotoId, continueHref }: Props) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
+  const [showNote, setShowNote] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [selected, setSelected] = useState(currentPhotoId ?? proposedPhotoId ?? "");
   const [message, setMessage] = useState<TranslationKey>();
   const request = useRef<{ body: string; key: string } | null>(null);
+  const missingPhoto = photos?.length === 0;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -51,7 +54,8 @@ export function CatalogDecisionForm({ id, revision, text, photos, proposedPhotoI
       }
       setSaved(true);
       setMessage("review.saved");
-      router.refresh();
+      if (continueHref) router.replace(continueHref);
+      else router.refresh();
     } catch {
       setMessage("review.failed");
     } finally {
@@ -59,7 +63,7 @@ export function CatalogDecisionForm({ id, revision, text, photos, proposedPhotoI
     }
   }
 
-  return <form className="review-form" onSubmit={submit}>
+  return <form className="review-form" onSubmit={submit} aria-busy={busy}>
     {photos && photos.length > 0 ? <fieldset className="review-photos" disabled={busy || saved}>
       <legend>{t("review.choose_photo")}</legend>
       {photos.map((photo) => <label key={photo.id}>
@@ -70,22 +74,26 @@ export function CatalogDecisionForm({ id, revision, text, photos, proposedPhotoI
         {photo.id === proposedPhotoId ? <small>{t("review.suggested_photo")}</small> : null}
         {photo.needsAttention ? <small>{t("review.photo_attention")}</small> : null}
       </label>)}
-    </fieldset> : photos ? <p>{t("review.no_photo")}</p> : null}
+    </fieldset> : null}
     {editing ? <label>{t("review.text.EDIT")}
-      <textarea name="editedText" rows={5} defaultValue={text ?? ""} required maxLength={20000} />
+      <textarea name="editedText" rows={5} defaultValue={text ?? ""} required maxLength={20000} autoFocus />
     </label> : null}
-    <label>{t("review.note")}<textarea name="note" rows={2} maxLength={2000} /></label>
+    {showNote ? <label>{t("review.note")}
+      <textarea name="note" rows={2} maxLength={2000} disabled={busy || saved} autoFocus />
+    </label> : <button className="review-add-note" type="button" onClick={() => setShowNote(true)}
+      disabled={busy || saved}>{t("review.add_note")}</button>}
     <div className="review-actions">
       {editing ? <>
         <button value="EDIT" data-primary="true" disabled={busy || saved}>{t("review.save_edit")}</button>
         <button type="button" onClick={() => setEditing(false)} disabled={busy || saved}>{t("review.cancel_edit")}</button>
       </> : <>
-        <button value="APPROVE" data-primary="true" disabled={busy || saved || Boolean(photos && !selected)}>{t("review.text.APPROVE")}</button>
+        {!missingPhoto ? <button value="APPROVE" data-primary="true" disabled={busy || saved || Boolean(photos && !selected)}>{t("review.text.APPROVE")}</button> : null}
         {!photos ? <button type="button" onClick={() => setEditing(true)} disabled={busy || saved}>{t("review.text.EDIT")}</button> : null}
-        <button value="REJECT" disabled={busy || saved}>{t("review.text.REJECT")}</button>
-        <button value="DEFER" disabled={busy || saved}>{t("review.text.DEFER")}</button>
+        <button value="DEFER" data-primary={missingPhoto} disabled={busy || saved}>{t("review.text.DEFER")}</button>
+        {!missingPhoto ? <button value="REJECT" disabled={busy || saved}>{t("review.text.REJECT")}</button> : null}
       </>}
     </div>
-    <p role="status">{message ? t(message) : null}</p>
+    {continueHref ? <p className="review-quiet review-continue-hint">{t("review.continue_hint")}</p> : null}
+    <p className="review-feedback" role="status">{message ? t(message) : null}</p>
   </form>;
 }

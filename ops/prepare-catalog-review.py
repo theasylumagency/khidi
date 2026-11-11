@@ -123,7 +123,7 @@ def prepare(baseline_path, review_path, downloader, selection):
         photo_proposal = None
         if not references:
             photo_observation = "ძველ გვერდს ფოტო არ აქვს."
-            rationale = "ახალი ფოტო დაგვეხმარება ამ ჩანაწერისა და მსგავსი პროდუქტის გარჩევაში."
+            rationale = "ფოტოს საკითხი გადავდოთ, რადგან ძველ არქივში ასარჩევი ვარიანტი არ გვაქვს."
         elif selected.get("checkPhotoMatch"):
             photo_observation = "ძველი ფოტოსა და პროდუქტის ზუსტი შესაბამისობა დასადგენია."
             rationale = "შეადარეთ ფოტოები პროდუქტს და მონიშნეთ ის ვარიანტი, რომელიც ნამდვილად ამ ჩანაწერს ეკუთვნის."
@@ -140,7 +140,7 @@ def prepare(baseline_path, review_path, downloader, selection):
                 photo_proposal = clean["audit"]["asset_key"]
             else:
                 photo_observation = "ხელმისაწვდომ ფოტოებზე ხარისხის გაფრთხილებებია."
-                rationale = "გადახედეთ ფოტოებს და გადაწყვიტეთ, რომელი გამოგვადგება ან გვჭირდება თუ არა ახალი."
+                rationale = "ძველი არქივიდან შეარჩიეთ შესაბამისი ფოტო ან გადადეთ საკითხი."
         record["proposals"].append({
             "field": "PHOTO", "original": None, "proposed": None,
             "observation": photo_observation, "rationale": rationale, "proposedPhotoKey": photo_proposal,

@@ -38,24 +38,33 @@ function inPilot(db: DbExecutor) {
   return exists(db.select({ id: proposals.id }).from(proposals).where(eq(proposals.productId, products.id)));
 }
 
-export async function listReviewProducts(db: AppDatabase, principal: AuthenticatedPrincipal) {
+export type ReviewProductSummary = {
+  id: string;
+  wordpressId: number;
+  sourceStatus: "DRAFT" | "PUBLISHED";
+  name: string | null;
+  category: string | null;
+  total: number;
+  pending: number;
+  deferred: number;
+};
+
+export async function listReviewProducts(db: AppDatabase, principal: AuthenticatedPrincipal): Promise<ReviewProductSummary[]> {
   const rows = await db.select({
     id: products.id, wordpressId: products.wordpressId, sourceStatus: products.sourceStatus,
     name: sql<string | null>`${products.baseline}->>'არსებული სახელი'`,
-    proposalId: proposals.id,
+    category: sql<string | null>`${products.baseline}->>'კატეგორია (სამუშაო)'`,
     action: sql<DecisionInput["action"] | null>`(
       SELECT action FROM catalog_review_decisions WHERE proposal_id = ${proposals.id} ORDER BY revision DESC LIMIT 1
     )`
   }).from(products).innerJoin(proposals, eq(proposals.productId, products.id))
     .where(assigned(db, principal)).orderBy(asc(products.wordpressId), asc(proposals.field));
 
-  const result = new Map<string, {
-    id: string; wordpressId: number; sourceStatus: "DRAFT" | "PUBLISHED";
-    name: string | null; total: number; pending: number; deferred: number;
-  }>();
+  const result = new Map<string, ReviewProductSummary>();
   for (const row of rows) {
     const item = result.get(row.id) ?? { id: row.id, wordpressId: row.wordpressId,
-      sourceStatus: row.sourceStatus, name: row.name, total: 0, pending: 0, deferred: 0 };
+      sourceStatus: row.sourceStatus, name: row.name, category: row.category,
+      total: 0, pending: 0, deferred: 0 };
     item.total++;
     if (!row.action) item.pending++;
     if (row.action === "DEFER") item.deferred++;
