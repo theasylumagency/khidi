@@ -73,7 +73,8 @@ describe("catalog review", () => {
     const key = uuid();
     const accepted = await recordReviewDecision(db, principal, key, approve);
     expect(await recordReviewDecision(db, principal, key, approve)).toMatchObject({ replayed: true, body: accepted.body });
-    await expect(recordReviewDecision(db, principal, key, { ...approve, action: "REJECT" })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(recordReviewDecision(db, principal, key, { ...approve, action: "REJECT" })).rejects
+      .toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
     const race = await Promise.allSettled([
       recordReviewDecision(db, principal, uuid(), { proposalId: nameProposal, revision: 1, action: "REJECT", note: "Reason" }),
       recordReviewDecision(db, principal, uuid(), { proposalId: nameProposal, revision: 1, action: "DEFER" })

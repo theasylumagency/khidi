@@ -8,7 +8,7 @@ import { readBoundedJson } from "../../../../lib/request-body.ts";
 const headers = { "Cache-Control": "private, no-store" };
 const statuses: Record<string, number> = {
   UNAUTHORIZED: 401, FORBIDDEN: 403, NOT_FOUND: 404,
-  CONFLICT: 409, PAYLOAD_TOO_LARGE: 413, VALIDATION_ERROR: 400
+  CONFLICT: 409, IDEMPOTENCY_CONFLICT: 409, PAYLOAD_TOO_LARGE: 413, VALIDATION_ERROR: 400
 };
 
 export async function POST(request: Request) {
