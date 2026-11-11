@@ -10,6 +10,7 @@ import { withDomainTransaction } from "@khidi/domain";
 import { storeLegacyReviewPhoto } from "@khidi/media";
 import { digest, type MediaStorage } from "@khidi/media/storage";
 import { createUuidV7 } from "@khidi/shared";
+import { assertProductionConfiguration } from "@khidi/shared/production-config";
 
 const checksum = z.string().regex(/^[a-f0-9]{64}$/);
 const assetKey = z.string().regex(/^[a-f0-9]{16}$/);
@@ -38,6 +39,14 @@ const bundleSchema = z.object({
   sources: z.record(checksum),
   products: z.array(product).length(248)
 });
+
+export function assertSharedReviewDatabase(expected: string, env: NodeJS.ProcessEnv = process.env) {
+  assertProductionConfiguration(env, "deployment");
+  const database = decodeURIComponent(new URL(env.DATABASE_MIGRATOR_URL!).pathname.slice(1));
+  if (!expected || database !== expected || /_(?:dev|test)$/i.test(database)) {
+    throw new Error("SAFETY: --expect-database must match the configured shared database name.");
+  }
+}
 
 export function assertLocalReviewDatabase(env: NodeJS.ProcessEnv = process.env) {
   assertSeedDatabaseSafety(env);
@@ -73,10 +82,7 @@ async function readAuditedPhoto(root: string, audit: Record<string, string>) {
   return raw;
 }
 
-export async function importReviewPilot(
-  db: AppDatabase, storage: MediaStorage, manifestBytes: Uint8Array, mediaDirectory: string,
-  adminEmail: string, reviewerEmail?: string
-) {
+function readReviewManifest(manifestBytes: Uint8Array) {
   const manifest = bundleSchema.parse(JSON.parse(Buffer.from(manifestBytes).toString("utf8")));
   const sourceSha256 = digest(manifestBytes);
   const ids = new Set(manifest.products.map((item) => item.wordpressId));
@@ -86,13 +92,54 @@ export async function importReviewPilot(
     || (manifest.version === 2 && (reviewable.length !== 248 || recommended.length !== 20 || new Set(recommended).size !== 20))) {
     throw new Error("The full catalog requires 248 unique reviewable rows, 31 source drafts and 20 recommended products.");
   }
+  return { manifest, sourceSha256, reviewable, recommended };
+}
+
+function collectReviewPhotos(reviewable: z.infer<typeof product>[]) {
+  const sources = new Map<string, Record<string, string>>();
+  for (const item of reviewable) {
+    const linked = new Set<string>();
+    for (const { audit } of item.photos) {
+      const key = assetKey.parse(audit.asset_key);
+      const previous = sources.get(key);
+      if (previous && JSON.stringify(previous) !== JSON.stringify(audit)) throw new Error(`Conflicting audit for ${key}`);
+      sources.set(key, audit);
+      linked.add(key);
+    }
+    for (const itemProposal of item.proposals) {
+      if (itemProposal.proposedPhotoKey && !linked.has(itemProposal.proposedPhotoKey)) {
+        throw new Error(`A proposed photo is missing from the audit links for product ${item.wordpressId}.`);
+      }
+    }
+  }
+  return sources;
+}
+
+export async function previewReviewImport(manifestBytes: Uint8Array, mediaDirectory: string) {
+  const { manifest, sourceSha256, reviewable, recommended } = readReviewManifest(manifestBytes);
+  if (manifest.version !== 2) throw new Error("Prepare a version 2 manifest for a new full-catalog import.");
+  const sources = collectReviewPhotos(reviewable);
+  const root = await realpath(mediaDirectory);
+  for (const audit of sources.values()) await readAuditedPhoto(root, audit);
+  return {
+    sourceSha256, products: reviewable.length, sourceDrafts: manifest.products.filter((item) => item.status === "DRAFT").length,
+    recommended: recommended.length, proposals: reviewable.reduce((total, item) => total + item.proposals.length, 0),
+    photos: sources.size
+  };
+}
+
+export async function importReviewPilot(
+  db: AppDatabase, storage: MediaStorage, manifestBytes: Uint8Array, mediaDirectory: string,
+  adminEmail: string, reviewerEmail?: string
+) {
+  const { manifest, sourceSha256, reviewable, recommended } = readReviewManifest(manifestBytes);
   const root = await realpath(mediaDirectory);
   const [admin] = await db.select({ id: users.id }).from(users)
     .where(and(eq(users.email, adminEmail), eq(users.role, "ADMIN"), eq(users.active, true)));
-  if (!admin) throw new Error("An active local admin is required for import attribution.");
+  if (!admin) throw new Error("An active admin is required for import attribution.");
   const reviewer = reviewerEmail ? (await db.select({ id: users.id }).from(users)
     .where(and(eq(users.email, reviewerEmail), eq(users.role, "CATALOG_REVIEWER"), eq(users.active, true))))[0] : undefined;
-  if (reviewerEmail && !reviewer) throw new Error("The named local reviewer account is unavailable.");
+  if (reviewerEmail && !reviewer) throw new Error("The named reviewer account is unavailable.");
 
   return withDomainTransaction(db, { userId: admin.id }, async (ctx) => {
     await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${sourceSha256}, 0))`);
@@ -102,15 +149,7 @@ export async function importReviewPilot(
 
     if (!existing) {
       if (manifest.version !== 2) throw new Error("Prepare a version 2 manifest for a new full-catalog import.");
-      const sources = new Map<string, Record<string, string>>();
-      for (const item of reviewable) {
-        for (const { audit } of item.photos) {
-          const key = assetKey.parse(audit.asset_key);
-          const previous = sources.get(key);
-          if (previous && JSON.stringify(previous) !== JSON.stringify(audit)) throw new Error(`Conflicting audit for ${key}`);
-          sources.set(key, audit);
-        }
-      }
+      const sources = collectReviewPhotos(reviewable);
       const originals = new Map<string, Uint8Array>();
       for (const [key, audit] of sources) originals.set(key, await readAuditedPhoto(root, audit));
       await ctx.tx.insert(catalogReviewBatches).values({ id, sourceSha256, sources: manifest.sources });

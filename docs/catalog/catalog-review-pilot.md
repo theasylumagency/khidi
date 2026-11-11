@@ -14,7 +14,7 @@ The legacy records and photos have no canonical Product Master or SKU associatio
 
 The queue supports search by name or WordPress ID and filters for category and decision status. A product opens at its first pending field. Saving a new decision continues to the next pending field or to the product history. The photo panel shows only the original WordPress archive previews. When the archive has no photo, the reviewer can defer that field and leave a note.
 
-A product counts toward the first pass when the assigned reviewer has made a decision on each available proposal. Deferral counts as a decision and remains a follow-up item. The twentieth distinct product creates one immutable report per reviewer and batch. Opening or postponing the offer acknowledges it. The report stays accessible from the queue while review continues. The email action prepares a summary draft, and the reviewer chooses the recipient and sends it through their mail app. The full report can be copied from the preview.
+A product counts toward the first pass when the assigned reviewer has made a decision on each available proposal. Deferral counts as a decision and remains a follow-up item. The twentieth distinct product creates one immutable report per reviewer and batch. Opening or postponing the offer acknowledges it. The report stays accessible from the queue while review continues. The email action opens a summary draft addressed to `hello@theasylum.agency`. The reviewer sends it through their mail app and can copy the full report from the preview.
 
 ## Run locally
 
@@ -30,7 +30,28 @@ corepack pnpm dev:hub
 
 The read-only preparation step uses Python with `openpyxl`. The selection file is a JSON object keyed by WordPress ID. Each value includes `observation` and can include `checkPhotoMatch` and per-field `rationaleNotes` for NAME, SHORT and FULL. The source ZIP or workbooks and photo audit remain available for provenance. If an import is interrupted after media is written, only its database transaction rolls back. An operator can retry the import, then reconcile unreferenced private copies against the backup inventory. There is no automatic deletion.
 
-## Acceptance before a shared pilot
+## Shared pilot
+
+Before the approved Hub release, use the [upgrade and recovery runbook](../ops/server-setup.md). Keep the version 2 manifest and the audited `originals/` tree in a restricted operator directory outside the release, Git and the web root. Run the file-only preview before the handover and again after transfer. It prints the manifest SHA-256 and validates every referenced original against its audit.
+
+```sh
+corepack pnpm ops:catalog-review-pilot --preview LOCAL_MANIFEST.json AUDITED_MEDIA_DIRECTORY
+```
+
+The AgroTrade batch preview should show 248 products, 31 WordPress drafts, 20 recommended starts, 733 proposals and 456 unique originals. Compare the manifest digest to the verified source. Import only that batch on the approved destination after the release and its recovery point have been verified. Apply migrations 0056 through 0058 through the normal release procedure.
+
+1. Add the reviewer's confirmed office email to the app gateway and create their `CATALOG_REVIEWER` account under **მომხმარებლები**. Copy their one-time setup link from the admin screen. Do not put the link or its token in the release record.
+2. Use the approved operations configuration with `NODE_ENV=production`, the paired database credentials and the existing private media storage. Run the import from the release directory. The command requires an active administrator for audit attribution and the reviewer account for batch assignment.
+
+   ```sh
+   corepack pnpm ops:catalog-review-pilot --apply-shared --expect-database=APPROVED_DATABASE LOCAL_MANIFEST.json AUDITED_MEDIA_DIRECTORY ADMIN_EMAIL REVIEWER_EMAIL
+   ```
+
+3. Record the resulting batch ID and counts. Repeating the command with the same manifest and reviewer returns the same batch and preserves decisions. Confirm the protected `/review` route and review-photo access. Hand the one-time setup link privately to the reviewer. After password and authenticator setup, they can use `https://app.khidi.app/review` to return.
+
+If a transfer is interrupted, repeat the file-only preview after resuming it. If an import fails, inspect its error, rerun the same verified bundle when ready, and reconcile any unreferenced private copies using the existing backup inventory. See the [release runbook](../ops/server-setup.md) for rollback. For reviewer access changes use the gateway and [user management](../ops/user-management.md).
+
+### Acceptance
 
 - On an isolated database, check the migration, all 248 reviewable records, the 20 recommended ranks, assignment isolation, safe photo reads and repeat import.
 - Check the 19th, 20th and 21st passes, including deferrals and repeated decisions, and check that a second reviewer cannot open the first reviewer's report.

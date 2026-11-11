@@ -39,7 +39,7 @@ export default async function ReviewReportPage({ params }: { params: Promise<{ c
     ])
   ].join("\n");
   // Only the counts open in the mail draft. The reviewer can paste the detailed report if needed.
-  const emailHref = `mailto:?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(summary.join("\n"))}`;
+  const emailHref = `mailto:hello@theasylum.agency?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(summary.join("\n"))}`;
 
   return <article className="catalog-review">
     <Link className="review-back" href="/review">← {t("review.back")}</Link>

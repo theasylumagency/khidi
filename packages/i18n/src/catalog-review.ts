@@ -21,7 +21,7 @@ export const CATALOG_REVIEW_LABELS = {
   "review.checkpoint.products": "პროდუქტები და გადაწყვეტილებები",
   "review.checkpoint.copy": "სრული ანგარიშის კოპირება",
   "review.checkpoint.email": "ელფოსტის მონახაზის გახსნა",
-  "review.checkpoint.email_help": "მონახაზში შეჯამება ჩაიწერება. აირჩიე The Asylum-ის მიმღები და, თუ საჭიროა, ჩასვი სრული ანგარიშიც.",
+  "review.checkpoint.email_help": "მონახაზი გაიხსნება The Asylum-ის მისამართითა და ანგარიშის შეჯამებით. თუ გინდა, სრული ანგარიშიც ჩასვი.",
   "review.checkpoint.copied": "ანგარიში დაკოპირდა.",
   "review.checkpoint.failed": "კოპირება ვერ მოხერხდა.",
   "review.products_found": "პროდუქტი სიაში",
