@@ -5,6 +5,7 @@ import hashlib
 import json
 from collections import Counter, defaultdict
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from openpyxl import load_workbook
 
@@ -73,8 +74,9 @@ def prepare(baseline_path, review_path, downloader, selection):
     if len(images) != 456 or sum(map(len, links.values())) != 685 or not links.keys() <= baseline.keys():
         raise ValueError("Photo inventory does not match the verified audit")
     if len(selection) != 20 or not selection.keys() <= baseline.keys():
-        raise ValueError("Missing pilot product")
+        raise ValueError("The recommended start must contain 20 source products")
 
+    recommended_order = {wp_id: rank for rank, wp_id in enumerate(selection, start=1)}
     result = []
     for wp_id, original in baseline.items():
         draft = review[wp_id]
@@ -90,6 +92,9 @@ def prepare(baseline_path, review_path, downloader, selection):
             raise ValueError(f"Photo counts differ for {wp_id}")
         for position, link in enumerate(references, start=1):
             evidence = images[link["asset_key"]]
+            source = urlsplit(evidence["original_url"])
+            if source.netloc != "agro-trade.ge" or source.scheme != "https" or not source.path.startswith("/wp-content/uploads/"):
+                raise ValueError(f"Photo for {wp_id} is outside the WordPress archive")
             if int(link["product_image_position"]) != position or any(
                 link[key] != evidence[key] for key in ("original_url", "output_relative_path")
             ):
@@ -98,16 +103,15 @@ def prepare(baseline_path, review_path, downloader, selection):
         record = {
             "wordpressId": wp_id, "status": status, "baseline": original, "reviewSource": draft,
             "productAudit": audit, "queue": queue.get(str(wp_id)), "photos": [], "proposals": [],
+            "recommendedOrder": recommended_order.get(wp_id),
         }
         result.append(record)
-        if wp_id not in selection:
-            continue
         record["photos"] = [
             {"position": int(link["product_image_position"]), "audit": images[link["asset_key"]]}
             for link in references
         ]
-        selected = selection[wp_id]
-        observation = selected["observation"]
+        selected = selection.get(wp_id, {})
+        observation = selected.get("observation") or draft.get("რა შევნიშნეთ")
         for field, original_key, proposed_key, rationale in FIELDS:
             proposed = draft[proposed_key]
             if not isinstance(proposed, str) or not proposed.strip() or proposed == original[original_key]:
@@ -117,7 +121,10 @@ def prepare(baseline_path, review_path, downloader, selection):
                 rationale = f"{rationale} {note}"
             record["proposals"].append({
                 "field": field, "original": original[original_key], "proposed": proposed,
-                "observation": observation, "rationale": rationale, "proposedPhotoKey": None,
+                "observation": observation or (
+                    "ძველი ტექსტისთვის მომზადებულია ახალი ვარიანტი." if original[original_key]
+                    else "ძველ საიტზე ეს ველი ცარიელი იყო."
+                ), "rationale": rationale, "proposedPhotoKey": None,
             })
 
         photo_proposal = None
@@ -149,7 +156,7 @@ def prepare(baseline_path, review_path, downloader, selection):
     if Counter(row["status"] for row in result) != {"PUBLISHED": 217, "DRAFT": 31}:
         raise ValueError("Unexpected source status distribution")
     return {
-        "version": 1,
+        "version": 2,
         "sources": {name: sha(path) for name, path in paths.items()},
         "products": result,
     }
@@ -171,10 +178,9 @@ def main():
     with args.output.open("x", encoding="utf-8") as output:
         json.dump(bundle, output, ensure_ascii=False, indent=2)
         output.write("\n")
-    pilot = [p for p in bundle["products"] if p["proposals"]]
-    print(f"{len(bundle['products'])} staged rows, {len(pilot)} pilot products, "
-          f"{sum(len(p['proposals']) for p in pilot)} proposals, "
-          f"{sum(len(p['photos']) for p in pilot)} photo links")
+    products = bundle["products"]
+    print(f"{len(products)} reviewable products, {sum(p['recommendedOrder'] is not None for p in products)} recommended, "
+          f"{sum(len(p['proposals']) for p in products)} proposals, {sum(len(p['photos']) for p in products)} photo links")
 
 
 if __name__ == "__main__":

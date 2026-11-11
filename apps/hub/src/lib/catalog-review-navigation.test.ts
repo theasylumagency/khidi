@@ -3,11 +3,16 @@ import type { ReviewProductSummary } from "@khidi/catalog-review";
 import { nextReviewProduct, orderReviewQueue, readReviewFilters, reviewHref } from "./catalog-review-navigation.ts";
 
 function product(wordpressId: number, pending: number, deferred = 0): ReviewProductSummary {
-  return { id: String(wordpressId), wordpressId, pending, deferred, total: 4,
+  return { id: String(wordpressId), wordpressId, pending, deferred, total: 4, recommendedOrder: null,
     sourceStatus: "PUBLISHED", name: null, category: null };
 }
 
 describe("review queue navigation", () => {
+  it("puts recommended pending items first without hiding the rest of the set", () => {
+    const ordered = orderReviewQueue([product(1, 1), { ...product(9, 1), recommendedOrder: 2 },
+      { ...product(8, 1), recommendedOrder: 1 }, { ...product(2, 0, 1), recommendedOrder: 3 }]);
+    expect(ordered.map((item) => item.wordpressId)).toEqual([8, 9, 1, 2]);
+  });
   it("prioritizes open issues and returns a stable order for a 300-product queue", () => {
     const products = Array.from({ length: 300 }, (_, index) =>
       product(300 - index, index % 3 === 0 ? 1 : 0, index % 3 === 1 ? 1 : 0));

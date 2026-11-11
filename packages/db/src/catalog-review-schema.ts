@@ -11,6 +11,7 @@ export const catalogLegacyProducts = pgTable("catalog_legacy_products", {
   id: uuid("id").primaryKey(),
   batchId: uuid("batch_id").notNull(),
   wordpressId: integer("wordpress_id").notNull(),
+  recommendedOrder: integer("recommended_order"),
   sourceStatus: text("source_status").$type<"PUBLISHED" | "DRAFT">().notNull(),
   baseline: jsonb("baseline").$type<Record<string, unknown>>().notNull(),
   reviewSource: jsonb("review_source").$type<Record<string, unknown>>().notNull()
@@ -65,4 +66,25 @@ export const catalogReviewDecisions = pgTable("catalog_review_decisions", {
   selectedPhotoId: uuid("selected_photo_id"),
   note: text("note"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+});
+
+export type CatalogReviewCheckpointProduct = {
+  wordpressId: number;
+  name: string | null;
+  outcomes: {
+    field: "NAME" | "SHORT" | "FULL" | "PHOTO";
+    action: "APPROVE" | "REJECT" | "EDIT" | "DEFER";
+    note: string | null;
+    editedText: string | null;
+    photoPosition: number | null;
+  }[];
+};
+
+export const catalogReviewCheckpoints = pgTable("catalog_review_checkpoints", {
+  id: uuid("id").primaryKey(),
+  batchId: uuid("batch_id").notNull(),
+  reviewerId: uuid("reviewer_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  viewedAt: timestamp("viewed_at", { withTimezone: true }),
+  report: jsonb("report").$type<CatalogReviewCheckpointProduct[]>().notNull()
 });

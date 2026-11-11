@@ -9,6 +9,8 @@ import {
 } from "@khidi/db";
 import { executeIdempotent, withDomainTransaction } from "@khidi/domain";
 import { AppError, createUuidV7 } from "@khidi/shared";
+import { createReviewCheckpointIfReached } from "./checkpoint.ts";
+export { getReviewCheckpoint, listReviewCheckpoints, markReviewCheckpointViewed } from "./checkpoint.ts";
 
 export const reviewRoles = ["ADMIN", "CATALOG_REVIEWER"] as const;
 export const reviewId = z.string().uuid();
@@ -41,6 +43,7 @@ function inPilot(db: DbExecutor) {
 export type ReviewProductSummary = {
   id: string;
   wordpressId: number;
+  recommendedOrder: number | null;
   sourceStatus: "DRAFT" | "PUBLISHED";
   name: string | null;
   category: string | null;
@@ -52,17 +55,20 @@ export type ReviewProductSummary = {
 export async function listReviewProducts(db: AppDatabase, principal: AuthenticatedPrincipal): Promise<ReviewProductSummary[]> {
   const rows = await db.select({
     id: products.id, wordpressId: products.wordpressId, sourceStatus: products.sourceStatus,
+    recommendedOrder: products.recommendedOrder,
     name: sql<string | null>`${products.baseline}->>'არსებული სახელი'`,
     category: sql<string | null>`${products.baseline}->>'კატეგორია (სამუშაო)'`,
     action: sql<DecisionInput["action"] | null>`(
-      SELECT action FROM catalog_review_decisions WHERE proposal_id = ${proposals.id} ORDER BY revision DESC LIMIT 1
+      SELECT action FROM catalog_review_decisions WHERE proposal_id = ${proposals.id}
+      ${principal.role === "CATALOG_REVIEWER" ? sql`AND actor_id = ${principal.userId}` : sql.empty()}
+      ORDER BY revision DESC LIMIT 1
     )`
   }).from(products).innerJoin(proposals, eq(proposals.productId, products.id))
     .where(assigned(db, principal)).orderBy(asc(products.wordpressId), asc(proposals.field));
 
   const result = new Map<string, ReviewProductSummary>();
   for (const row of rows) {
-    const item = result.get(row.id) ?? { id: row.id, wordpressId: row.wordpressId,
+    const item = result.get(row.id) ?? { id: row.id, wordpressId: row.wordpressId, recommendedOrder: row.recommendedOrder,
       sourceStatus: row.sourceStatus, name: row.name, category: row.category,
       total: 0, pending: 0, deferred: 0 };
     item.total++;
@@ -84,7 +90,7 @@ export async function getReviewProduct(db: AppDatabase, principal: Authenticated
     db.select({
       id: decisions.id, proposalId: decisions.proposalId, action: decisions.action,
       note: decisions.note, editedText: decisions.editedText, photoId: decisions.selectedPhotoId,
-      revision: decisions.revision, createdAt: decisions.createdAt, actor: users.fullName
+      revision: decisions.revision, createdAt: decisions.createdAt, actor: users.fullName, actorId: decisions.actorId
     }).from(decisions).innerJoin(users, eq(decisions.actorId, users.id))
       .where(eq(decisions.productId, product.id)).orderBy(desc(decisions.revision)),
     db.select({ id: links.photoId, position: links.position, audit: photos.audit })
@@ -105,20 +111,24 @@ export async function getReviewPhoto(db: AppDatabase, principal: AuthenticatedPr
 }
 
 async function findProposal(db: DbExecutor, principal: AuthenticatedPrincipal, proposalId: string) {
-  const [proposal] = await db.select({ proposal: proposals }).from(proposals)
+  const [proposal] = await db.select({ proposal: proposals, batchId: products.batchId }).from(proposals)
     .innerJoin(products, eq(products.id, proposals.productId))
     .where(and(eq(proposals.id, proposalId), assigned(db, principal)));
   if (!proposal) throw new AppError("NOT_FOUND", "Catalog review proposal unavailable.");
-  return proposal.proposal;
+  return proposal;
 }
 
 export async function recordReviewDecision(db: AppDatabase, principal: AuthenticatedPrincipal, key: string, input: DecisionInput) {
   await findProposal(db, principal, input.proposalId);
   return executeIdempotent(db, { scope: `catalog-review:${principal.userId}`, idempotencyKey: key, payload: input },
     (tx) => withDomainTransaction(tx, { userId: principal.userId }, async (ctx) => {
+      const { batchId } = await findProposal(ctx.tx, principal, input.proposalId);
+      if (principal.role === "CATALOG_REVIEWER") {
+        await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`review-checkpoint:${batchId}:${principal.userId}`}, 0))`);
+      }
       // The runtime has no UPDATE grant on proposals. Serialize by proposal without locking its row for update.
       await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${input.proposalId}, 0))`);
-      const proposal = await findProposal(ctx.tx, principal, input.proposalId);
+      const { proposal } = await findProposal(ctx.tx, principal, input.proposalId);
       const [last] = await ctx.tx.select({ revision: decisions.revision }).from(decisions)
         .where(eq(decisions.proposalId, proposal.id)).orderBy(desc(decisions.revision)).limit(1);
       if ((last?.revision ?? 0) !== input.revision) throw new AppError("CONFLICT", "The review has changed.");
@@ -140,7 +150,8 @@ export async function recordReviewDecision(db: AppDatabase, principal: Authentic
       const revision = input.revision + 1;
       await ctx.tx.insert(decisions).values({
         id, proposalId: proposal.id, productId: proposal.productId, field: proposal.field, revision, actorId: principal.userId,
-        action: input.action, editedText: input.editedText, selectedPhotoId, note: input.note || null
+        action: input.action, editedText: input.editedText, selectedPhotoId, note: input.note || null,
+        createdAt: new Date()
       });
       const summary = { proposalId: proposal.id, field: proposal.field, action: input.action, revision };
       await ctx.recordAudit({ action: "CATALOG_REVIEW_DECIDED", entityType: "catalog_review_decision", entityId: id, after: summary });
@@ -148,6 +159,7 @@ export async function recordReviewDecision(db: AppDatabase, principal: Authentic
         eventType: "CATALOG_REVIEW_DECIDED", aggregateType: "catalog_review_proposal",
         aggregateId: proposal.id, payload: summary, consumers: []
       });
+      if (principal.role === "CATALOG_REVIEWER") await createReviewCheckpointIfReached(ctx, batchId, principal.userId);
       return { status: 200, body: { id, revision } };
     })
   );

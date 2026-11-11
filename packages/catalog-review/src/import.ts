@@ -24,6 +24,7 @@ const proposal = z.object({
 });
 const product = z.object({
   wordpressId: z.number().int().positive(),
+  recommendedOrder: z.number().int().min(1).max(20).nullable().optional(),
   status: z.enum(["PUBLISHED", "DRAFT"]),
   baseline: z.record(z.unknown()),
   reviewSource: z.record(z.unknown()),
@@ -33,7 +34,7 @@ const product = z.object({
   proposals: z.array(proposal).max(4)
 });
 const bundleSchema = z.object({
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   sources: z.record(checksum),
   products: z.array(product).length(248)
 });
@@ -52,6 +53,9 @@ export function assertLocalReviewDatabase(env: NodeJS.ProcessEnv = process.env) 
 async function readAuditedPhoto(root: string, audit: Record<string, string>) {
   const relative = audit.output_relative_path;
   const key = assetKey.parse(audit.asset_key);
+  const source = new URL(audit.original_url ?? "");
+  if (source.origin !== "https://agro-trade.ge" || source.username || source.password
+    || !source.pathname.startsWith("/wp-content/uploads/")) throw new Error(`Photo is outside the WordPress archive: ${key}`);
   if (!relative?.startsWith(`originals/${key}_`) || !/^originals\/[^/\\]+$/u.test(relative) || audit.status !== "OK") {
     throw new Error(`Unusable audit entry for ${key}`);
   }
@@ -76,9 +80,11 @@ export async function importReviewPilot(
   const manifest = bundleSchema.parse(JSON.parse(Buffer.from(manifestBytes).toString("utf8")));
   const sourceSha256 = digest(manifestBytes);
   const ids = new Set(manifest.products.map((item) => item.wordpressId));
-  const pilot = manifest.products.filter((item) => item.proposals.length > 0);
-  if (ids.size !== 248 || pilot.length !== 20 || manifest.products.filter((item) => item.status === "DRAFT").length !== 31) {
-    throw new Error("Pilot requires 248 unique staged rows, 31 source drafts and 20 review items.");
+  const reviewable = manifest.products.filter((item) => item.proposals.length > 0);
+  const recommended = manifest.products.flatMap((item) => item.recommendedOrder ?? []);
+  if (ids.size !== 248 || manifest.products.filter((item) => item.status === "DRAFT").length !== 31
+    || (manifest.version === 2 && (reviewable.length !== 248 || recommended.length !== 20 || new Set(recommended).size !== 20))) {
+    throw new Error("The full catalog requires 248 unique reviewable rows, 31 source drafts and 20 recommended products.");
   }
   const root = await realpath(mediaDirectory);
   const [admin] = await db.select({ id: users.id }).from(users)
@@ -95,8 +101,9 @@ export async function importReviewPilot(
     const id = existing?.id ?? createUuidV7();
 
     if (!existing) {
+      if (manifest.version !== 2) throw new Error("Prepare a version 2 manifest for a new full-catalog import.");
       const sources = new Map<string, Record<string, string>>();
-      for (const item of pilot) {
+      for (const item of reviewable) {
         for (const { audit } of item.photos) {
           const key = assetKey.parse(audit.asset_key);
           const previous = sources.get(key);
@@ -110,7 +117,7 @@ export async function importReviewPilot(
       const productIds = new Map(manifest.products.map((item) => [item.wordpressId, createUuidV7()]));
       await ctx.tx.insert(catalogLegacyProducts).values(manifest.products.map((item) => ({
         id: productIds.get(item.wordpressId)!, batchId: id, wordpressId: item.wordpressId,
-        sourceStatus: item.status, baseline: item.baseline,
+        sourceStatus: item.status, baseline: item.baseline, recommendedOrder: item.recommendedOrder ?? null,
         reviewSource: {
           workbook: item.reviewSource, productAudit: item.productAudit, photoQueue: item.queue,
           photoReferences: item.photos.map(({ position, audit }) => ({ position, assetKey: audit.asset_key }))
@@ -128,7 +135,7 @@ export async function importReviewPilot(
         });
         photoIds.set(key, photoId);
       }
-      for (const item of pilot) {
+      for (const item of reviewable) {
         const productId = productIds.get(item.wordpressId)!;
         // WordPress can list the same asset at more than one position. The snapshot keeps every
         // reference; the reviewer sees each asset once, in its first source position.
@@ -145,7 +152,7 @@ export async function importReviewPilot(
           proposedPhotoId: proposedPhotoKey ? photoIds.get(proposedPhotoKey)! : null
         })));
       }
-      const payload = { staged: manifest.products.length, pilot: pilot.length, photos: photoIds.size, sourceSha256 };
+      const payload = { staged: manifest.products.length, reviewable: reviewable.length, recommended: recommended.length, photos: photoIds.size, sourceSha256 };
       await ctx.recordAudit({ action: "CATALOG_REVIEW_IMPORTED", entityType: "catalog_review_batch", entityId: id, after: payload });
       await ctx.emitOutboxEvent({ eventType: "CATALOG_REVIEW_IMPORTED", aggregateType: "catalog_review_batch", aggregateId: id, payload, consumers: [] });
     }
@@ -157,6 +164,6 @@ export async function importReviewPilot(
         await ctx.emitOutboxEvent({ eventType: "CATALOG_REVIEW_ASSIGNED", aggregateType: "catalog_review_batch", aggregateId: id, payload, consumers: [] });
       }
     }
-    return { batchId: id, staged: manifest.products.length, pilot: pilot.length, replayed: Boolean(existing) };
+    return { batchId: id, staged: manifest.products.length, reviewable: reviewable.length, recommended: recommended.length, replayed: Boolean(existing) };
   });
 }

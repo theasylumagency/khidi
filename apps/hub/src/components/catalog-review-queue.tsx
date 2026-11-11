@@ -15,7 +15,7 @@ export function CatalogReviewQueue({ products, initialFilters }: {
   const [category, setCategory] = useState(initialFilters.category);
   const categories = [...new Set(products.flatMap((product) => product.category ? [product.category] : []))]
     .sort((a, b) => a.localeCompare(b, "ka"));
-  const completed = products.filter((product) => product.pending === 0 && product.deferred === 0).length;
+  const completed = products.filter((product) => product.pending === 0).length;
   const selection = { q: query, category, status: filter };
   const search = query.trim().replace(/^#/u, "").toLocaleLowerCase("ka");
   const visible = products.filter((product) => {
@@ -67,6 +67,9 @@ export function CatalogReviewQueue({ products, initialFilters }: {
               {product.sourceStatus === "DRAFT" ? ` · ${t("review.DRAFT")}` : ""}</small>
           </span>
           <span className="review-list-status">
+            {product.recommendedOrder !== null && product.pending > 0 ? <small className="review-status" data-state="recommended">
+              {t("review.recommended")}
+            </small> : null}
             {product.pending > 0 ? <small className="review-status" data-state="pending">
               {product.pending} {t("review.pending")}
             </small> : null}

@@ -29,6 +29,7 @@ export function matchesReviewScope(product: ReviewProductSummary, category: stri
 
 export function orderReviewQueue(products: ReviewProductSummary[]) {
   return [...products].sort((a, b) => Number(b.pending > 0) - Number(a.pending > 0)
+    || (a.pending > 0 ? (a.recommendedOrder ?? Number.MAX_SAFE_INTEGER) - (b.recommendedOrder ?? Number.MAX_SAFE_INTEGER) : 0)
     || Number(b.deferred > 0) - Number(a.deferred > 0) || a.wordpressId - b.wordpressId);
 }
 

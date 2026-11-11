@@ -128,6 +128,12 @@
   background: #f7eedf;
 }
 .review-status[data-state="done"] { color: #205539; background: #e7f2e7; }
+.review-status[data-state="recommended"] { color: #315331; background: #eaf2dd; }
+.review-report-link { width: fit-content; }
+.review-report-summary { margin: 0; display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); }
+.review-report-summary div { background: #edf4e8; border: 1px solid #d5dfd4; border-radius: .7rem; padding: .7rem 1rem; }
+.review-report-summary dd { margin: .2rem 0 0; font-size: 1.4rem; font-weight: 700; }
+.review-report-outcome { margin-top: .55rem; }
 .review-list-arrow { color: #38654f; }
 .review-product-header {
   display: grid;

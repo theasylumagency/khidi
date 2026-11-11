@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@khidi/db";
-import { getReviewProduct, listReviewProducts, reviewId, reviewRoles } from "@khidi/catalog-review";
+import { getReviewProduct, listReviewCheckpoints, listReviewProducts, reviewId, reviewRoles } from "@khidi/catalog-review";
 import { AppError } from "@khidi/shared";
 import { t } from "@khidi/i18n";
 import { requirePageAuth } from "../../../lib/session.ts";
-import { nextReviewProduct, readReviewFilters, reviewHref } from "../../../lib/catalog-review-navigation.ts";
+import { nextReviewProduct, orderReviewQueue, readReviewFilters, reviewHref } from "../../../lib/catalog-review-navigation.ts";
 import { CatalogDecisionForm } from "../../../components/catalog-decision-form.tsx";
 import { CatalogReviewOriginal } from "../../../components/catalog-review-original.tsx";
+import { CatalogReviewCheckpoint } from "../../../components/catalog-review-checkpoint.tsx";
 
 const fields = [
   { field: "NAME", view: "name", source: "არსებული სახელი" },
@@ -31,14 +32,16 @@ export default async function ReviewProductPage({ params, searchParams }: {
   if (!reviewId.safeParse(productId).success) notFound();
 
   const db = getDb();
-  const [result, queue] = await Promise.all([
+  const [result, queue, reports] = await Promise.all([
     getReviewProduct(db, principal, productId).catch((error: unknown) => {
       if (error instanceof AppError && error.code === "NOT_FOUND") notFound();
       throw error;
     }),
-    listReviewProducts(db, principal)
+    listReviewProducts(db, principal),
+    listReviewCheckpoints(db, principal)
   ]);
   const { product, proposals, photos, history } = result;
+  const offer = reports.find((report) => report.batchId === product.batchId && !report.viewedAt);
   const options = photos.map((photo) => ({
     id: photo.id, position: photo.position,
     needsAttention: Boolean(photo.audit.quality_flags),
@@ -46,7 +49,9 @@ export default async function ReviewProductPage({ params, searchParams }: {
   }));
   const sections = fields.map((item) => {
     const proposal = proposals.find((entry) => entry.field === item.field);
-    return { ...item, proposal, current: proposal && history.find((decision) => decision.proposalId === proposal.id) };
+    const decisions = proposal ? history.filter((decision) => decision.proposalId === proposal.id) : [];
+    const current = decisions.find((decision) => principal.role === "ADMIN" || decision.actorId === principal.userId);
+    return { ...item, proposal, current, revision: decisions[0]?.revision ?? 0 };
   });
   const undecided = sections.filter((item) => item.proposal && !item.current);
   const deferred = sections.filter((item) => item.current?.action === "DEFER");
@@ -55,8 +60,8 @@ export default async function ReviewProductPage({ params, searchParams }: {
   const active = view === "history" ? undefined
     : requested ?? firstIssue ?? (history.length ? undefined : sections[0]);
   const href = (viewName: string) => reviewHref(filters, productId, viewName);
-  const next = nextReviewProduct(queue, productId, filters);
-  const completed = proposals.length - undecided.length - deferred.length;
+  const next = nextReviewProduct(orderReviewQueue(queue), productId, filters);
+  const completed = proposals.length - undecided.length;
   const nextField = undecided.find((item) => item.field !== active?.field);
   const continueHref = active && !active.current ? href(nextField?.view ?? "history") : undefined;
 
@@ -76,6 +81,7 @@ export default async function ReviewProductPage({ params, searchParams }: {
       </div>
     </div>
 
+    {offer ? <CatalogReviewCheckpoint id={offer.id} viewed={false} /> : null}
     <nav className="review-section-nav" aria-label={t("review.sections")}>
       {sections.map((item) => {
         const state = item.current ? `review.status.${item.current.action}` as const
@@ -114,8 +120,8 @@ export default async function ReviewProductPage({ params, searchParams }: {
         <h3>{t("review.edited_text")}</h3><p className="review-edited-text">{active.current.editedText}</p>
       </div> : null}
       {active.proposal ? <CatalogDecisionForm
-        key={`${active.proposal.id}:${active.current?.revision ?? 0}`}
-        id={active.proposal.id} revision={active.current?.revision ?? 0}
+        key={`${active.proposal.id}:${active.revision}`}
+        id={active.proposal.id} revision={active.revision}
         text={active.current?.editedText ?? active.proposal.proposed}
         proposedPhotoId={active.proposal.proposedPhotoId} currentPhotoId={active.current?.photoId ?? null}
         photos={active.field === "PHOTO" ? options : undefined}
