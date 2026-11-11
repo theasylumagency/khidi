@@ -301,7 +301,7 @@ if (
       await closeAppPool();
     })
     .catch(async (err) => {
-      console.error("Seed failed:", err);
+      console.error("SAFETY: Khidi seed failed; verify the dedicated development/test database configuration.");
       await closeAppPool();
       process.exit(1);
     });

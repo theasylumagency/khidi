@@ -1,9 +1,9 @@
 import { expect, it } from "vitest";
 import { getDb, getAppPool, productImages, legalEntities, storefronts } from "../../db/src/index.ts";
-import { setEntityRelationship } from "@khidi/entities";
+import { listStorefronts, setEntityRelationship } from "@khidi/entities";
 import { applyAdvancedStockOperation, createStockPool, configureAvailabilityPool } from "@khidi/inventory";
 import { getApprovedContent, getContentFactFields, reviewSkuEvidence, setSkuIdentityKind, submitSkuEvidence } from "@khidi/evidence";
-import { approveCanonicalVersion, createSkuDraft, getProductTypeByKey, listSkusWorkspace, normalizePowerToKw, saveCanonicalVersion, setStorefrontListing,
+import { approveCanonicalVersion, createSkuDraft, getProductTypeByKey, getSkuWithDetails, listSkusWorkspace, normalizePowerToKw, saveCanonicalVersion, setStorefrontListing,
   transitionSkuLifecycle, transitionSkuToReady, upsertAccountingMapping } from "@khidi/products";
 import { createUuidV7 } from "@khidi/shared";
 import { setPrice, withdrawPrice } from "@khidi/pricing";
@@ -46,6 +46,10 @@ it("suspends only locales whose approved content cites a conflicting, changed or
     tier1QualityJson: { passed: true }, createdBy: admin!.id, verifiedBy: admin!.id, verifiedAt: new Date(),
     processingStatus: "COMPLETED", masterVersion: 1, masterStorageKey: `master/${imageId}/1.jpg`, masterSha256: "c".repeat(64) });
   const project = (locale: string) => getStorefrontProductProjection(db, { skuId: sku.id, storefrontId: storefront!.id, locale });
+  const reviewFixtureStorefront = async () => {
+    const [details, stores] = await Promise.all([getSkuWithDetails(db, sku.id), listStorefronts(db)]);
+    return getSkuPublicationReview(db, sku.id, { details, stores: stores.filter((store) => store.id === storefront!.id) });
+  };
   const englishStatus = async () => (await listSkusWorkspace(db)).find((row) => row.id === sku.id)?.englishContentStatus;
   expect(await englishStatus()).toBe("missing");
   expect(await project("en")).toBeNull();
@@ -60,7 +64,7 @@ it("suspends only locales whose approved content cites a conflicting, changed or
   const priced = await setPrice(db, actor, { skuId: sku.id, storefrontId: storefront!.id, basePriceMinor: 123450, vatIncluded: false });
   expect(await project("ka")).toMatchObject({ sellable: false, blockingReasons: ["MISSING_STOREFRONT_ALLOCATION"],
     basePrice: { amount: 123450, currency: "GEL", vat_included: false } });
-  expect(await getSkuPublicationReview(db, sku.id)).toContainEqual(expect.objectContaining({ storefrontId: storefront!.id, locale: "ka",
+  expect(await reviewFixtureStorefront()).toContainEqual(expect.objectContaining({ storefrontId: storefront!.id, locale: "ka",
     publishReady: true, sellable: false, blockingReasons: ["MISSING_STOREFRONT_ALLOCATION"] }));
   await withdrawPrice(db, actor, { skuId: sku.id, storefrontId: storefront!.id, expectedPriceId: priced.rows[0]!.id }, "Recheck fixture price");
   expect(await project("ka")).toEqual(first);
@@ -93,7 +97,7 @@ it("suspends only locales whose approved content cites a conflicting, changed or
   expect((await getContentFactFields(db, sku.id)).get("power_kw")).toMatchObject({ status: "VERIFIED", value: nineKw });
   expect(await project("ka")).toBeNull();
   expect(await project("en")).toMatchObject({ locale: "en", fullDescription: title, fields: { power_kw: nineKw } });
-  expect(await getSkuPublicationReview(db, sku.id)).toContainEqual(expect.objectContaining({
+  expect(await reviewFixtureStorefront()).toContainEqual(expect.objectContaining({
     storefrontId: storefront!.id, locale: "ka", publishReady: false, publicationBlockers: ["LOCALE_CONTENT_FACT_CHANGED"]
   }));
   const retained = await db.query.skus.findFirst({ where: (row, { eq }) => eq(row.id, sku.id) });
@@ -134,5 +138,5 @@ it("suspends only locales whose approved content cites a conflicting, changed or
   await getAppPool().query("UPDATE accounting_mappings SET active=false WHERE sku_id=$1 AND legal_entity_id=$2",[sku.id,owner!.id]);
   const forged={skuId:sku.id,storefrontId:storefront!.id,locale:"en",commerce:{allocatedOwnerEntityIds:[]}};
   expect(await getStorefrontProductProjection(db,forged)).toMatchObject({sellable:false,blockingReasons:["MISSING_OWNER_ACCOUNTING_MAPPING"],available_to_sell:0});
-  expect(await getSkuPublicationReview(db,sku.id)).toContainEqual(expect.objectContaining({storefrontId:storefront!.id,locale:"en",sellable:false,availableToSell:0}));
+  expect(await reviewFixtureStorefront()).toContainEqual(expect.objectContaining({storefrontId:storefront!.id,locale:"en",sellable:false,availableToSell:0}));
 });

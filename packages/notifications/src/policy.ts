@@ -75,8 +75,9 @@ export async function notificationIntent(db:DbExecutor,e:Event):Promise<Notifica
  if(["IMAGE_TIER2_CHECKED","IMAGE_QUALITY_DISAGREEMENT","PHOTO_ATTENTION_REPORTED","OFFLINE_PHOTO_DISCARDED"].includes(e.eventType)) {
   let skuId=p.skuId,intakeId=p.originalIntakeId??p.intakeId;
   if(e.aggregateType==="product_image") {const [image]=await db.select().from(productImages).where(eq(productImages.id,e.aggregateId));skuId=image?.skuId;intakeId=image?.intakeId;}
-  const link=uuid(skuId) ? "/products/"+skuId : "/intakes";
-  return {...intent(e.eventType==="IMAGE_QUALITY_DISAGREEMENT"?"PRODUCT_REVIEW_REQUIRED":"PHOTO_RETAKE_REQUIRED","ADMIN",link,p.needsRetake??p.needsAttention??true),visible:e.eventType!=="IMAGE_TIER2_CHECKED"||p.needsRetake===true};
+  const absent=p.reason==="PLATE_ABSENT";
+  const link=uuid(skuId) ? "/products/"+skuId : absent&&uuid(intakeId)?"/intakes/"+intakeId+"/review":"/intakes";
+  return {...intent(absent||e.eventType==="IMAGE_QUALITY_DISAGREEMENT"?"PRODUCT_REVIEW_REQUIRED":"PHOTO_RETAKE_REQUIRED","ADMIN",link,p.needsRetake??p.needsAttention??true),visible:e.eventType!=="IMAGE_TIER2_CHECKED"||p.needsRetake===true};
  }
  return intent("SYSTEM_UPDATE","ADMIN","/history",e.eventType);
 }

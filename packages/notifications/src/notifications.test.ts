@@ -1,4 +1,4 @@
-import { expect,it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { and,eq,inArray } from "drizzle-orm";
 import { notificationPreferences,notificationReceipts,notifications,outboxDeliveries,outboxEvents,productIntakes,scanTasks,userEntityMemberships,users } from "@khidi/db";
 import { withDomainTransaction,type DomainEventType } from "@khidi/domain";
@@ -40,7 +40,7 @@ it("restricts warehouse notifications and reads to assigned tasks and permits mu
  const action=await emit(f,"SCAN_TASK_CREATED","scan_task",photo!.id,{taskType:"PHOTO_REQUEST"});
  const [n]=await f.db.select().from(notifications).where(eq(notifications.eventId,action.eventId));
  await expect(updateNotification(f.db,own!.id,createUuidV7(),{action:"MUTE",type:"PHOTO_RETAKE_REQUIRED",muted:true})).rejects.toThrow(/INFO/);
- await expect(f.db.update(notificationReceipts).set({muted:true}).where(and(eq(notificationReceipts.notificationId,n!.id),eq(notificationReceipts.userId,own!.id)))).rejects.toThrow(/INFO/);
+ await expect(f.db.update(notificationReceipts).set({muted:true}).where(and(eq(notificationReceipts.notificationId,n!.id),eq(notificationReceipts.userId,own!.id)))).rejects.toMatchObject({cause:{message:expect.stringMatching(/INFO/)}});
  await expect(f.db.insert(notificationPreferences).values({userId:own!.id,type:"PHOTO_RETAKE_REQUIRED",muted:true})).rejects.toThrow();
  await f.db.update(scanTasks).set({assigneeUserId:other!.id}).where(eq(scanTasks.id,photo!.id));
  expect((await listNotifications(f.db,own!.id)).rows.some(r=>r.notification.id===n!.id)).toBe(false);expect(source.eventId).toBeDefined();
@@ -53,27 +53,42 @@ it("resets review deduplication after resolution without copying evidence, price
  const b=await emit(f,"PRODUCT_REVIEW_REQUIRED","sku",f.sku.id,payload);
  const rows=await f.db.select().from(notifications).where(inArray(notifications.eventId,[a.eventId,b.eventId]));expect(rows).toHaveLength(2);expect(rows.every(r=>JSON.stringify(r.parametersJson)==="{}")).toBe(true);
 });
-it("maps all producer families to safe recipient audiences and translated titles",async()=>{
- const f=await inventoryFixture(false);
- const cases=[
-  ["PRODUCT_REVIEW_REQUIRED","sku",{reason:"MERGE_EVIDENCE_CONFLICT"},"MERGE_EVIDENCE_CONFLICT"],
-  ["PRODUCT_REVIEW_REQUIRED","sku",{reason:"CONTENT_FACT_CHANGED"},"CONTENT_REVIEW_REQUIRED"],
-  ["PRODUCT_REVIEW_REQUIRED","sku",{reason:"IDENTIFICATION_FAILED"},"IDENTIFICATION_FAILED"],
-  ["PRODUCT_APPROVED","product",{},"PRODUCT_UPDATED"],["PRODUCT_ARCHIVED","product",{},"PRODUCT_UPDATED"],
-  ["AI_JOB_UPDATED","ai_job",{status:"DEAD_LETTER"},"JOB_FAILED"],["MEDIA_JOB_UPDATED","media_job",{status:"DEAD_LETTER"},"JOB_FAILED"],
-  ["WEBHOOK_DELIVERY_UPDATED","outbox_delivery",{action:"WEBHOOK_DEAD_LETTER"},"WEBHOOK_DEAD_LETTER"],
-  ["STOCK_REVIEW_REQUIRED","stock_review",{severity:"CRITICAL"},"STOCK_REVIEW_REQUIRED"],
-  ["FULFILLMENT_STATUS_CHANGED","fulfillment_request",{status:"ACTION_REQUIRED"},"RESERVATION_ACTION_REQUIRED"],
-  ["FULFILLMENT_MODE_CHANGED","user",{mode:"SIMPLIFIED_FULFILLMENT"},"FULFILLMENT_MODE_CHANGED"],
-  ["PHOTO_ATTENTION_REPORTED","photo_attention",{},"PHOTO_RETAKE_REQUIRED"],["OFFLINE_PHOTO_DISCARDED","offline_photo",{},"PHOTO_RETAKE_REQUIRED"],
-  ["IMAGE_TIER2_CHECKED","product_image",{needsRetake:true},"PHOTO_RETAKE_REQUIRED"],["IMAGE_QUALITY_DISAGREEMENT","product_image",{},"PRODUCT_REVIEW_REQUIRED"]
- ] as const;
- for(const [eventType,aggregateType,payload,type]of cases) {
-  const event=await withDomainTransaction(f.db,f.actor,ctx=>ctx.emitOutboxEvent({eventType,aggregateType,aggregateId:f.sku.id,payload:{...payload},consumers:["notifications"]}));
-  await consumeNotifications(f.db,event.eventId);
-  const [n]=await f.db.select().from(notifications).where(eq(notifications.eventId,event.eventId));expect(n?.type).toBe(type);
- }
- for(const type of Object.keys(notificationLevels))expect(t(("notification.type."+type) as TranslationKey)).toBeTruthy();
+describe("producer notification mapping", () => {
+  const cases = [
+    ["PRODUCT_REVIEW_REQUIRED","sku",{reason:"MERGE_EVIDENCE_CONFLICT"},"MERGE_EVIDENCE_CONFLICT"],
+    ["PRODUCT_REVIEW_REQUIRED","sku",{reason:"CONTENT_FACT_CHANGED"},"CONTENT_REVIEW_REQUIRED"],
+    ["PRODUCT_REVIEW_REQUIRED","sku",{reason:"IDENTIFICATION_FAILED"},"IDENTIFICATION_FAILED"],
+    ["PRODUCT_APPROVED","product",{},"PRODUCT_UPDATED"],["PRODUCT_ARCHIVED","product",{},"PRODUCT_UPDATED"],
+    ["AI_JOB_UPDATED","ai_job",{status:"DEAD_LETTER"},"JOB_FAILED"],["MEDIA_JOB_UPDATED","media_job",{status:"DEAD_LETTER"},"JOB_FAILED"],
+    ["WEBHOOK_DELIVERY_UPDATED","outbox_delivery",{action:"WEBHOOK_DEAD_LETTER"},"WEBHOOK_DEAD_LETTER"],
+    ["STOCK_REVIEW_REQUIRED","stock_review",{severity:"CRITICAL"},"STOCK_REVIEW_REQUIRED"],
+    ["FULFILLMENT_STATUS_CHANGED","fulfillment_request",{status:"ACTION_REQUIRED"},"RESERVATION_ACTION_REQUIRED"],
+    ["FULFILLMENT_MODE_CHANGED","user",{mode:"SIMPLIFIED_FULFILLMENT"},"FULFILLMENT_MODE_CHANGED"],
+    ["PHOTO_ATTENTION_REPORTED","photo_attention",{},"PHOTO_RETAKE_REQUIRED"],["OFFLINE_PHOTO_DISCARDED","offline_photo",{},"PHOTO_RETAKE_REQUIRED"],
+    ["PHOTO_ATTENTION_REPORTED","photo_attention",{reason:"PLATE_ABSENT",outcome:"PLATE_ABSENT"},"PRODUCT_REVIEW_REQUIRED"],
+    ["IMAGE_TIER2_CHECKED","product_image",{needsRetake:true},"PHOTO_RETAKE_REQUIRED"],["IMAGE_QUALITY_DISAGREEMENT","product_image",{},"PRODUCT_REVIEW_REQUIRED"]
+  ] as const;
+  let fixture: Awaited<ReturnType<typeof inventoryFixture>>;
+
+  beforeAll(async () => {
+    fixture = await inventoryFixture(false);
+  });
+
+  it.each(cases)("maps %s on %s with %j to %s", async (eventType, aggregateType, payload, type) => {
+    const { db, actor, sku } = fixture;
+    const event = await withDomainTransaction(db, actor, (ctx) => ctx.emitOutboxEvent({
+      eventType, aggregateType, aggregateId: sku.id, payload: { ...payload }, consumers: ["notifications"]
+    }));
+    await consumeNotifications(db, event.eventId);
+    const [notification] = await db.select().from(notifications).where(eq(notifications.eventId, event.eventId));
+    expect(notification?.type).toBe(type);
+  });
+
+  it("translates every notification title", () => {
+    for (const type of Object.keys(notificationLevels)) {
+      expect(t(("notification.type." + type) as TranslationKey)).toBeTruthy();
+    }
+  });
 });
 it("handles real intake and label records without sending an inaccessible intake review link to operators",async()=>{
  const f=await inventoryFixture(false);

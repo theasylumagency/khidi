@@ -3,6 +3,7 @@ export type ErrorCode =
   | "FORBIDDEN"
   | "NOT_FOUND"
   | "VALIDATION_ERROR"
+  | "PAYLOAD_TOO_LARGE"
   | "CONFLICT"
   | "PRECONDITION_FAILED"
   | "RECENT_AUTH_REQUIRED"

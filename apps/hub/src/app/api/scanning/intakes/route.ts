@@ -1,3 +1,4 @@
+import { readBoundedJson } from "../../../../lib/request-body.ts";
 import { NextResponse } from "next/server";
 import { getDb } from "@khidi/db";
 import { assertRoleAllowed } from "@khidi/auth";
@@ -11,7 +12,7 @@ export async function POST(request: Request) {
     const principal = await getCurrentPrincipal();
     if (!principal) throw new AppError("UNAUTHORIZED", "Authentication required.");
     assertRoleAllowed(principal, ["ADMIN", "WAREHOUSE", "OPERATOR", "STOCK_MANAGER", "ORDER_MANAGER"]);
-    const result = await receiveIntake(getDb(), principal, await request.json());
+    const result = await receiveIntake(getDb(), principal, await readBoundedJson(request));
     return NextResponse.json({ ...result.body, replayed: result.replayed }, { status: result.status });
   } catch (error) { return scanningErrorResponse(error); }
 }

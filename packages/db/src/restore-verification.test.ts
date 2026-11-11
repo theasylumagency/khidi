@@ -3,12 +3,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { resolveMigratorDatabaseUrl } from "./client.ts";
-import { assertIsolatedRestoreUrls, assertRestoreTestCopyUrls, captureRestoreSnapshot, checkRestoredMigrations, compareRestoreSnapshots } from "./restore-verification.ts";
+import { assertEmptySyntheticRestoreSource,assertIsolatedRestoreUrls, assertRestoreTestCopyUrls, captureRestoreSnapshot, checkRestoredMigrations, compareRestoreSnapshots } from "./restore-verification.ts";
 import { OpsRunner, type OpsConfig } from "../../../ops/common.ts";
 import { restoreBackup } from "../../../ops/restore.ts";
 import { verifyRestore } from "../../../ops/verify-restore.ts";
 
 describe("M3 S7 restore verification safeguards", () => {
+  it("refuses production/remote/other source names before synthetic fixture setup",async()=>{
+    for(const value of ["postgres://hub_migrator:fixture@localhost/production","postgres://hub_migrator:fixture@remote.internal/khidi_restore_test","postgres://hub_migrator:fixture@localhost/other_test"])
+      await expect(assertEmptySyntheticRestoreSource(value)).rejects.toThrow(/SAFETY:/);
+  });
   it("checks real database migration checksums without applying migrations and detects changed/pending files", async () => {
     const snapshot = await captureRestoreSnapshot(resolveMigratorDatabaseUrl());
     checkRestoredMigrations(snapshot);
@@ -29,7 +33,9 @@ describe("M3 S7 restore verification safeguards", () => {
   it("compares all core tables, detects a missing row and refuses a different database", async () => {
     const snapshot = await captureRestoreSnapshot(resolveMigratorDatabaseUrl());
     const restored = structuredClone(snapshot);
+    expect(snapshot.rowCounts).toHaveProperty("stock_ledger");expect(snapshot.rowCounts).toHaveProperty("daily_reports");expect(snapshot.rowCounts).toHaveProperty("user_setup_links");
     compareRestoreSnapshots(snapshot, restored);
+    expect(()=>compareRestoreSnapshots(snapshot,{...restored,rowCounts:{...restored.rowCounts,unexpected_table:"0"}})).toThrow(/table set/);
     restored.rowCounts.product_intakes = String(BigInt(snapshot.rowCounts.product_intakes!) + 1n);
     expect(() => compareRestoreSnapshots(snapshot, restored)).toThrow(/product_intakes/);
     expect(() => compareRestoreSnapshots(snapshot, { ...snapshot, database: "other" })).toThrow(/database name/);

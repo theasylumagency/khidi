@@ -49,6 +49,14 @@ export class PhotoWorkflow {
     await this.persist();
   }
   async retry() { if (this.state.phase === "idle" && this.candidate) await this.persist(); }
+  async recordAbsentEnginePlate(save:()=>Promise<void>) {
+    if(this.state.current!=="ENGINE_IDENTIFICATION"||this.state.phase!=="idle")return;
+    this.update({phase:"saving",failure:null});
+    try {
+      await save();const accepted=[...new Set([...this.state.accepted,"ENGINE_IDENTIFICATION" as const])];
+      this.update({phase:"idle",accepted,current:this.slots.find(slot=>slot.required&&!accepted.includes(slot.slot))?.slot??"ENGINE_IDENTIFICATION"});
+    }catch(error){this.update({phase:"idle",failure:"storage"});throw error;}
+  }
   private async persist() {
     const photo = this.candidate!;
     this.update({ phase: "saving", failure: null, retryable: false });

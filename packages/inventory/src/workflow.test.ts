@@ -51,13 +51,13 @@ it("freezes snapshots in the database and rejects AUTO_ASSUMED in controlled mod
   await f.apply([{...f.line,type:"RESERVE",quantity:1,paymentMethod:"CARD"}]);
   const [header]=await f.db.select().from(reservations).where(eq(reservations.id,f.line.reservationId));
   const [line]=await f.db.select().from(reservationLines).where(eq(reservationLines.reservationId,header!.id));
-  await expect(f.db.update(reservations).set({fulfillmentMode:"SIMPLIFIED_FULFILLMENT"}).where(eq(reservations.id,header!.id))).rejects.toThrow(/frozen/);
-  await expect(f.db.update(reservationLines).set({sellerAccountingName:"Changed"}).where(eq(reservationLines.id,line!.id))).rejects.toThrow(/frozen/);
+  await expect(f.db.update(reservations).set({fulfillmentMode:"SIMPLIFIED_FULFILLMENT"}).where(eq(reservations.id,header!.id))).rejects.toMatchObject({cause:{message:expect.stringMatching(/frozen/)}});
+  await expect(f.db.update(reservationLines).set({sellerAccountingName:"Changed"}).where(eq(reservationLines.id,line!.id))).rejects.toMatchObject({cause:{message:expect.stringMatching(/frozen/)}});
   const base={id:createUuidV7(),reservationId:header!.id,reservationLineId:line!.id,fulfillmentRequestId:f.line.fulfillmentRequestId,
     skuId:f.sku.id,allocationId:f.line.allocationId,action:"PICK_TO_STAGING",quantity:1};
-  await expect(f.db.insert(unitConfirmations).values({...base,method:"AUTO_ASSUMED",triggerApiKeyId:header!.createdByApiKeyId,triggerCallId:createUuidV7()})).rejects.toThrow(/not authorized/);
+  await expect(f.db.insert(unitConfirmations).values({...base,method:"AUTO_ASSUMED",triggerApiKeyId:header!.createdByApiKeyId,triggerCallId:createUuidV7()})).rejects.toMatchObject({cause:{message:expect.stringMatching(/not authorized/)}});
   const [warehouse]=await f.db.insert(users).values({id:createUuidV7(),fullName:"Fixture",role:"WAREHOUSE"}).returning();
-  await expect(f.db.insert(unitConfirmations).values({...base,method:"MANUAL",actorUserId:warehouse!.id,reason:"Missing label"})).rejects.toThrow(/not authorized/);
+  await expect(f.db.insert(unitConfirmations).values({...base,method:"MANUAL",actorUserId:warehouse!.id,reason:"Missing label"})).rejects.toMatchObject({cause:{message:expect.stringMatching(/not authorized/)}});
   const revoked=await f.db.insert(storefrontApiKeys).values({id:createUuidV7(),storefrontId:header!.storefrontId,keyPrefix:"fixture",keyHash:createUuidV7(),name:"Revoked",active:false}).returning();
   await expect(applyWorkflowStockMovements(f.db,{type:"STOREFRONT_SERVICE",apiKeyId:revoked[0]!.id,storefrontId:header!.storefrontId},[{...f.line,type:"RESERVATION_RELEASE",quantity:1}])).rejects.toMatchObject({code:"FORBIDDEN"});
   expect(await f.db.select().from(stockLedger).where(and(eq(stockLedger.reservationId,header!.id),eq(stockLedger.movementType,"RESERVE")))).toHaveLength(1);

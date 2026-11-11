@@ -53,6 +53,13 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 });
 
+export const userSetupLinks = pgTable("user_setup_links", {
+ id:uuid("id").primaryKey(),userId:uuid("user_id").notNull().references(()=>users.id,{onDelete:"restrict"}),
+ tokenHash:text("token_hash").notNull().unique(),kind:text("kind").notNull(),issuedBy:uuid("issued_by").notNull().references(()=>users.id),
+ createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),expiresAt:timestamp("expires_at",{withTimezone:true}).notNull(),
+ usedAt:timestamp("used_at",{withTimezone:true}),revokedAt:timestamp("revoked_at",{withTimezone:true})
+});
+
 export const entityRelationships = pgTable("entity_relationships", {
   id: uuid("id").primaryKey(),
   fromEntityId: uuid("from_entity_id")
@@ -354,10 +361,12 @@ export interface ProductTypeAttributeFieldDef {
   observable?: boolean;
   unit?: string;
   enumValues?: string[];
+  /** Controlled subtype labels and research requirements; not public navigation or fit claims. */
+  enumValueMetadata?: Record<string,{labelKa:string;labelEn:string;requiredSpecFields:string[]}>;
 }
 
 export interface ProductTypePhotoInstructionSlot {
-  slot: "MAIN" | "SECONDARY" | "IDENTIFICATION";
+  slot: "MAIN" | "SECONDARY" | "IDENTIFICATION" | "ENGINE_IDENTIFICATION";
   titleKa: string;
   titleEn: string;
   guidanceKa: string;
@@ -370,6 +379,8 @@ export interface ProductTypeAiResearchContract {
   targetSpecificationFields: string[];
   forbidInvention: boolean;
   unknownFieldPolicy: "NULL_NOT_FOUND";
+  rules?: string[];
+  repeatPurchase?: boolean;
 }
 
 export interface KitComponentInfo {
@@ -799,6 +810,11 @@ export const evidence = pgTable("evidence", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
 });
 
+export const identificationObservations=pgTable("identification_observations",{
+ id:uuid("id").primaryKey(),skuId:uuid("sku_id").references(()=>skus.id),intakeId:uuid("intake_id").references(()=>productIntakes.id),photoRequestTaskId:uuid("photo_request_task_id").references(()=>scanTasks.id),
+ slot:text("slot").notNull(),fieldName:text("field_name").notNull(),outcome:text("outcome").notNull(),status:text("status").notNull(),reason:text("reason").notNull(),value:jsonb("value_json"),
+ authorId:uuid("author_id").notNull().references(()=>users.id),deviceId:uuid("device_id").notNull(),capturedAt:timestamp("captured_at",{withTimezone:true}).notNull(),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()
+});
 export const skuFieldProvenance = pgTable("sku_field_provenance", {
   skuId: uuid("sku_id").notNull().references(() => skus.id),
   fieldName: text("field_name").notNull(),
@@ -807,6 +823,8 @@ export const skuFieldProvenance = pgTable("sku_field_provenance", {
   evidenceIds: uuid("evidence_ids").array().notNull().default([]),
   confirmedEvidenceId: uuid("confirmed_evidence_id").references(() => evidence.id),
   notDeterminableReason: text("not_determinable_reason"),
+  observationId:uuid("observation_id").references(()=>identificationObservations.id),
+  observationReason:text("observation_reason"),
   decidedBy: uuid("decided_by").references(() => users.id),
   decidedAt: timestamp("decided_at", { withTimezone: true })
 }, (table) => [primaryKey({ columns: [table.skuId, table.fieldName] })]);

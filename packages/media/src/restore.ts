@@ -2,8 +2,8 @@ import { z } from "zod";
 import type { MediaStorage } from "./storage.ts";
 import { assertObjectKey } from "./storage.ts";
 import { resolveMediaFilesystemRoot } from "./storage-config.ts";
-export const rawManifestSchema = z.object({ version: z.literal(1), capturedAt: z.string().datetime(), sourceLocation: z.string().min(1), samples: z.array(z.object({
-  id: z.string().uuid(), key: z.string().min(1), sha256: z.string().regex(/^[a-f0-9]{64}$/), bytes: z.number().int().positive(), versionId: z.string().nullable()
+export const rawManifestSchema = z.object({ version: z.literal(1), capturedAt: z.string().max(128).datetime(), sourceLocation: z.string().max(65536).min(1), samples: z.array(z.object({
+  id: z.string().max(36).uuid(), key: z.string().max(65536).min(1), sha256: z.string().max(64).regex(/^[a-f0-9]{64}$/), bytes: z.number().int().positive(), versionId: z.string().max(65536).nullable()
 }).strict()).max(10000) }).strict();
 export type RawSample = z.infer<typeof rawManifestSchema>["samples"][number];
 export async function verifyRawSamples(samples: RawSample[], storage: MediaStorage, options: { sourceVersions?: boolean; databaseSamples?: RawSample[] } = {}) {

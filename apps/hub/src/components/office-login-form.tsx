@@ -7,14 +7,15 @@ import { OfficePasswordField } from "./office-password-field.tsx";
 import { platformPasskeyAvailable } from "../lib/passkey-client.ts";
 import "./office-login-form.css";
 
-export function OfficeLoginForm({ beforeLogin, passkeysAllowed = true, initialEnrollment, onAuthenticated }: {
+export function OfficeLoginForm({ beforeLogin, passkeysAllowed = true, initialEnrollment, initialCredentials, onAuthenticated }: {
   beforeLogin(): Promise<void>; passkeysAllowed?: boolean;
+  initialCredentials?: { email:string; password:string };
   initialEnrollment?: { email: string; password: string; enrollment: TotpEnrollment };
   onAuthenticated?(): void;
 }) {
   const codeHintId = useId();
-  const [email, setEmail] = useState(initialEnrollment?.email ?? "");
-  const [password, setPassword] = useState(initialEnrollment?.password ?? "");
+  const [email, setEmail] = useState(initialEnrollment?.email ?? initialCredentials?.email ?? "");
+  const [password, setPassword] = useState(initialEnrollment?.password ?? initialCredentials?.password ?? "");
   const [code, setCode] = useState("");
   const [enrollment, setEnrollment] = useState<TotpEnrollment | null>(initialEnrollment?.enrollment ?? null);
   const [continuation, setContinuation] = useState("/");

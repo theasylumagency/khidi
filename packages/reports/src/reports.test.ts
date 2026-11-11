@@ -1,3 +1,4 @@
+import { serviceAdminSessionFixture } from "../../auth/src/storefront-service.test-fixture.ts";
 import { expect,it } from "vitest";
 import ExcelJS from "exceljs";
 import { and,eq,sql } from "drizzle-orm";
@@ -90,7 +91,7 @@ it("limits reports.view to own memberships, never warehouse, and audits administ
  const f=await reservationFixture(),[accountant,warehouse]=await f.db.insert(users).values(["OPERATOR","WAREHOUSE"].map(role=>({id:createUuidV7(),role,fullName:"Report access fixture"}))).returning();
  await f.db.insert(userEntityMemberships).values([{userId:accountant!.id,legalEntityId:f.entities[0]!.id},{userId:warehouse!.id,legalEntityId:f.entities[0]!.id}]);
  await expect(reportEntities(f.db,accountant!.id)).rejects.toMatchObject({code:"FORBIDDEN"});
- await setReportAccess(f.db,f.actor.userId,createUuidV7(),{userId:accountant!.id,entityId:f.entities[0]!.id,granted:true,recipient:true});
+ await setReportAccess(f.db,(await serviceAdminSessionFixture(f.db)).principal,createUuidV7(),{userId:accountant!.id,entityId:f.entities[0]!.id,granted:true,recipient:true});
  expect((await reportEntities(f.db,accountant!.id)).map(e=>e.id)).toEqual([f.entities[0]!.id]);
  await expect(movementReport(f.db,accountant!.id,range(f.entities[1]!.id))).rejects.toMatchObject({code:"FORBIDDEN"});
  await f.db.insert(userPermissions).values({userId:warehouse!.id,permissionKey:"reports.view",grantedBy:f.actor.userId});

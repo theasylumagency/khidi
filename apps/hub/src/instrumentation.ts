@@ -1,5 +1,7 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs" && process.env.NODE_ENV === "production") {
+    const { assertProductionConfiguration } = await import("@khidi/shared/production-config");
+    assertProductionConfiguration();
     const { webauthnConfig } = await import("@khidi/auth/webauthn-config");
     webauthnConfig();
     const {vapidConfig}=await import("@khidi/notifications/push-config");vapidConfig();

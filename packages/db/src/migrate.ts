@@ -116,7 +116,7 @@ if (
       );
     })
     .catch((err) => {
-      console.error("Migration failed:", err);
+      console.error("Khidi migration failed; inspect configuration and database health.");
       process.exit(1);
     });
 }

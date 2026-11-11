@@ -32,9 +32,9 @@ export const createStorefrontSchema = z.object({
   key: z.string().trim().min(2).max(64).regex(/^[a-z0-9-]+$/),
   name: z.string().trim().min(2).max(120),
   domain: z.string().trim().min(3).max(255),
-  sellerEntityId: z.string().uuid(),
-  mediaBaseUrl: z.string().url(),
-  webhookUrl: z.string().url().optional(),
+  sellerEntityId: z.string().max(36).uuid(),
+  mediaBaseUrl: z.string().max(2048).url(),
+  webhookUrl: z.string().max(2048).url().optional(),
   reservationPolicy: z
     .object({
       CARD: z.number().int().positive(),
@@ -48,8 +48,8 @@ export const createStorefrontSchema = z.object({
 export type CreateStorefrontInput = z.infer<typeof createStorefrontSchema>;
 
 export const setEntityRelationshipSchema = z.object({
-  fromEntityId: z.string().uuid(),
-  toEntityId: z.string().uuid(),
+  fromEntityId: z.string().max(36).uuid(),
+  toEntityId: z.string().max(36).uuid(),
   mode: relationshipModeSchema,
   effectiveFrom: z.date().optional(),
   notes: z.string().max(500).optional()
@@ -65,6 +65,8 @@ export async function createLegalEntity(
   const input = createLegalEntitySchema.parse(rawInput);
 
   return withDomainTransaction(db, actor, async (ctx) => {
+    const [admin] = actor.userId ? await ctx.tx.select({id:users.id}).from(users).where(and(eq(users.id,actor.userId),eq(users.active,true),eq(users.role,"ADMIN"))) : [];
+    if(!admin)throw new AppError("FORBIDDEN","Entity creation requires ADMIN.");
     const id = createUuidV7();
     const [created] = await ctx.tx
       .insert(legalEntities)
@@ -94,6 +96,7 @@ export async function createLegalEntity(
       }
     });
 
+    await ctx.emitOutboxEvent({eventType:"LEGAL_ENTITY_CREATED",aggregateType:"legal_entity",aggregateId:created.id,payload:{id:created.id},consumers:[]});
     return created;
   });
 }

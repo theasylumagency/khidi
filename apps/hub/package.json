@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev --port 3100",
     "build": "next build",
-    "start": "node --env-file-if-exists=../../.env --import tsx ../../ops/check-production-config.ts && next start --port 3100",
+    "start": "node --env-file-if-exists=../../.env --import tsx ../../ops/check-production-config.ts --runtime && next start --hostname 127.0.0.1 --port 3100",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },

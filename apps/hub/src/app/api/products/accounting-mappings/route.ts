@@ -1,3 +1,4 @@
+import { readBoundedJson } from "../../../../lib/request-body.ts";
 import { NextResponse } from "next/server";
 import { getDb } from "@khidi/db";
 import { assertRoleAllowed } from "@khidi/auth";
@@ -17,7 +18,7 @@ export async function POST(request: Request) {
         const key = request.headers.get("Idempotency-Key") ?? "";
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key))
             throw new AppError("VALIDATION_ERROR", "Invalid request key.");
-        const body = await request.json() as Parameters<typeof upsertAccountingMapping>[2];
+        const body = await readBoundedJson(request) as Parameters<typeof upsertAccountingMapping>[2];
         if (!body.skuId || !body.legalEntityId || typeof body.accountingItemId !== "string" || typeof body.accountingName !== "string"
             || (body.confirmSharedAccountingItem !== undefined && typeof body.confirmSharedAccountingItem !== "boolean"))
             throw new AppError("VALIDATION_ERROR", "Accounting mapping fields are required.");

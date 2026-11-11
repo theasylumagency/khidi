@@ -16,7 +16,7 @@
   "dependencies": {
     "@khidi/shared": "workspace:*",
     "bcryptjs": "3.0.2",
-    "drizzle-orm": "0.40.0",
+    "drizzle-orm": "0.45.4",
     "pg": "8.13.3"
   },
   "devDependencies": {

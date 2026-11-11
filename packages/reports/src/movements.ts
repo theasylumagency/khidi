@@ -3,8 +3,8 @@ import type { DbExecutor } from "@khidi/db";
 import { AppError } from "@khidi/shared";
 import { z } from "zod";
 import { assertReportAccess } from "./access.ts";
-const day=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v=>!Number.isNaN(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v);
-export const reportRangeSchema=z.object({entityId:z.string().uuid(),from:day,to:day,availability:z.boolean().default(false)}).strict()
+const day=z.string().max(10).regex(/^\d{4}-\d{2}-\d{2}$/).refine(v=>!Number.isNaN(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v);
+export const reportRangeSchema=z.object({entityId:z.string().max(36).uuid(),from:day,to:day,availability:z.boolean().default(false)}).strict()
  .refine(v=>v.from<=v.to&&Date.parse(v.to)-Date.parse(v.from)<=366*86400000);
 export type ReportRange=z.input<typeof reportRangeSchema>;
 export type MovementRow={

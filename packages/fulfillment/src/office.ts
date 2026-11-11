@@ -28,7 +28,7 @@ export async function listFulfillmentOffice(db:DbExecutor,p:Staff,actionRequired
   return {requests:requests.map((r)=>({...r,confirmation:latest.find((h)=>h.id===r.id)?.confirmation??null})),expiry,canUseControlledActions:mode==="CONTROLLED_FULFILLMENT",...(user.role==="ADMIN" ? {mode} : {})};
 }
 export async function getFulfillmentOfficeDetail(db:DbExecutor,p:Staff,id:string) {
-  const user=await assertFulfillmentOfficeAccess(db,p);parseInput(z.string().uuid(),id);
+  const user=await assertFulfillmentOfficeAccess(db,p);parseInput(z.string().max(36).uuid(),id);
   const [record]=await db.select({request:fulfillmentRequests,reservation:reservations,storeName:storefronts.name}).from(fulfillmentRequests)
     .innerJoin(reservations,eq(reservations.id,fulfillmentRequests.reservationId)).innerJoin(storefronts,eq(storefronts.id,fulfillmentRequests.storefrontId)).where(eq(fulfillmentRequests.id,id));
   if(!record)throw new AppError("NOT_FOUND","Fulfillment request not found.");
@@ -44,8 +44,8 @@ export async function getFulfillmentOfficeDetail(db:DbExecutor,p:Staff,id:string
 }
 export async function fulfillmentOfficeAction(db:DbExecutor,p:Staff,key:string,raw:unknown) {
   const input=parseInput(z.discriminatedUnion("action",[
-    z.object({action:z.literal("CANCEL"),fulfillmentRequestId:z.string().uuid(),reason:z.string().trim().min(1).max(1000)}).strict(),
-    z.object({action:z.literal("LOST"),fulfillmentRequestId:z.string().uuid(),lineId:z.string().uuid(),reason:z.string().trim().min(1).max(1000)}).strict()
+    z.object({action:z.literal("CANCEL"),fulfillmentRequestId:z.string().max(36).uuid(),reason:z.string().trim().min(1).max(1000)}).strict(),
+    z.object({action:z.literal("LOST"),fulfillmentRequestId:z.string().max(36).uuid(),lineId:z.string().max(36).uuid(),reason:z.string().trim().min(1).max(1000)}).strict()
   ]),raw);
   await assertFulfillmentOfficeAccess(db,p);
   return workflowCommand(db,p,"office-action",key,input,async(ctx)=>{

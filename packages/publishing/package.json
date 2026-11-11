@@ -14,17 +14,17 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@khidi/db": "workspace:*",
     "@khidi/domain": "workspace:*",
-    "zod": "3.24.2",
-    "@khidi/evidence": "workspace:*",
     "@khidi/entities": "workspace:*",
+    "@khidi/evidence": "workspace:*",
     "@khidi/inventory": "workspace:*",
     "@khidi/media": "workspace:*",
     "@khidi/pricing": "workspace:*",
     "@khidi/products": "workspace:*",
     "@khidi/shared": "workspace:*",
-    "@khidi/db": "workspace:*",
-    "drizzle-orm": "0.40.0",
-    "pg": "8.13.3"
+    "drizzle-orm": "0.45.4",
+    "pg": "8.13.3",
+    "zod": "3.24.2"
   }
 }

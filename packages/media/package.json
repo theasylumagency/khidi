@@ -24,7 +24,7 @@
     "@khidi/domain": "workspace:*",
     "@khidi/evidence": "workspace:*",
     "@khidi/shared": "workspace:*",
-    "drizzle-orm": "0.40.0",
+    "drizzle-orm": "0.45.4",
     "pg": "8.13.3",
     "pg-boss": "12.38.0",
     "sharp": "0.35.5",

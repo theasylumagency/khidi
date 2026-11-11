@@ -1,3 +1,4 @@
+import { readBoundedText, parseBoundedObjectJson } from "../../../../lib/request-body.ts";
 import { getDb } from "@khidi/db";
 import { managePushSubscription,pushSubscriptionStatus } from "@khidi/notifications";
 import { vapidConfig } from "@khidi/notifications/push-config";
@@ -12,7 +13,7 @@ export async function GET(request:Request){try{
 }catch(e){return scanningErrorResponse(e);}}
 export async function POST(request:Request){try{
  const p=await getCurrentPrincipal();if(!p)throw new AppError("UNAUTHORIZED","Login required.");assertSecurityOrigin(request);
- const text=await request.text();if(text.length>8192)throw new AppError("VALIDATION_ERROR","Too large.");const raw=JSON.parse(text);
+ const text=await readBoundedText(request, 8192);if(text.length>8192)throw new AppError("VALIDATION_ERROR","Too large.");const raw=parseBoundedObjectJson(text);
  if(raw?.action==="ENABLE")vapidConfig();
  const result=await managePushSubscription(getDb(),p,request.headers.get("idempotency-key")??"",raw);
  return Response.json(result.body,{status:result.status,headers:{"Cache-Control":"private, no-store"}});

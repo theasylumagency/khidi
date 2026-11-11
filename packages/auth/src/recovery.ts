@@ -26,8 +26,8 @@ export async function inspectRecoveryUser(db: DbExecutor, email: string) {
 }
 
 const recoveryInput = z.object({
-  email: z.string().trim().email().transform((value) => value.toLowerCase()),
-  confirmationEmail: z.string().trim().email().transform((value) => value.toLowerCase()),
+  email: z.string().max(254).trim().email().transform((value) => value.toLowerCase()),
+  confirmationEmail: z.string().max(254).trim().email().transform((value) => value.toLowerCase()),
   resetTotp: z.boolean(), newPassword: officePassword.optional(), revokeSessions: z.boolean(),
   revokePasskeys: z.boolean().optional().default(false),
   note: z.string().trim().min(1).max(2000)

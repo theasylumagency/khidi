@@ -24,5 +24,5 @@ it("rejects stock writes and new allocations after a source is archived",async()
   const f=await inventoryFixture(false);
   await transitionSkuLifecycle(f.db,f.actor,f.sku.id,"ARCHIVED",{reason:"Archived fixture"});
   await expect(f.apply([{...f.base,type:"STOCK_IN",quantity:1}])).rejects.toThrow(/Archived/);
-  await expect(f.db.insert(allocations).values({id:createUuidV7(),...f.base,storefrontId:f.stores[2]!.id})).rejects.toThrow(/Archived/);
+  await expect(f.db.insert(allocations).values({id:createUuidV7(),...f.base,storefrontId:f.stores[2]!.id})).rejects.toMatchObject({cause:{message:expect.stringMatching(/Archived/)}});
 });

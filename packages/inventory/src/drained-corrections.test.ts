@@ -18,7 +18,7 @@ it("refuses source balances and held units, then merges history-only into a stoc
   const before=await f.db.select().from(allocationBalances).where(eq(allocationBalances.allocationId,survivor.body.allocationId));
   await expect(mergeSkus(f.db,f.actor,input)).rejects.toMatchObject({details:{blockedReason:"SKU_INVENTORY_NOT_DRAINED"}});
   await expect(transitionSkuLifecycle(f.db,f.actor,f.sku.id,"ARCHIVED")).rejects.toMatchObject({details:{blockedReason:"SKU_INVENTORY_NOT_DRAINED"}});
-  await expect(f.db.update(skus).set({lifecycleState:"ARCHIVED"}).where(eq(skus.id,f.sku.id))).rejects.toThrow(/SKU_INVENTORY_NOT_DRAINED/);
+  await expect(f.db.update(skus).set({lifecycleState:"ARCHIVED"}).where(eq(skus.id,f.sku.id))).rejects.toMatchObject({cause:{message:expect.stringMatching(/SKU_INVENTORY_NOT_DRAINED/)}});
   await f.apply([{...f.line,type:"RESERVE",quantity:5,paymentMethod:"CARD"},{...f.line,type:"COMMIT",quantity:2}]);
   await set(f.sku.id,0);
   await expect(mergeSkus(f.db,f.actor,input)).rejects.toMatchObject({details:{blockedReason:"SKU_INVENTORY_NOT_DRAINED"}});

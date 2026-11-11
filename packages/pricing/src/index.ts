@@ -1,3 +1,4 @@
+import { boundedRecord } from "@khidi/shared/input-limits";
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { legalEntities, skus, storefrontPrices, storefronts, userPermissions, users, type DbExecutor } from "@khidi/db";
@@ -12,9 +13,9 @@ export const MAX_PRICE_MINOR = 2_147_483_647;
 export type PriceRow = typeof storefrontPrices.$inferSelect;
 
 export const priceChangeSchema = z.object({
-  skuId: z.string().uuid(), storefrontId: z.string().uuid(), kind: z.enum(["SET", "WITHDRAWN"]).default("SET"),
+  skuId: z.string().max(36).uuid(), storefrontId: z.string().max(36).uuid(), kind: z.enum(["SET", "WITHDRAWN"]).default("SET"),
   basePriceMinor: z.number().int().positive().max(MAX_PRICE_MINOR).optional(), currency: z.literal("GEL").default("GEL"),
-  vatIncluded: z.boolean().optional(), expectedPriceId: z.string().uuid().nullable().optional()
+  vatIncluded: z.boolean().optional(), expectedPriceId: z.string().max(36).uuid().nullable().optional()
 }).strict().superRefine((change, ctx) => {
   if ((change.kind === "SET") !== (change.basePriceMinor !== undefined)) ctx.addIssue({ code: "custom", message: "SET requires an amount; WITHDRAWN forbids it." });
 });
@@ -157,11 +158,11 @@ export type CorrectionPriceImpact = Awaited<ReturnType<typeof getCorrectionPrice
 
 export async function copyPricePreview(db: DbExecutor, actor: DomainActor, sourceStorefrontId: string, targetStorefrontId: string, skuIds: string[], expectedPriceIds: Record<string, string | null>) {
   await assertPriceAccess(db, actor, true);
-  if (!z.string().uuid().safeParse(sourceStorefrontId).success || !z.string().uuid().safeParse(targetStorefrontId).success
-    || sourceStorefrontId === targetStorefrontId || !z.array(z.string().uuid()).min(1).max(1000).safeParse(skuIds).success) {
+  if (!z.string().max(36).uuid().safeParse(sourceStorefrontId).success || !z.string().max(36).uuid().safeParse(targetStorefrontId).success
+    || sourceStorefrontId === targetStorefrontId || !z.array(z.string().max(36).uuid()).min(1).max(1000).safeParse(skuIds).success) {
     throw new AppError("VALIDATION_ERROR", "Invalid price copy selection.");
   }
-  const expected = z.record(z.string().uuid().nullable()).safeParse(expectedPriceIds);
+  const expected = boundedRecord(z.string().max(128), z.string().max(36).uuid().nullable(), 1000).safeParse(expectedPriceIds);
   if (!expected.success || skuIds.some((skuId) => expected.data[skuId] === undefined)) throw new AppError("VALIDATION_ERROR", "Copying prices requires an expected destination price ID for every SKU.");
   const source = new Map((await listLatestPrices(db, { storefrontId: sourceStorefrontId })).filter((row) => row.kind === "SET").map((row) => [row.skuId, row]));
   const changes = skuIds.map((skuId) => {

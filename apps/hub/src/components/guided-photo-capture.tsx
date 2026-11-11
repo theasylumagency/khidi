@@ -15,11 +15,13 @@ function Thumbnail({ blob, label }: { blob?: Blob; label: string }) {
   return url ? <img src={url} alt={label} /> : <span className="photo-saved-icon" aria-hidden="true">✓</span>;
 }
 export function GuidedPhotoCapture(props: {
-  slots: CaptureSlot[]; acceptedSlots: PhotoSlot[]; syncedSlots?: PhotoSlot[]; queuedPhotos?: QueuedPhotoView[]; photoReceipts?: ReadonlySet<string>;
+  slots: CaptureSlot[]; acceptedSlots: PhotoSlot[];absentSlots?:PhotoSlot[]; syncedSlots?: PhotoSlot[]; queuedPhotos?: QueuedPhotoView[]; photoReceipts?: ReadonlySet<string>;
   qualityConfig: QualityConfig; disabled?: boolean; scanNotice?: boolean;
   onAccept: (photo: CapturedPhoto) => Promise<string>;
   onCannotPhotograph: (reason: string, slots: PhotoSlot[]) => Promise<void>; onComplete: (notice?: "attention") => void;
   onPhotoTaken?: () => void; onNativePending?: (pending: boolean) => void;
+  onIdentificationObservation?:(slot:PhotoSlot,outcome:"PLATE_ABSENT"|"LATER")=>Promise<void>;
+  observationsDisabled?:boolean;
 }) {
   const { slots, acceptedSlots, syncedSlots = [], queuedPhotos = [], photoReceipts = new Set<string>(), disabled, onCannotPhotograph, onComplete } = props;
   const parent = useParentCameraShell(), [open, setOpen] = useState(false);
@@ -32,6 +34,7 @@ export function GuidedPhotoCapture(props: {
   const [cannot, setCannot] = useState(false), [reason, setReason] = useState(""), [reporting, setReporting] = useState(false), [reportError, setReportError] = useState(false);
   const [notice, setNotice] = useState(!!props.scanNotice);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [plateMissing,setPlateMissing]=useState<PhotoSlot|null>(null);
   const native = useRef<HTMLInputElement>(null), picker = useRef<HTMLInputElement>(null);
   const surfaceRef = useRef<HTMLElement>(null);
   const slotsKey = JSON.stringify(slots), acceptedKey = [...acceptedSlots].sort().join("|");
@@ -50,6 +53,7 @@ export function GuidedPhotoCapture(props: {
   const title = (slot: CaptureSlot) => slot.titleKa ?? t(`media.slot.${slot.slot}` as TranslationKey);
   const saved = (slot: PhotoSlot) => state.saved.find((photo) => photo.slot === slot) ?? queuedPhotos.findLast((photo) => photo.slot === slot);
   const status = (slot: PhotoSlot) => {
+    if(props.absentSlots?.includes(slot)&&!saved(slot)&&!syncedSlots.includes(slot))return t("plate.absent");
     const photo = saved(slot);
     if (photo && photoReceipts.has(photo.key) || !photo && syncedSlots.includes(slot)) return t("camera.photo_synced");
     if (photo && queuedPhotos.some((item) => item.key === photo.key && item.blocked)) return t("camera.photo_blocked");
@@ -64,6 +68,15 @@ export function GuidedPhotoCapture(props: {
   }
   function choose(input: HTMLInputElement | null) { latest.current.onNativePending?.(true); input?.click(); }
   function complete(notice?: "attention") { setOpen(false); onComplete(notice); }
+  async function observe(outcome:"PLATE_ABSENT"|"LATER") {
+    if(!current||busy||!props.onIdentificationObservation)return;setReporting(true);setReportError(false);
+    try {
+      if(outcome==="PLATE_ABSENT"&&current.slot==="ENGINE_IDENTIFICATION")await workflow.recordAbsentEnginePlate(()=>props.onIdentificationObservation!(current.slot,outcome));
+      else await props.onIdentificationObservation(current.slot,outcome);setCannot(false);
+      if(outcome==="LATER"){complete("attention");return;}
+      setPlateMissing(current.slot);
+    }catch{setReportError(true);}finally{setReporting(false);}
+  }
   async function explain(event: FormEvent) {
     event.preventDefault(); if (!reason.trim() || busy) return;
     setReporting(true); setReportError(false);
@@ -72,16 +85,18 @@ export function GuidedPhotoCapture(props: {
     finally { setReporting(false); }
   }
   if (!current) return null;
-  const currentPhoto = saved(current.slot), completed = slots.filter((slot) => state.accepted.includes(slot.slot)).length;
+  const currentPhoto = saved(current.slot),resolvedAbsence=(slot:PhotoSlot)=>props.absentSlots?.includes(slot)&&!saved(slot)&&!syncedSlots.includes(slot);
+  const completed = slots.filter((slot) => state.accepted.includes(slot.slot)&&!resolvedAbsence(slot.slot)).length;
   const surface = <section ref={surfaceRef} className="camera-surface photo-workflow" aria-label={t("media.capture_title")}>
     <header className="photo-workflow-heading">
       <p className="photo-notice" role="status">{notice ? t("camera.scan_recorded") : ""}</p>
       <p className="photo-step">{t("camera.photo_step").replace("{step}", String(slots.indexOf(current) + 1)).replace("{total}", String(slots.length))} · {t(current.required ? "media.required" : "camera.optional")}</p>
       <h2 aria-live="polite" aria-atomic="true">{title(current)}</h2><p className="photo-guidance">{current.guidanceKa ?? t(`media.instruction.${current.slot}` as TranslationKey)}</p>
+      {plateMissing===current.slot?<p role="status">{t(current.slot==="ENGINE_IDENTIFICATION"?"plate.documents":"plate.alternatives")}</p>:null}
     </header>
     <div className="photo-capture-card" aria-busy={busy}>
       <div className="photo-guide" aria-hidden="true">{state.candidate || currentPhoto ? <Thumbnail blob={state.candidate ?? currentPhoto?.blob} label={t("media.last_photo")} /> :
-        <svg viewBox="0 0 240 150"><rect x="20" y="10" width="200" height="130" rx="14" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="8 6" />{current.slot === "IDENTIFICATION" ? <><rect x="50" y="45" width="140" height="62" rx="6" fill="none" stroke="currentColor" strokeWidth="3" /><path d="M66 62h90M66 77h110M66 92h60" stroke="currentColor" strokeWidth="4" /></> : <path d="M75 110V55l45-25 45 25v55l-45 25zM75 55l45 25 45-25M120 80v55" fill="none" stroke="currentColor" strokeWidth="3" />}</svg>}</div>
+        <svg viewBox="0 0 240 150"><rect x="20" y="10" width="200" height="130" rx="14" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="8 6" />{["IDENTIFICATION","ENGINE_IDENTIFICATION"].includes(current.slot) ? <><rect x="50" y="45" width="140" height="62" rx="6" fill="none" stroke="currentColor" strokeWidth="3" /><path d="M66 62h90M66 77h110M66 92h60" stroke="currentColor" strokeWidth="4" /></> : <path d="M75 110V55l45-25 45 25v55l-45 25zM75 55l45 25 45-25M120 80v55" fill="none" stroke="currentColor" strokeWidth="3" />}</svg>}</div>
       {current.alreadyCovered ? <p className="photo-covered">{t("media.slot_already_covered")}</p> : null}
       {state.accepted.includes(current.slot) ? <p className="photo-retake-note">{t("camera.retake_keeps_original")}</p> : null}
       <button type="button" className="photo-open-camera" disabled={busy || disabled} onClick={() => choose(native.current)}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M8 5l1-2h6l1 2h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" /><circle cx="12" cy="13" r="4" /></svg> {t("camera.open_native")}</button>
@@ -92,7 +107,7 @@ export function GuidedPhotoCapture(props: {
     <input hidden ref={native} type="file" accept="image/jpeg" capture="environment" onChange={selected} aria-label={t("media.native_capture")} />
     <input hidden ref={picker} type="file" accept="image/jpeg,image/png,image/webp" onChange={selected} aria-label={t("media.pick_file")} />
     <footer className="photo-workflow-footer">
-      <p className="photo-count">{t("camera.saved_count").replace("{done}", String(completed)).replace("{total}", String(slots.length))}</p>
+      <p className="photo-count">{t("camera.saved_count").replace("{done}", String(completed)).replace("{total}", String(slots.filter(slot=>!resolvedAbsence(slot.slot)).length))}</p>
       <ul className="photo-saved-list">{slots.filter((slot) => state.accepted.includes(slot.slot)).map((slot) => <li key={slot.slot}>
         <button type="button" className="photo-saved-row" disabled={busy} onClick={() => workflow.select(slot.slot)} aria-label={`${t("media.retake")}: ${title(slot)}`}>
           <span className="photo-thumbnail"><Thumbnail blob={saved(slot.slot)?.blob} label={title(slot)} /></span>
@@ -106,7 +121,11 @@ export function GuidedPhotoCapture(props: {
         <button type="button" className="photo-cannot" disabled={busy} onClick={() => setCannot(true)}>{t("media.cannot_photo")}</button>
       </>}
     </footer>
-    {cannot ? <section className="camera-sheet"><button type="button" disabled={reporting} onClick={() => setCannot(false)}>{t("camera.return_photos")}</button><form onSubmit={explain}><label>{t("media.cannot_reason")}<textarea value={reason} onChange={(event) => setReason(event.target.value)} required maxLength={4000} /></label><button type="submit" disabled={busy || !reason.trim()}>{t("media.save_reason")}</button>{reportError ? <p role="alert">{t("media.storage_error")}</p> : null}</form></section> : null}
+    {props.onIdentificationObservation&&current.slot==="ENGINE_IDENTIFICATION"?<div><button type="button" disabled={busy||props.observationsDisabled} onClick={()=>void observe("PLATE_ABSENT")}>{t("plate.absent")}</button><button type="button" disabled={busy||props.observationsDisabled} onClick={()=>void observe("LATER")}>{t("plate.later")}</button></div>:null}
+    {reportError?<p role="alert">{t("media.storage_error")}</p>:null}
+    {cannot ? <section className="camera-sheet"><button type="button" disabled={reporting} onClick={() => setCannot(false)}>{t("camera.return_photos")}</button>
+      {props.onIdentificationObservation&&current.slot==="IDENTIFICATION"?<button type="button" disabled={busy||props.observationsDisabled} onClick={()=>void observe("PLATE_ABSENT")}>{t("plate.absent")}</button>:null}
+      <form onSubmit={explain}><label>{t("media.cannot_reason")}<textarea value={reason} onChange={(event) => setReason(event.target.value)} required maxLength={4000} /></label><button type="submit" disabled={busy || !reason.trim()}>{t("media.save_reason")}</button>{reportError ? <p role="alert">{t("media.storage_error")}</p> : null}</form></section> : null}
   </section>;
   return parent ? surface : <><button type="button" onClick={() => setOpen(true)}>{t("camera.start_photos")}</button><CameraShell open={open} title={t("media.capture_title")} onClose={() => setOpen(false)} onStop={() => {}}>{surface}</CameraShell></>;
 }

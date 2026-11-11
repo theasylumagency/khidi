@@ -202,7 +202,7 @@ export type RelationshipMode = (typeof RELATIONSHIP_MODES)[number];
 export const LOCALES = ["ka", "en"] as const;
 export type SupportedLocale = (typeof LOCALES)[number];
 
-export const uuidSchema = z.string().uuid();
+export const uuidSchema = z.string().max(36).uuid();
 export const roleSchema = z.enum(USER_ROLES);
 export const localeSchema = z.enum(LOCALES);
 export const relationshipModeSchema = z.enum(RELATIONSHIP_MODES);

@@ -1,3 +1,4 @@
+import { readBoundedText, parseBoundedObjectJson } from "../../../lib/request-body.ts";
 import { getDb } from "@khidi/db";
 import { assertRecentStrongAuth, assertRoleAllowed } from "@khidi/auth";
 import { withDomainTransaction } from "@khidi/domain";
@@ -15,8 +16,8 @@ export async function GET(){try{
 }catch(e){return scanningErrorResponse(e);}}
 export async function POST(request:Request){try{
   const p=await getCurrentPrincipal();if(!p)throw new AppError("UNAUTHORIZED","Login required.");assertRoleAllowed(p,["ADMIN","ORDER_MANAGER"]);assertSecurityOrigin(request);
-  const text=await request.text();if(text.length>16384)throw new AppError("VALIDATION_ERROR","Body too large.");
-  const command=parseInput(z.object({action:z.enum(["office","mode","webhook","retry-webhook"]),input:z.unknown()}).strict(),JSON.parse(text));
+  const text=await readBoundedText(request, 16384);if(text.length>16384)throw new AppError("VALIDATION_ERROR","Body too large.");
+  const command=parseInput(z.object({action:z.enum(["office","mode","webhook","retry-webhook"]),input:z.unknown()}).strict(),parseBoundedObjectJson(text));
   const db=getDb(),staff={type:"USER" as const,userId:p.userId},key=request.headers.get("idempotency-key")??"";
   let result;
   if(command.action==="office")result=await fulfillmentOfficeAction(db,staff,key,command.input);

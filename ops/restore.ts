@@ -11,5 +11,5 @@ export async function restoreBackup(runner: OpsRunner, backupSet: string, target
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   restoreBackup(new OpsRunner(readOpsConfig()), required("BACKUP_SET"), process.env.RECOVERY_TARGET_TIME)
-    .catch((error: Error) => { console.error(error.message); process.exitCode = 1; });
+    .catch((error: Error) => { console.error("Khidi operation failed; inspect configuration and service health."); process.exitCode = 1; });
 }

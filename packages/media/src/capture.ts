@@ -1,11 +1,12 @@
-import { eq } from "drizzle-orm";
+import { desc,eq } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
-import { type DbExecutor, intakePhotoStatus, productImages, productIntakes, scanTasks, skus } from "@khidi/db";
+import { type DbExecutor, identificationObservations,intakePhotoStatus, productImages, productIntakes, scanTasks, skus } from "@khidi/db";
+import { lockIdentityCatalog,recomputeSkuIdentity } from "@khidi/evidence";
 import { executeIdempotent, withDomainTransaction } from "@khidi/domain";
 import { AppError, sha256Hex } from "@khidi/shared";
 import { type CaptureSlot, type PhotoSlot, photoAttentionSchema, photoTargetSchema } from "./contracts.ts";
 import { assertMediaPrincipal } from "./principal.ts";
-import { canCompleteIntakePhotos, captureSlotsForSku, initializeIntakePhotos, intakeSku, originalPhotoIntake, resolveUploadTarget } from "./targets.ts";
+import { canCompleteIntakePhotos, captureSlotsForSku, initializeIntakePhotos, intakeSku, originalPhotoIntake, resolveUploadTarget,refreshIntakePhotoStatus,refreshPhotoRequest } from "./targets.ts";
 import { configuredQuality } from "./upload.ts";
 import { mediaReceipt, recordMediaReceipt } from "./transactions.ts";
 
@@ -51,9 +52,12 @@ export async function getPhotoCaptureContext(db: DbExecutor, principal: Authenti
   const images = await db.select({ id: productImages.id, slot: productImages.slot, status: productImages.status, passedTier1: productImages.tier1QualityJson })
     .from(productImages).where(intakeId ? eq(productImages.intakeId, intakeId) : taskId ? eq(productImages.photoRequestTaskId, taskId) : eq(productImages.skuId, skuId!));
   const acceptedSlots = [...new Set(images.filter((image) => image.passedTier1.passed === true && image.status !== "REJECTED").map((image) => image.slot as PhotoSlot))];
+  const observations=await db.select().from(identificationObservations).where(intakeId?eq(identificationObservations.intakeId,intakeId):taskId?eq(identificationObservations.photoRequestTaskId,taskId):eq(identificationObservations.skuId,skuId!)).orderBy(desc(identificationObservations.createdAt),desc(identificationObservations.id));
+  const engine=observations.find(row=>row.slot==="ENGINE_IDENTIFICATION");
+  const resolvedSlots:PhotoSlot[]=engine?.outcome==="PLATE_ABSENT"&&!acceptedSlots.includes("ENGINE_IDENTIFICATION")?["ENGINE_IDENTIFICATION"]:[];
   return { target: intakeId ? { intakeId, intakeIdempotencyKey: null, photoRequestTaskId: null, skuId: null } : target,
     originalIntakeId: intakeId, isDuplicate, canCompletePhotos: canComplete, title, slots: slots as CaptureSlot[], photosRequired,
-    missingSlots: slots.filter((slot) => slot.required && !acceptedSlots.includes(slot.slot)).map((slot) => slot.slot), acceptedSlots, qualityConfig: configuredQuality() };
+    missingSlots: slots.filter((slot) => slot.required && !acceptedSlots.includes(slot.slot)&&!resolvedSlots.includes(slot.slot)).map((slot) => slot.slot), acceptedSlots,resolvedSlots,observations,qualityConfig: configuredQuality() };
 }
 
 export async function reportPhotoAttention(db: DbExecutor, principal: AuthenticatedPrincipal, raw: unknown) {
@@ -64,9 +68,22 @@ export async function reportPhotoAttention(db: DbExecutor, principal: Authentica
   if (input.userId !== principal.userId || principal.authMethod === "WAREHOUSE_PIN" && input.deviceId !== principal.deviceId) throw new AppError("FORBIDDEN", "Photo report owner/device mismatch.");
   const hash = sha256Hex(JSON.stringify(input));
   return executeIdempotent(db, { scope: "media:attention", idempotencyKey: input.idempotencyKey, payload: input }, (tx) => withDomainTransaction(tx, { userId: principal.userId }, async (ctx) => {
+    if(input.outcome)await lockIdentityCatalog(ctx.tx);
     const receipt = await mediaReceipt(ctx.tx, input.idempotencyKey, principal.userId, hash, "PHOTO_ATTENTION");
     if (receipt) return { status: 201, body: receipt };
     const target = await resolveUploadTarget(ctx.tx, principal, { ...input, slot: input.slots[0]! });
+    if(input.outcome) {
+      const reason=input.outcome==="PLATE_ABSENT"?"PLATE_ABSENT":"CAPTURE_PENDING",slot=input.slots[0]!;
+      await ctx.tx.insert(identificationObservations).values({id:input.idempotencyKey,...target,slot,fieldName:slot==="ENGINE_IDENTIFICATION"?"engine_model":"model_code",outcome:input.outcome,status:input.outcome==="PLATE_ABSENT"?"NOT_FOUND":"PENDING",reason,authorId:principal.userId,deviceId:input.deviceId,capturedAt:new Date(input.capturedAt)});
+      if(target.intakeId){await initializeIntakePhotos(ctx,target.intakeId,target.skuId);await refreshIntakePhotoStatus(ctx,target.intakeId);}
+      if(target.photoRequestTaskId)await refreshPhotoRequest(ctx,target.photoRequestTaskId);
+      // Class A remains intake-only until an administrator explicitly resolves it.
+      if(target.skuId)await recomputeSkuIdentity(ctx,target.skuId);
+      const body={id:input.idempotencyKey,...target,needsAttention:true,slots:input.slots,reason,outcome:input.outcome};
+      await ctx.recordAudit({action:"IDENTIFICATION_OBSERVED",entityType:"identification_observation",entityId:input.idempotencyKey,after:{...body,authorId:principal.userId,capturedAt:input.capturedAt},reason});
+      await ctx.emitOutboxEvent({eventType:"PHOTO_ATTENTION_REPORTED",aggregateType:"photo_attention",aggregateId:input.idempotencyKey,payload:body,consumers:["notifications"]});
+      await recordMediaReceipt(ctx,input.idempotencyKey,hash,"PHOTO_ATTENTION",body);return {status:201,body};
+    }
     if (target.intakeId) {
       await initializeIntakePhotos(ctx, target.intakeId, target.skuId);
       await ctx.tx.update(intakePhotoStatus).set({ status: "ATTENTION", attentionReason: input.reason, updatedAt: new Date() }).where(eq(intakePhotoStatus.intakeId, target.intakeId));

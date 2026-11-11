@@ -1,3 +1,4 @@
+import { readBoundedJson, parseBoundedObjectJson } from "../../../lib/request-body.ts";
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { getDb } from "@khidi/db";
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
     const form = multipart ? await readPhotoFormData(request) : null;
     const metadata = form?.get("evidence");
     if (form && (typeof metadata !== "string" || metadata.length > 16_384)) throw new AppError("VALIDATION_ERROR", "Invalid evidence metadata.");
-    const body = (typeof metadata === "string" ? JSON.parse(metadata) : await request.json()) as Record<string, unknown>;
+    const body = (typeof metadata === "string" ? parseBoundedObjectJson(metadata) : await readBoundedJson(request)) as Record<string, unknown>;
     const { action, ...input } = body ?? {};
     const file = form?.get("photo");
     if (file instanceof File && file.name && !file.size) throw new AppError("VALIDATION_ERROR", "Evidence attachment is empty.");

@@ -5,8 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./jobs":"./src/jobs.ts",
-    "./audit":"./src/audit.ts"
+    "./jobs": "./src/jobs.ts",
+    "./audit": "./src/audit.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -22,10 +22,11 @@
     "@khidi/media": "workspace:*",
     "@khidi/products": "workspace:*",
     "@khidi/shared": "workspace:*",
-    "drizzle-orm": "0.40.0",
+    "drizzle-orm": "0.45.4",
     "exceljs": "4.4.0",
     "pg": "8.13.3",
     "pg-boss": "12.38.0",
-    "zod": "3.24.2"
+    "zod": "3.24.2",
+    "@khidi/auth": "workspace:*"
   }
 }

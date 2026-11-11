@@ -1,6 +1,6 @@
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, desc,eq, isNull, or } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
-import { type DbExecutor, getSkuImages, intakePhotoStatus, productImages, productIntakes, productTypes, scanTasks, skus } from "@khidi/db";
+import { type DbExecutor, getSkuImages, identificationObservations,intakePhotoStatus, productImages, productIntakes, productTypes, scanTasks, skus } from "@khidi/db";
 import type { DomainTransactionContext } from "@khidi/domain";
 import { AppError } from "@khidi/shared";
 import { GENERIC_CAPTURE_SLOTS, PHOTO_SLOTS, type CaptureSlot, type PhotoSlot, type PhotoUploadInput } from "./contracts.ts";
@@ -73,9 +73,13 @@ export async function refreshIntakePhotoStatus(ctx: DomainTransactionContext, in
     return;
   }
   const accepted = new Set(images.filter((image) => image.tier1.passed === true && image.status !== "REJECTED").map((image) => image.slot));
+  const observations=await ctx.tx.select().from(identificationObservations).where(eq(identificationObservations.intakeId,intakeId)).orderBy(desc(identificationObservations.createdAt),desc(identificationObservations.id));
+  const unresolved=observations.filter((row,index,all)=>all.findIndex(other=>other.slot===row.slot)===index&&!accepted.has(row.slot));
+  const engine=observations.find(row=>row.slot==="ENGINE_IDENTIFICATION");
+  if(engine?.outcome==="PLATE_ABSENT")accepted.add("ENGINE_IDENTIFICATION");
   const complete = state.requiredSlotsJson.every((slot) => accepted.has(slot));
-  const attentionReason = disagreement ? "SERVER_TIER1_DISAGREEMENT" : complete ? null : state.attentionReason;
-  await ctx.tx.update(intakePhotoStatus).set({ status: disagreement ? "ATTENTION" : complete ? "COMPLETE" : state.status === "ATTENTION" ? "ATTENTION" : "PENDING", attentionReason, updatedAt: new Date() }).where(eq(intakePhotoStatus.intakeId, intakeId));
+  const attentionReason = disagreement ? "SERVER_TIER1_DISAGREEMENT" : unresolved[0]?.reason??(complete||["PLATE_ABSENT","CAPTURE_PENDING"].includes(state.attentionReason??"") ? null : state.attentionReason);
+  await ctx.tx.update(intakePhotoStatus).set({ status: attentionReason ? "ATTENTION" : complete ? "COMPLETE" : "PENDING", attentionReason, updatedAt: new Date() }).where(eq(intakePhotoStatus.intakeId, intakeId));
   await ctx.tx.update(productIntakes).set({ photosMissing: !complete, photoAttentionReason: attentionReason }).where(eq(productIntakes.id, intakeId));
 }
 export async function refreshPhotoRequest(ctx: DomainTransactionContext, taskId: string) {
@@ -83,9 +87,12 @@ export async function refreshPhotoRequest(ctx: DomainTransactionContext, taskId:
   if (!task || task.taskType !== "PHOTO_REQUEST" || !["OPEN", "IN_PROGRESS"].includes(task.status)) return;
   const images = await ctx.tx.select({ slot: productImages.slot, quality: productImages.tier1QualityJson, status: productImages.status }).from(productImages).where(eq(productImages.photoRequestTaskId, taskId));
   const accepted = new Set(images.filter((image) => image.quality.passed === true && image.status !== "REJECTED").map((image) => image.slot));
+  const observations=await ctx.tx.select().from(identificationObservations).where(eq(identificationObservations.photoRequestTaskId,taskId)).orderBy(desc(identificationObservations.createdAt),desc(identificationObservations.id));
+  const engine=observations.find(row=>row.slot==="ENGINE_IDENTIFICATION"),resolvedObservationIds=engine?.outcome==="PLATE_ABSENT"&&!accepted.has("ENGINE_IDENTIFICATION")?[engine.id]:[];
+  if(resolvedObservationIds.length)accepted.add("ENGINE_IDENTIFICATION");
   const completedCount = task.requestedPhotoSlotsJson!.filter((slot) => accepted.has(slot)).length, complete = completedCount === task.requestedPhotoSlotsJson!.length;
   await ctx.tx.update(scanTasks).set({ completedCount, status: complete ? "COMPLETED" : "IN_PROGRESS", completedAt: complete ? new Date() : null }).where(eq(scanTasks.id, taskId));
-  const body = { status: complete ? "COMPLETED" : "IN_PROGRESS", completedCount, targetCount: task.requestedPhotoSlotsJson!.length };
+  const body = { status: complete ? "COMPLETED" : "IN_PROGRESS", completedCount, targetCount: task.requestedPhotoSlotsJson!.length,...(resolvedObservationIds.length?{resolvedObservationIds}:{}) };
   await ctx.recordAudit({ action: complete ? "SCAN_TASK_COMPLETED" : "PHOTO_REQUEST_PROGRESS_UPDATED", entityType: "scan_task", entityId: taskId, after: body });
   await ctx.emitOutboxEvent({ eventType: complete ? "SCAN_TASK_COMPLETED" : "PHOTO_REQUEST_PROGRESS_UPDATED", aggregateType: "scan_task", aggregateId: taskId, payload: body, consumers: complete ? ["notifications"] : [] });
 }

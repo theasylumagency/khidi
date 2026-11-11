@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { validateCanonicalDraft, type CanonicalContentContext, type ContentValidationRules } from "./content-validation.ts";
+import { generateCanonicalDraft,validateCanonicalDraft, type CanonicalContentContext, type ContentValidationRules } from "./content-validation.ts";
 
 const context: CanonicalContentContext = {
   identityKind: "MANUFACTURER_IDENTIFIED", typeNameKa: "", typeNameEn: "", typeAliases: [], distinguishing: [],
@@ -12,6 +12,15 @@ const rules: ContentValidationRules = {
 const validate = (text: string, facts = context.facts) => validateCanonicalDraft({
   displayName: "", shortDescription: text, fullDescription: "", searchAliases: []
 }, { ...context, facts }, rules);
+
+it("validates type-specific rated/maximum generator power through KA unit aliases, without swapping the fields or converting output to HP",()=>{
+ const facts={rated_power_kw:{value:3.68,labelKa:"ნომინალური სიმძლავრე",labelEn:"Rated power",unit:"kW"},max_power_kw:{value:5,labelKa:"მაქსიმალური სიმძლავრე",labelEn:"Maximum power",unit:"kW"}};
+ const parameters=Object.entries(facts).map(([key,fact])=>({key,labels:[fact.labelKa,fact.labelEn],unit:fact.unit})),content={...context,identityKind:"HOUSE_DEFINED",facts,distinguishing:["rated_power_kw"],typeNameKa:"გენერატორი",typeNameEn:"Generator"};
+ const check=(text:string)=>validateCanonicalDraft({displayName:"",shortDescription:text,fullDescription:"",searchAliases:[]},content,{...rules,parameters});
+ expect(check("ნომინალური სიმძლავრე 3.68 კვტ; მაქსიმალური სიმძლავრე 5 კვტ").issues).toEqual([]);
+ expect(check("ნომინალური სიმძლავრე 5 კვტ").issues).toHaveLength(1);
+ expect(generateCanonicalDraft(content,"ka").displayName).toContain("3.68 kW");expect(generateCanonicalDraft(content,"ka").displayName).not.toContain("HP");
+});
 
 it.each(["MMA-200A", "mma–200a", "MMA-200A-ის", "MMA-200A, MMA-200A"])(
   "recognizes verified model %s before interpreting its unit-like numbers", (text) => {

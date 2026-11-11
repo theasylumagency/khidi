@@ -100,3 +100,23 @@ its id and SHA-256. These in-memory UI receipts are bounded and reset per user; 
 queue protocol, dependencies, ownership, replay and backoff remain unchanged. On reopening,
 server capture context confirms uploaded slots; queued retakes retain their own pending status
 even when an older photo already filled that slot. No thumbnail download API is added.
+
+## Owner H10 clarification — checked plate absence (2026-11-08)
+
+GENERATOR has separate generator and engine plate steps. ENGINE_IDENTIFICATION offers capture,
+“ფირფიტა არ აქვს”, and “მოგვიანებით”. Checked absence is an immutable author/device/time observation
+with outcome PLATE_ABSENT, value null and status NOT_FOUND; later is PENDING/CAPTURE_PENDING.
+Both use the scan-dependent per-user offline queue. Neither creates image bytes or a fake photo.
+Checked engine-plate absence resolves that capture step, including an engine PHOTO_REQUEST slot;
+task audit records resolvedObservationIds separately from photos. Later leaves it unfinished.
+
+IDENTIFICATION's explicit absent-plate reason suggests packaging, stickers or markings instead.
+Admin review and notifications point to document/supplier evidence rather than a nonexistent
+plate reshoot. A real accepted photo clears the pending-capture indicator; the observation
+history remains. Class A observations stay intake-only until the administrator resolves them.
+Photo quota blocks new images, not a small durable inability/absence report (storage failure is
+still shown and never claimed as success). The owner must verify this flow on both phone platforms.
+
+Absence does not verify a model or any specification, does not choose identity kind, and does not
+replace accepted evidence or the separate ADMIN field-level not-determinable decision in ADR-010.
+Products without plates continue through the existing HOUSE_DEFINED path.

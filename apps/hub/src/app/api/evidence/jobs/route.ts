@@ -1,3 +1,4 @@
+import { readBoundedJson } from "../../../../lib/request-body.ts";
 import { NextResponse } from "next/server";
 import { assertRoleAllowed } from "@khidi/auth";
 import { AI_JOB_NAMES, queueAiJob, retryAiJob, type AiJobName } from "@khidi/ai";
@@ -17,7 +18,7 @@ export async function POST(request: Request) {
     assertRoleAllowed(principal, ["ADMIN"]);
     assertSecurityOrigin(request);
     const key = request.headers.get("Idempotency-Key") ?? "";
-    const body = await request.json() as { id?: string; skuId?: string; jobName?: AiJobName; imageId?: string; imageVersion?: number; evidenceId?: string };
+    const body = await readBoundedJson(request) as { id?: string; skuId?: string; jobName?: AiJobName; imageId?: string; imageVersion?: number; evidenceId?: string };
     if (!uuid.test(key) || (body.id ? !uuid.test(body.id) : !uuid.test(body.skuId ?? "") || !body.jobName || !AI_JOB_NAMES.includes(body.jobName))
       || (body.imageId !== undefined && !uuid.test(body.imageId)) || (body.evidenceId !== undefined && !uuid.test(body.evidenceId))) {
       throw new AppError("VALIDATION_ERROR", "Invalid AI job request.");

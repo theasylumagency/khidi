@@ -9,6 +9,17 @@ import { createMediaStorage } from "./storage-config.ts";
 import type { S3Client } from "@aws-sdk/client-s3";
 
 describe("P1 immutable private media storage", () => {
+  it("reads a recovered immutable key when the replica has a different version ID, still requiring its original hash",async()=>{
+    const bytes=new Uint8Array([1,2,3]),key=privateImageKey(createUuidV7(),"original.jpg"),missing={$metadata:{httpStatusCode:404}};
+    const send=vi.fn().mockRejectedValueOnce(missing).mockResolvedValueOnce({Body:{transformToByteArray:async()=>bytes}});
+    const storage=new S3MediaStorage({send} as unknown as S3Client,"private","public");
+    expect(await storage.readPrivate(key,digest(bytes),"old-site-version")).toEqual(bytes);
+    expect(send.mock.calls[1]![0].input.VersionId).toBeUndefined();
+    send.mockRejectedValueOnce(missing).mockResolvedValueOnce({Body:{transformToByteArray:async()=>new Uint8Array([9])}});
+    await expect(storage.readPrivate(key,digest(bytes),"old-site-version")).rejects.toBeInstanceOf(StorageIntegrityError);
+    send.mockRejectedValueOnce({$metadata:{httpStatusCode:403}});
+    const count=send.mock.calls.length;await expect(storage.readPrivate(key,digest(bytes),"old-site-version")).rejects.toBeDefined();expect(send.mock.calls.length).toBe(count+1);
+  });
   const roots: string[] = [];
   afterEach(async () => {
     for (const root of roots.splice(0)) {

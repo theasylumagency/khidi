@@ -8,6 +8,6 @@ try {
   console.log(JSON.stringify(result,null,2));
   if(!result.ok) process.exitCode=1;
 } catch(error) {
-  console.error(error instanceof Error ? error.message : "Inventory verification failed.");
+  console.error("Khidi inventory verification failed; inspect configuration and service health.");
   process.exitCode=2;
 } finally {await closeAppPool();}

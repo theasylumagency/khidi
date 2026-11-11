@@ -1,0 +1,27 @@
+{
+  "localSyntheticDrill": true,
+  "startedAt": "2026-11-08T18:54:42.365Z",
+  "finishedAt": "2026-11-08T18:55:12.793Z",
+  "backupSet": "20261108-185442F",
+  "postgres": "18.4",
+  "pgBackRest": "2.60.0",
+  "migrations": 55,
+  "tables": 99,
+  "objects": 37,
+  "privateReferences": 25,
+  "rawSamples": 2,
+  "migrationChecksumsMatch": true,
+  "tableCountsMatch": true,
+  "mediaHashesMatch": true,
+  "inventoryVerified": true,
+  "scenarios": [
+    "A",
+    "B",
+    "C",
+    "D"
+  ],
+  "scenariosPassed": true,
+  "recoveredOriginalCountsUnchanged": true,
+  "sharedServerCertified": false,
+  "warning": "Local fixture root group was mapped to the restore operator; content and hashes passed."
+}

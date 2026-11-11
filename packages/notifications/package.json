@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./deadlines":"./src/deadlines.ts",
-    "./push-config":"./src/push-config.ts",
+    "./deadlines": "./src/deadlines.ts",
+    "./push-config": "./src/push-config.ts",
     ".": "./src/index.ts"
   },
   "scripts": {
@@ -18,7 +18,7 @@
     "@khidi/domain": "workspace:*",
     "@khidi/i18n": "workspace:*",
     "@khidi/shared": "workspace:*",
-    "drizzle-orm": "0.40.0",
+    "drizzle-orm": "0.45.4",
     "pg": "8.13.3",
     "web-push": "3.6.7",
     "zod": "3.24.2"

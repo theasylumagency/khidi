@@ -45,7 +45,7 @@ it("accepts a multipart inspection and replays evidence and lifecycle requests b
   expect(review.status).toBe(200);
   const lifecycleKey = createUuidV7();
   const move = () => updateLifecycle(new Request(`${origin}/api/products/ready`, { method: "POST",
-    headers: { "Content-Type": "application/json", "Idempotency-Key": lifecycleKey },
+    headers: { Origin: origin, "Content-Type": "application/json", "Idempotency-Key": lifecycleKey },
     body: JSON.stringify({ action: "TRANSITION_LIFECYCLE", skuId: sku.id, targetState: "IDENTIFIED" }) }));
   const moved = await move();
   expect(moved.status).toBe(200);

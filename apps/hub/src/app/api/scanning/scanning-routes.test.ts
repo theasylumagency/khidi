@@ -15,7 +15,7 @@ import { POST as discard } from "./discards/route.ts";
 import { GET as taskProgress } from "./tasks/[taskId]/route.ts";
 
 describe("M3 scanning route authorization", () => {
-  const request = () => new Request("http://localhost:3100/api/scanning/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  const request = () => new Request("http://localhost:3100/api/scanning/tasks", { method: "POST", headers: { Origin: "http://localhost:3100", "Content-Type": "application/json" }, body: "{}" });
   it("requires a verified session for all scanning writes", async () => {
     session.principal = null;
     for (const handler of [createTask, printLabels, intake, resolveReview, discard]) expect((await handler(request())).status).toBe(401);

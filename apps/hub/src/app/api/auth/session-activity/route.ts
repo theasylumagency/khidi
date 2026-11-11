@@ -1,3 +1,4 @@
+import { readBoundedJson } from "../../../../lib/request-body.ts";
 import { NextResponse, type NextRequest } from "next/server";
 import { renewSessionActivity } from "@khidi/auth";
 import { getDb } from "@khidi/db";
@@ -13,14 +14,15 @@ export async function POST(request: NextRequest) {
   catch { return json({ ok: false }, 403); }
   const token = request.cookies.get(KHIDI_SESSION_COOKIE)?.value;
   if (!token) return denied();
-  const body = await request.json().catch(() => null);
+  let body:Record<string,unknown>;
+  try{body=await readBoundedJson(request,4096);}catch(error){return json({ok:false},error instanceof AppError&&error.code==="PAYLOAD_TOO_LARGE"?413:400);}
   if (typeof body?.sessionId !== "string" || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(body.sessionId)) return json({ ok: false }, 400);
   try {
     if (body.action === "status") {
       const timing = (await getCurrentPrincipal({ throwOnUnavailable: true }))?.sessionTiming;
       return timing && timing.sessionId === body.sessionId ? json(timing) : denied();
     }
-    if (body.action !== "activity" || !Number.isSafeInteger(body.lastActivityAtMs) || body.lastActivityAtMs <= 0) return json({ ok: false }, 400);
+    if (body.action !== "activity" || typeof body.lastActivityAtMs!=="number" || !Number.isSafeInteger(body.lastActivityAtMs) || body.lastActivityAtMs <= 0) return json({ ok: false }, 400);
     return json(await renewSessionActivity(getDb(), token, body.sessionId, body.lastActivityAtMs));
   } catch (error) {
     return error instanceof AppError && error.code === "UNAUTHORIZED" ? denied() : json({ ok: false }, 503);

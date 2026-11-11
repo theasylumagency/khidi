@@ -105,7 +105,7 @@ async function requestState(ctx:DomainTransactionContext,p:Staff,requestId:strin
   const lines=await ctx.tx.select().from(fulfillmentLines).where(eq(fulfillmentLines.fulfillmentRequestId,requestId));
   return {state,request:current!,lines};
 }
-const unitSchema=z.object({fulfillmentRequestId:z.string().uuid(),lineId:z.string().uuid(),action:z.enum(["PICK","RETURN"]),
+const unitSchema=z.object({fulfillmentRequestId:z.string().max(36).uuid(),lineId:z.string().max(36).uuid(),action:z.enum(["PICK","RETURN"]),
   confirmation:z.discriminatedUnion("method",[
     z.object({method:z.literal("SCAN"),identifier:z.string().trim().min(1).max(200)}).strict(),
     z.object({method:z.literal("MANUAL"),reason:z.string().trim().min(1).max(1000)}).strict()
@@ -154,7 +154,7 @@ export async function confirmFulfillmentUnit(db:DbExecutor,p:Staff,key:string,ra
   });
 }
 
-const requestSchema=z.object({fulfillmentRequestId:z.string().uuid()}).strict();
+const requestSchema=z.object({fulfillmentRequestId:z.string().max(36).uuid()}).strict();
 export async function handoverOrder(db:DbExecutor,p:Staff,key:string,raw:unknown) {
   const input=parseInput(requestSchema,raw);
   return workflowCommand<OrderResponse>(db,p,"handover",key,input,async(ctx)=>{
@@ -211,7 +211,7 @@ export async function cancelFulfillment(db:DbExecutor,p:Staff,key:string,raw:unk
   });
 }
 export async function markLostInStaging(db:DbExecutor,p:Staff,key:string,raw:unknown) {
-  const input=parseInput(requestSchema.extend({lineId:z.string().uuid(),reason:z.string().trim().min(1).max(1000)}).strict(),raw);
+  const input=parseInput(requestSchema.extend({lineId:z.string().max(36).uuid(),reason:z.string().trim().min(1).max(1000)}).strict(),raw);
   return workflowCommand<OrderResponse>(db,p,"lost",key,input,async(ctx)=>{
     await staffRole(ctx.tx,p,["ADMIN"]);
     const {state,request,lines}=await requestState(ctx,p,input.fulfillmentRequestId);

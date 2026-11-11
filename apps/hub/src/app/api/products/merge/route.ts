@@ -1,3 +1,4 @@
+import { readBoundedJson } from "../../../../lib/request-body.ts";
 import { NextResponse } from "next/server";
 import { assertRoleAllowed } from "@khidi/auth";
 import { getDb } from "@khidi/db";
@@ -18,7 +19,7 @@ export async function POST(request: Request) {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) {
       throw new AppError("VALIDATION_ERROR", "Invalid request key.");
     }
-    const body: unknown = await request.json();
+    const body: unknown = await readBoundedJson(request);
     const actor = { userId: principal.userId };
     const result = await executeIdempotent(getDb(), { scope: "m6:sku-merge", idempotencyKey: key, payload: { body, ...actor } },
       async (tx) => ({ status: 200, body: await mergeSkus(tx, actor, body) }));

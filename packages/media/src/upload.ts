@@ -63,8 +63,8 @@ export async function receivePhoto(db: DbExecutor, storage: MediaStorage, princi
         await storage.readPrivate(key, rawSha256);
       }
       await ctx.tx.insert(productImages).values({ id, ...target, slot: input.slot,
-        role: input.slot === "MAIN" ? "MAIN" : input.slot === "IDENTIFICATION" ? "IDENTITY" : "GALLERY",
-        usage: input.slot === "IDENTIFICATION" ? "INTERNAL_EVIDENCE" : "PUBLIC",
+        role: input.slot === "MAIN" ? "MAIN" : ["IDENTIFICATION","ENGINE_IDENTIFICATION"].includes(input.slot) ? "IDENTITY" : "GALLERY",
+        usage: ["IDENTIFICATION","ENGINE_IDENTIFICATION"].includes(input.slot) ? "INTERNAL_EVIDENCE" : "PUBLIC",
         rawStorageKey: key, rawSha256, rawBytes: bytes.byteLength, rawVersionId: versionId,
         mimeType: photo.mime, width: photo.width, height: photo.height, capturedAt: new Date(input.capturedAt),
         deviceId: input.deviceId, registeredDeviceId: principal.deviceId, idempotencyKey: input.idempotencyKey,

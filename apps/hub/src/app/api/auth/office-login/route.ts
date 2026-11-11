@@ -1,3 +1,4 @@
+import { readBoundedJson } from "../../../../lib/request-body.ts";
 import { assertHubRequestHost } from "../../../../lib/host-isolation.ts";
 import { NextResponse, type NextRequest } from "next/server";
 import { getDb } from "@khidi/db";
@@ -15,7 +16,7 @@ const json: typeof NextResponse.json = (body, init) => NextResponse.json(body, {
 export async function POST(request: NextRequest) {
   try {
     assertHubRequestHost(request);
-    const body = (await request.json()) as {
+    const body = (await readBoundedJson(request, 16384)) as {
       email?: string;
       password?: string;
       totpCode?: string;
@@ -78,7 +79,7 @@ export async function POST(request: NextRequest) {
         const enrollment = err.details.totpEnrollment as { base32Secret: string; otpauthUri: string; accountLabel: string };
         return json({ ok: true, enrollment: { ...enrollment, qrSvg: renderInternalQrSvg(enrollment.otpauthUri, 240) } });
       }
-      const status = err.code === "UNAUTHORIZED" ? 401 : err.code === "FORBIDDEN" ? 403 : 400;
+      const status = err.code === "UNAUTHORIZED" ? 401 : err.code === "FORBIDDEN" ? 403 : err.code === "PAYLOAD_TOO_LARGE" ? 413 : 400;
       return json({ error: err.code, message: t("auth.login_failed") }, { status });
     }
     return json(

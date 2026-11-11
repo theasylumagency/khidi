@@ -1,3 +1,4 @@
+import { readBoundedJson } from "../../../lib/request-body.ts";
 import { NextResponse } from "next/server";
 import { getDb } from "@khidi/db";
 import { executeIdempotent } from "@khidi/domain";
@@ -43,7 +44,7 @@ export async function POST(request:Request) {
     if(!["ADMIN","STOCK_MANAGER"].includes(principal.role)) throw new AppError("FORBIDDEN","Inventory access denied.");
     assertSecurityOrigin(request);
     const db=getDb(),actor={userId:principal.userId};await inventoryAccess(db,actor);
-    const body=await request.json() as {action?:string;input?:Record<string,unknown>};
+    const body=await readBoundedJson(request) as {action?:string;input?:Record<string,unknown>};
     if(!body.input || typeof body.input!=="object") throw new AppError("VALIDATION_ERROR","Input required.");
     const input=body.input;
     if(body.action==="preview") return NextResponse.json({preview:await previewOnlineAvailability(db,actor,input as AvailabilityTarget)});

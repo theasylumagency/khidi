@@ -1,3 +1,4 @@
+import { assertProductionConfiguration } from "@khidi/shared/production-config";
 import { nowUtc } from "@khidi/shared";
 import { getDb } from "@khidi/db";
 import { createMediaJobRuntime, dispatchMediaJobs, startMediaWorkers, getMediaStorage, MEDIA_QUEUES } from "@khidi/media";
@@ -20,7 +21,7 @@ export function getWorkerHealthStatus() {
 }
 
 if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, "/")}` || process.argv[1]?.endsWith("index.ts")) {
-  if(process.env.NODE_ENV==="production")vapidConfig();
+  if(process.env.NODE_ENV==="production"){assertProductionConfiguration();vapidConfig();}
   const db = getDb(), storage = getMediaStorage(), boss = await createMediaJobRuntime({schedule:true});
   await startMediaWorkers(db, storage, boss);
   await startAiWorkers(db, storage, boss, configuredAiProvider());

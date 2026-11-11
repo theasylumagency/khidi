@@ -19,7 +19,7 @@
     "@khidi/shared": "workspace:*",
     "@simplewebauthn/server": "14.0.3",
     "bcryptjs": "3.0.2",
-    "drizzle-orm": "0.40.0",
+    "drizzle-orm": "0.45.4",
     "otpauth": "9.3.6",
     "zod": "3.24.2"
   }

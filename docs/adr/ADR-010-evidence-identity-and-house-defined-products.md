@@ -190,3 +190,14 @@ creates a conflict:
 - Schema: `identity_kind`, evidence registry tables, `distinguishingAttributes` on Product Types,
   stored confidence results with rule version — all in new migrations.
 - The specification §6.1–6.4 and §5.10 will be updated to match this ADR.
+
+### Owner H10 clarification — absence observations (2026-11-08)
+
+A checked absent plate is an attributed PLATE_ABSENT observation with null value and NOT_FOUND,
+distinct from a skipped/pending capture. When the corresponding field is otherwise NOT_FOUND,
+its projection records that reason and observation provenance. VERIFIED/CONFLICT evidence is
+never overwritten by absence; accepted documents can determine the field later. The observation
+is not accepted evidence for a value and is not an ADMIN not-determinable confirmation. A Class A
+intake cannot change the catalog until explicit admin resolution. The absence itself introduces
+no READY gate: HOUSE_DEFINED → MEDIUM → explicitly confirmed READY remains valid. See ADR-007
+for capture and docs/catalog/README.md for H10's reference-only subtype/compatibility boundaries.

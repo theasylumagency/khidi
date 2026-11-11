@@ -6,8 +6,8 @@ import { parseInput, type StorefrontPrincipal } from "@khidi/reservations";
 import { AppError } from "@khidi/shared";
 import { z } from "zod";
 import { cancelLocked } from "./workflow.ts";
-export const ensureFulfillmentSchema=z.object({reservationId:z.string().uuid()}).strict();
-export const cancelStorefrontFulfillmentSchema=z.object({fulfillmentRequestId:z.string().uuid(),reason:z.string().trim().min(1).max(1000)}).strict();
+export const ensureFulfillmentSchema=z.object({reservationId:z.string().max(36).uuid()}).strict();
+export const cancelStorefrontFulfillmentSchema=z.object({fulfillmentRequestId:z.string().max(36).uuid(),reason:z.string().trim().min(1).max(1000)}).strict();
 export async function getStorefrontFulfillment(db:DbExecutor,p:StorefrontPrincipal,id:string) {
   await authorizeWorkflowPrincipal(db,p);
   const [request]=await db.select().from(fulfillmentRequests).where(and(eq(fulfillmentRequests.id,id),eq(fulfillmentRequests.storefrontId,p.storefrontId)));

@@ -1,3 +1,4 @@
+import { readBoundedText, parseBoundedObjectJson } from "../../../../lib/request-body.ts";
 import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { getDb } from "@khidi/db";
@@ -19,7 +20,7 @@ const json = (body: unknown, status = 200) => NextResponse.json(body, { status, 
 function failure(error: unknown, publicSignIn = false) {
   if (publicSignIn) return json({ error: "UNAUTHORIZED", message: t("passkey.sign_in_failed") }, 401);
   const code = error instanceof AppError ? error.code : "INTERNAL_ERROR";
-  const status = code === "RECENT_AUTH_REQUIRED" ? 428 : code === "UNAUTHORIZED" ? 401 : code === "FORBIDDEN" ? 403 : code === "INTERNAL_ERROR" ? 500 : 400;
+  const status = code === "RECENT_AUTH_REQUIRED" ? 428 : code === "UNAUTHORIZED" ? 401 : code === "FORBIDDEN" ? 403 : code === "INTERNAL_ERROR" ? 500 : code === "PAYLOAD_TOO_LARGE" ? 413 : 400;
   return json({ error: code, message: t(code === "RECENT_AUTH_REQUIRED" ? "passkey.reauth_required" : "passkey.operation_failed") }, status);
 }
 
@@ -42,9 +43,9 @@ export async function POST(request: NextRequest) {
   let publicSignIn = false, finishing = false;
   try {
     assertSecurityOrigin(request);
-    const text = await request.text();
+    const text = await readBoundedText(request, 65536);
     if (Buffer.byteLength(text) > 65536) throw new AppError("VALIDATION_ERROR", "Request too large.");
-    const body = JSON.parse(text) as Record<string, unknown>;
+    const body = parseBoundedObjectJson(text) as Record<string, unknown>;
     const action = body?.action;
     if (typeof action !== "string") throw new AppError("VALIDATION_ERROR", "Action required.");
     publicSignIn = action.startsWith("sign-in-");

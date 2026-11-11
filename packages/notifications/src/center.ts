@@ -7,7 +7,7 @@ import { receiptAccess,notificationUser } from "./access.ts";
 import { notificationLevels } from "./model.ts";
 const parse=<T>(schema:z.ZodType<T>,raw:unknown):T=>{const p=schema.safeParse(raw);if(!p.success)throw new AppError("VALIDATION_ERROR","Invalid notification input.");return p.data;};
 export async function listNotifications(db:DbExecutor,userId:string,raw:unknown={}) {
- const input=parse(z.object({cursor:z.string().uuid().optional(),unread:z.boolean().default(false),includeMuted:z.boolean().default(false)}).strict(),raw);
+ const input=parse(z.object({cursor:z.string().max(36).uuid().optional(),unread:z.boolean().default(false),includeMuted:z.boolean().default(false)}).strict(),raw);
  const rows=await db.select({notification:notifications,readAt:notificationReceipts.readAt,muted:notificationReceipts.muted}).from(notificationReceipts)
   .innerJoin(notifications,eq(notifications.id,notificationReceipts.notificationId)).where(and(await receiptAccess(db,userId),input.cursor?lt(notifications.id,input.cursor):undefined,
    input.unread?isNull(notificationReceipts.readAt):undefined,input.includeMuted?undefined:eq(notificationReceipts.muted,false))).orderBy(desc(notifications.id)).limit(51);
@@ -23,10 +23,10 @@ export async function notificationSettings(db:DbExecutor,userId:string) {
 }
 export async function updateNotification(db:DbExecutor,userId:string,key:string,raw:unknown) {
  const input=parse(z.discriminatedUnion("action",[
-  z.object({action:z.literal("READ"),notificationId:z.string().uuid()}).strict(),
-  z.object({action:z.literal("MUTE"),type:z.string(),muted:z.boolean()}).strict()
+  z.object({action:z.literal("READ"),notificationId:z.string().max(36).uuid()}).strict(),
+  z.object({action:z.literal("MUTE"),type:z.string().max(65536),muted:z.boolean()}).strict()
  ]),raw);
- parse(z.string().uuid(),key);await notificationUser(db,userId);
+ parse(z.string().max(36).uuid(),key);await notificationUser(db,userId);
  if(input.action==="MUTE"&&notificationLevels[input.type as keyof typeof notificationLevels]!=="INFO")throw new AppError("FORBIDDEN","Only INFO can be muted.");
  return executeIdempotent(db,{scope:"notifications:"+userId,idempotencyKey:key,payload:input},tx=>withDomainTransaction(tx,{userId},async(ctx)=>{
   if(input.action==="READ") {

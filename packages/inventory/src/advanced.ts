@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { allocations, allocationBalances, legalEntities, poolLocations, poolSkuBalances, skus, stockPools, storefronts, type DbExecutor } from "@khidi/db";
+import { getPostgresError,allocations, allocationBalances, legalEntities, poolLocations, poolSkuBalances, skus, stockPools, storefronts, type DbExecutor } from "@khidi/db";
 import { withDomainTransaction, type DomainActor } from "@khidi/domain";
 import { acquireDomainLocks, INVENTORY_CONFIGURATION_LOCK } from "@khidi/domain/locking";
 import { AppError, createUuidV7 } from "@khidi/shared";
@@ -11,7 +11,7 @@ import { inventoryPrecondition } from "./availability.ts";
 import type { StockMovement } from "./types.ts";
 
 export async function createStockPool(db:DbExecutor,actor:DomainActor,raw:{ownerEntityId:string;name:string}) {
-  const parsed=z.object({ownerEntityId:z.string().uuid(),name:z.string().trim().min(1).max(120)}).strict().safeParse(raw);
+  const parsed=z.object({ownerEntityId:z.string().max(36).uuid(),name:z.string().trim().min(1).max(120)}).strict().safeParse(raw);
   if(!parsed.success) throw new AppError("VALIDATION_ERROR","Invalid pool.");
   return withDomainTransaction(db,actor,async(ctx)=>{
     await inventoryAccess(ctx.tx,actor,undefined,true);
@@ -25,7 +25,7 @@ export async function createStockPool(db:DbExecutor,actor:DomainActor,raw:{owner
   });
 }
 export async function configureAvailabilityPool(db:DbExecutor,actor:DomainActor,raw:{storefrontId:string;poolId:string}) {
-  const parsed=z.object({storefrontId:z.string().uuid(),poolId:z.string().uuid()}).strict().safeParse(raw);
+  const parsed=z.object({storefrontId:z.string().max(36).uuid(),poolId:z.string().max(36).uuid()}).strict().safeParse(raw);
   if(!parsed.success) throw new AppError("VALIDATION_ERROR","Invalid pool configuration.");
   return withDomainTransaction(db,actor,async(ctx)=>{
     await inventoryAccess(ctx.tx,actor,undefined,true);
@@ -43,7 +43,7 @@ export async function configureAvailabilityPool(db:DbExecutor,actor:DomainActor,
     let updated:typeof storefronts.$inferSelect|undefined;
     try { [updated]=await ctx.tx.update(storefronts).set({availabilityPoolId:pool.id}).where(eq(storefronts.id,store.id)).returning(); }
     catch(error) {
-      if(error instanceof Error && error.message.includes("AVAILABILITY_POOL_NOT_DRAINED")) inventoryPrecondition("AVAILABILITY_POOL_NOT_DRAINED");
+      if(getPostgresError(error)?.message.includes("AVAILABILITY_POOL_NOT_DRAINED")) inventoryPrecondition("AVAILABILITY_POOL_NOT_DRAINED");
       throw error;
     }
     await ctx.recordAudit({action:"AVAILABILITY_POOL_CONFIGURED",entityType:"storefront",entityId:store.id,before:{availabilityPoolId:current!.availabilityPoolId},after:{availabilityPoolId:pool.id}});
@@ -54,8 +54,8 @@ export async function configureAvailabilityPool(db:DbExecutor,actor:DomainActor,
 
 export const advancedStockSchema=z.object({
   operation:z.enum(["STOCK_IN","STOCK_OUT","WRITE_OFF","ALLOCATE","DEALLOCATE","TRANSFER_SAME_POOL","TRANSFER_PURCHASE"]),
-  skuId:z.string().uuid(),poolId:z.string().uuid(),quantity:z.number().int().positive().max(2_147_483_647),
-  storefrontId:z.string().uuid().optional(),targetStorefrontId:z.string().uuid().optional(),targetPoolId:z.string().uuid().optional(),
+  skuId:z.string().max(36).uuid(),poolId:z.string().max(36).uuid(),quantity:z.number().int().positive().max(2_147_483_647),
+  storefrontId:z.string().max(36).uuid().optional(),targetStorefrontId:z.string().max(36).uuid().optional(),targetPoolId:z.string().max(36).uuid().optional(),
   reason:z.string().trim().min(1).max(1000),documentRef:z.string().trim().min(1).max(1000).optional()
 }).strict();
 export type AdvancedStockInput=z.infer<typeof advancedStockSchema>;
