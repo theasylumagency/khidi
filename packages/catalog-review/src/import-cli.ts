@@ -14,12 +14,12 @@ const expected = values["expect-database"];
 const shared = values["apply-shared"];
 
 if (!manifest || !media || positionals.length > 4 || (values.preview ? admin || shared || expected !== undefined : !admin)
-  || (shared ? !reviewer || !expected : expected !== undefined)) {
+  || (shared ? !expected : expected !== undefined)) {
   throw new Error([
     "Usage:",
     "  ops:catalog-review-pilot --preview MANIFEST AUDITED_MEDIA_DIRECTORY",
     "  ops:catalog-review-pilot MANIFEST AUDITED_MEDIA_DIRECTORY ADMIN_EMAIL [REVIEWER_EMAIL]",
-    "  ops:catalog-review-pilot --apply-shared --expect-database=NAME MANIFEST AUDITED_MEDIA_DIRECTORY ADMIN_EMAIL REVIEWER_EMAIL"
+    "  ops:catalog-review-pilot --apply-shared --expect-database=NAME MANIFEST AUDITED_MEDIA_DIRECTORY ADMIN_EMAIL [REVIEWER_EMAIL]"
   ].join("\n"));
 }
 

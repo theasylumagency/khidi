@@ -40,14 +40,14 @@ corepack pnpm ops:catalog-review-pilot --preview LOCAL_MANIFEST.json AUDITED_MED
 
 The AgroTrade batch preview should show 248 products, 31 WordPress drafts, 20 recommended starts, 733 proposals and 456 unique originals. Compare the manifest digest to the verified source. Import only that batch on the approved destination after the release and its recovery point have been verified. Apply migrations 0056 through 0058 through the normal release procedure.
 
-1. Add the reviewer's confirmed office email to the app gateway and create their `CATALOG_REVIEWER` account under **მომხმარებლები**. Copy their one-time setup link from the admin screen. Do not put the link or its token in the release record.
-2. Use the approved operations configuration with `NODE_ENV=production`, the paired database credentials and the existing private media storage. Run the import from the release directory. The command requires an active administrator for audit attribution and the reviewer account for batch assignment.
+1. Use the approved operations configuration with `NODE_ENV=production`, the paired database credentials and the existing private media storage. Run the import from the release directory with an active administrator for audit attribution. The batch stays unassigned until a reviewer is named.
 
    ```sh
-   corepack pnpm ops:catalog-review-pilot --apply-shared --expect-database=APPROVED_DATABASE LOCAL_MANIFEST.json AUDITED_MEDIA_DIRECTORY ADMIN_EMAIL REVIEWER_EMAIL
+   corepack pnpm ops:catalog-review-pilot --apply-shared --expect-database=APPROVED_DATABASE LOCAL_MANIFEST.json AUDITED_MEDIA_DIRECTORY ADMIN_EMAIL
    ```
 
-3. Record the resulting batch ID and counts. Repeating the command with the same manifest and reviewer returns the same batch and preserves decisions. Confirm the protected `/review` route and review-photo access. Hand the one-time setup link privately to the reviewer. After password and authenticator setup, they can use `https://app.khidi.app/review` to return.
+2. Record the resulting batch ID and counts. Add the reviewer's confirmed office email to the app gateway and create their `CATALOG_REVIEWER` account under **მომხმარებლები**. Copy their one-time setup link from the admin screen and keep it out of the release record.
+3. Rerun the same import command with `REVIEWER_EMAIL` appended. The existing batch is assigned without replacing records or decisions. Confirm the protected `/review` route and review-photo access. Hand the one-time setup link privately to the reviewer. After password and authenticator setup, they can use `https://app.khidi.app/review` to return.
 
 If a transfer is interrupted, repeat the file-only preview after resuming it. If an import fails, inspect its error, rerun the same verified bundle when ready, and reconcile any unreferenced private copies using the existing backup inventory. See the [release runbook](../ops/server-setup.md) for rollback. For reviewer access changes use the gateway and [user management](../ops/user-management.md).
 
