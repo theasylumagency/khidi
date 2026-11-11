@@ -181,7 +181,8 @@ export const USER_ROLES = [
   "OPERATOR",
   "STOCK_MANAGER",
   "WAREHOUSE",
-  "ORDER_MANAGER"
+  "ORDER_MANAGER",
+  "CATALOG_REVIEWER"
 ] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];

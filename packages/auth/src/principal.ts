@@ -3,7 +3,7 @@ import { users, userEntityMemberships, userPermissions, type AppDatabase, type D
 import { AppError, type UserRole, type GranularPermission, type SupportedLocale } from "@khidi/shared";
 import type { SessionTiming } from "./session-timing.ts";
 export type AuthMethod = "OFFICE_PASSWORD_TOTP" | "OFFICE_PASSKEY" | "WAREHOUSE_PIN";
-export const OFFICE_ROLES: UserRole[] = ["ADMIN", "STOCK_MANAGER", "OPERATOR", "ORDER_MANAGER"];
+export const OFFICE_ROLES: UserRole[] = ["ADMIN", "STOCK_MANAGER", "OPERATOR", "ORDER_MANAGER", "CATALOG_REVIEWER"];
 export interface AuthenticatedPrincipal {
   userId: string;
   email: string | null;
@@ -29,15 +29,10 @@ export async function loadPrincipalByUserId(
     throw new AppError("UNAUTHORIZED", "User is not active or does not exist.");
   }
 
-  const memberships = await db
-    .select()
-    .from(userEntityMemberships)
-    .where(eq(userEntityMemberships.userId, user.id));
-
-  const perms = await db
-    .select()
-    .from(userPermissions)
-    .where(eq(userPermissions.userId, user.id));
+  const [memberships, perms] = user.role === "CATALOG_REVIEWER" ? [[], []] : await Promise.all([
+    db.select().from(userEntityMemberships).where(eq(userEntityMemberships.userId, user.id)),
+    db.select().from(userPermissions).where(eq(userPermissions.userId, user.id))
+  ]);
 
   return {
     userId: user.id,

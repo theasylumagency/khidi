@@ -1137,3 +1137,4 @@ export const fulfillmentHistory=pgTable("fulfillment_history",{
   triggerCallId:uuid("trigger_call_id"),reason:text("reason"),
   createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()
 });
+export * from "./catalog-review-schema.ts";

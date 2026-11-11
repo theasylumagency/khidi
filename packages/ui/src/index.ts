@@ -17,5 +17,7 @@ export function getRoleBadge(role: UserRole): StatusBadgeDescriptor {
       return { label: "WAREHOUSE · საწყობი", tone: "warning" };
     case "ORDER_MANAGER":
       return { label: "ORDER_MANAGER · შეკვეთების მენეჯერი", tone: "neutral" };
+    case "CATALOG_REVIEWER":
+      return { label: "CATALOG_REVIEWER · კატალოგის მიმომხილველი", tone: "neutral" };
   }
 }

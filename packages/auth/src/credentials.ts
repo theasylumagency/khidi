@@ -79,5 +79,5 @@ export function verifyTotpCode(base32Secret: string, code: string, timestampMs: 
 }
 
 export function roleRequiresMandatoryTotp(role: UserRole): boolean {
-  return role === "ADMIN" || role === "STOCK_MANAGER";
+  return role === "ADMIN" || role === "STOCK_MANAGER" || role === "CATALOG_REVIEWER";
 }

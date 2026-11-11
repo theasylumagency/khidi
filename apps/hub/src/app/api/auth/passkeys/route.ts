@@ -30,7 +30,7 @@ function ownRememberedPreference(preference: ReturnType<typeof readQuickSignInPr
 
 export async function GET() {
   try {
-    const principal = await getCurrentPrincipal();
+    const principal = await getCurrentPrincipal({ allowCatalogReviewer: true });
     if (!principal || principal.authMethod === "WAREHOUSE_PIN" || principal.role === "WAREHOUSE") throw new AppError("UNAUTHORIZED", "Office login required.");
     const state = await ownSecurityState(getDb(), principal, await isSharedWarehouseBrowser());
     const remembered = readQuickSignInPreference((await cookies()).get(QUICK_SIGN_IN_COOKIE)?.value);
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     if (typeof action !== "string") throw new AppError("VALIDATION_ERROR", "Action required.");
     publicSignIn = action.startsWith("sign-in-");
     finishing = action.endsWith("-verify");
-    const principal = await getCurrentPrincipal(), sharedDevice = await isSharedWarehouseBrowser() || principal?.authMethod === "WAREHOUSE_PIN", db = getDb();
+    const principal = await getCurrentPrincipal({ allowCatalogReviewer: true }), sharedDevice = await isSharedWarehouseBrowser() || principal?.authMethod === "WAREHOUSE_PIN", db = getDb();
     if (!publicSignIn && (!principal || principal.authMethod === "WAREHOUSE_PIN" || principal.role === "WAREHOUSE")) throw new AppError("UNAUTHORIZED", "Office login required.");
     const passkeyAction = ["register-options", "register-verify", "sign-in-options", "sign-in-verify", "reauth-options", "reauth-verify", "rename", "revoke", "defer-offer", "remember-name"].includes(action);
     if (passkeyAction && sharedDevice) throw new AppError("FORBIDDEN", "Passkeys unavailable on a warehouse browser.");

@@ -12,10 +12,10 @@ export const dynamic = "force-dynamic";
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ session?: string;setup?:string }> }) {
   const query=await searchParams;
-  const existingPrincipal = await getCurrentPrincipal();
+  const existingPrincipal = await getCurrentPrincipal({ allowCatalogReviewer: true });
   if(query.setup==="1")return <UserSetup sessionId={existingPrincipal?.sessionId} registeredDevice={Boolean(await getRegisteredDevicePinContext())}/>;
   if (existingPrincipal) {
-    redirect("/");
+    redirect(existingPrincipal.role === "CATALOG_REVIEWER" ? "/review" : "/");
   }
 
   const [devicePinContext, sharedWarehouseDevice, cookieStore] = await Promise.all([
