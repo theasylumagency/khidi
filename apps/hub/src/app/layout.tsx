@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { formatStaffName, getNavigationForRole, t, type TranslationKey } from "@khidi/i18n";
 import { HubNavigation } from "../components/hub-navigation.tsx";
+import { WorkspaceBar } from "../components/workspace-bar.tsx";
 import { ScanQueueProvider } from "../components/scan-queue-provider.tsx";
 import { PwaRegister } from "../components/pwa-register.tsx";
 import { LogoutButton } from "../components/logout-button.tsx";
@@ -10,6 +11,7 @@ import { SessionIdleMonitor } from "../components/session-idle-monitor.tsx";
 import { getCurrentPrincipal } from "../lib/session.ts";
 import "../components/scanning.css";
 import "./hub.css";
+import "./signature.css";
 
 export const metadata: Metadata = {
   title: "Khidi — სასაწყობო და კატალოგის ჰაბი",
@@ -18,7 +20,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#12362e",
+  themeColor: "#102f27",
   width: "device-width",
   initialScale: 1
 };
@@ -55,6 +57,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             </header>
           )}
           <main id="hub-content" className="hub-content" tabIndex={-1}>
+            {principal ? <WorkspaceBar items={navItems} /> : null}
             <ScanQueueProvider user={principal ? { userId: principal.userId, fullName: principal.fullName, deviceId: principal.deviceId } : null}>
               {children}
             </ScanQueueProvider>

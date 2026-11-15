@@ -1,4 +1,4 @@
-import { TableScroll } from "../../components/table-scroll.tsx";
+import { CatalogTable } from "../../components/catalog-table.tsx";
 import Link from "next/link";
 import { getDb } from "@khidi/db";
 import { t } from "@khidi/i18n";
@@ -59,214 +59,13 @@ export default async function ProductsWorkspacePage({ searchParams }: {
       <section className="hub-panel hub-stack">
         <h2>{t("content.catalog_table")}</h2>
         <form action="/products" className="hub-form-row">
-          <label>{t("content.search")} <input type="search" name="q" defaultValue={search} /></label>
+          <label>{t("content.search")} <input type="search" name="q" defaultValue={search} placeholder={t("ui.search_placeholder")} /></label>
           <label><input type="checkbox" name="english" value="ready-without-approval" defaultChecked={readyWithoutEnglish} /> {t("content.ready_without_en")}</label>
           <button type="submit">{t("content.apply_filters")}</button>
         </form>
         {visibleSkus.length === 0 ? <p className="hub-empty">{t("content.no_matches")}</p> : null}
 
-        <TableScroll label={t("content.catalog_table")}><table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            fontSize: "0.84rem"
-          }}
-        >
-          <thead>
-            <tr style={{ borderBottom: "2px solid #cbd5e1", textAlign: "left" }}>
-              <th style={{ padding: "0.6rem" }}>{t("ui.catalog.sku")}</th>
-              <th style={{ padding: "0.6rem" }}>{t("ui.catalog.product")}</th>
-              <th style={{ padding: "0.6rem" }}>{t("ui.catalog.classification")}</th>
-              <th style={{ padding: "0.6rem" }}>{t("ui.catalog.status")}</th>
-              <th scope="col" style={{ padding: "0.6rem" }}>{t("content.english_status")}</th>
-              <th style={{ padding: "0.6rem" }}>{t("ui.catalog.units")}</th>
-              <th style={{ padding: "0.6rem" }}>{t("ui.catalog.accounting")}</th>
-              <th style={{ padding: "0.6rem" }}>{t("ui.storefronts")}</th>
-              <th style={{ padding: "0.6rem" }}>{t("ui.catalog.label")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleSkus.map((sku) => (
-              <tr key={sku.id} style={{ borderBottom: "1px solid #e2e8f0" }}>
-                <td style={{ padding: "0.65rem", fontFamily: "monospace", fontWeight: 700 }}>
-                  <Link href={`/products/${sku.id}`} style={{ color: "#15803d" }}>
-                    {sku.internalSku}
-                  </Link>
-                  <div style={{ display: "flex", gap: "0.3rem", marginTop: "0.25rem" }}>
-                    {sku.isComposedBundle && (
-                      <span
-                        style={{
-                          background: "#dbeafe",
-                          color: "#1e40af",
-                          padding: "0.1rem 0.4rem",
-                          borderRadius: "4px",
-                          fontSize: "0.7rem",
-                          fontWeight: 700
-                        }}
-                      >
-                        BUNDLE
-                      </span>
-                    )}
-                    {sku.isKit && (
-                      <span
-                        style={{
-                          background: "#fef3c7",
-                          color: "#92400e",
-                          padding: "0.1rem 0.4rem",
-                          borderRadius: "4px",
-                          fontSize: "0.7rem",
-                          fontWeight: 700
-                        }}
-                      >
-                        FACTORY KIT
-                      </span>
-                    )}
-                    {sku.hasIdentifierCollision && (
-                      <span
-                        style={{
-                          background: "#fee2e2",
-                          color: "#991b1b",
-                          padding: "0.1rem 0.4rem",
-                          borderRadius: "4px",
-                          fontSize: "0.7rem",
-                          fontWeight: 700
-                        }}
-                      >
-                        ⚠ კოლიზია
-                      </span>
-                    )}
-                  </div>
-                </td>
-
-                <td style={{ padding: "0.65rem" }}>
-                  <div style={{ fontWeight: 700 }}>
-                    {sku.displayNameKa ?? sku.modelCode ?? "დაუდგენელი პროდუქტი"}
-                  </div>
-                  {sku.displayNameEn && (
-                    <div style={{ fontSize: "0.76rem", color: "#64748b" }}>{sku.displayNameEn}</div>
-                  )}
-                </td>
-
-                <td style={{ padding: "0.65rem" }}>
-                  <div style={{ fontWeight: 600 }}>{sku.productTypeNameKa}</div>
-                  <div style={{ fontSize: "0.75rem", color: "#64748b" }}>{sku.categoryNameKa}</div>
-                </td>
-
-                <td style={{ padding: "0.65rem" }}>
-                  <span
-                    style={{
-                      display: "inline-block",
-                      padding: "0.15rem 0.5rem",
-                      borderRadius: "999px",
-                      fontSize: "0.74rem",
-                      fontWeight: 700,
-                      background: sku.lifecycleState === "READY" ? "#dcfce7" : "#f1f5f9",
-                      color: sku.lifecycleState === "READY" ? "#166534" : "#334155"
-                    }}
-                  >
-                    {sku.lifecycleState}
-                  </span>
-                  <div
-                    style={{
-                      fontFamily: "monospace",
-                      fontSize: "0.74rem",
-                      color: sku.canonicalSlug ? "#0f172a" : "#94a3b8",
-                      marginTop: "0.25rem"
-                    }}
-                  >
-                    {sku.canonicalSlug ?? "slug: NULL [C8]"}
-                  </div>
-                  {sku.reverificationRequired && sku.lifecycleState !== "ARCHIVED" ? <p>{t("evidence.reverification")}</p> : null}
-                  {sku.contentReviewRequired && sku.lifecycleState !== "ARCHIVED" ? <p>{t("content.review_required")}</p> : null}
-                </td>
-                <td style={{ padding: "0.65rem" }}>{t(`content.${sku.englishContentStatus}`)}</td>
-
-                <td style={{ padding: "0.65rem", fontSize: "0.78rem" }}>
-                  {sku.powerKw && (
-                    <div>
-                      სიმძლავრე: <strong>{sku.powerKw} kW</strong>{" "}
-                      {sku.unitSourceStringsJson?.power_kw
-                        ? `(${sku.unitSourceStringsJson.power_kw})`
-                        : ""}
-                    </div>
-                  )}
-                  {sku.workingWidthMm && (
-                    <div>
-                      სიგანე: <strong>{sku.workingWidthMm} mm</strong>
-                    </div>
-                  )}
-                  {sku.weightKg && (
-                    <div>
-                      წონა: <strong>{sku.weightKg} kg</strong>
-                    </div>
-                  )}
-                  {!sku.powerKw && !sku.workingWidthMm && !sku.weightKg && "—"}
-                </td>
-
-                <td style={{ padding: "0.65rem", fontSize: "0.76rem" }}>
-                  {sku.activeAccountingMappings.length === 0 ? (
-                    <span style={{ color: "#b45309", fontWeight: 600 }}>არ არის მიბმული</span>
-                  ) : (
-                    sku.activeAccountingMappings.map((m) => (
-                      <div key={`${m.legalEntityId}-${m.accountingItemId}`}>
-                        <strong>{m.legalEntityKey}:</strong>{" "}
-                        <code>{m.accountingItemId}</code>
-                      </div>
-                    ))
-                  )}
-                </td>
-
-                <td style={{ padding: "0.65rem", fontSize: "0.76rem" }}>
-                  {sku.storefrontListings.length === 0 ? (
-                    <span style={{ color: "#94a3b8" }}>გამორთულია</span>
-                  ) : (
-                    sku.storefrontListings.map((l) => (
-                      <div key={l.storefrontKey}>
-                        {l.storefrontKey}:{" "}
-                        <strong style={{ color: l.enabled ? "#15803d" : "#64748b" }}>
-                          {l.enabled ? "Listed ✓" : "Off"}
-                        </strong>
-                      </div>
-                    ))
-                  )}
-                </td>
-
-                <td style={{ padding: "0.65rem" }}>
-                  <div style={{ display: "flex", gap: "0.5rem" }}>
-                    <Link
-                      href={`/products/${sku.id}`}
-                      style={{
-                        padding: "0.3rem 0.6rem",
-                        borderRadius: "6px",
-                        background: "#f1f5f9",
-                        color: "#0f172a",
-                        textDecoration: "none",
-                        fontWeight: 600,
-                        fontSize: "0.76rem"
-                      }}
-                    >
-                      დეტალები
-                    </Link>
-                    <Link
-                      href={`/products/${sku.id}/label`}
-                      style={{
-                        padding: "0.3rem 0.6rem",
-                        borderRadius: "6px",
-                        background: "#0f172a",
-                        color: "#ffffff",
-                        textDecoration: "none",
-                        fontWeight: 600,
-                        fontSize: "0.76rem"
-                      }}
-                    >
-                      58×40მმ ეტიკეტი
-                    </Link>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table></TableScroll>
+        <CatalogTable skus={visibleSkus} />
       </section>
 
       <details className="hub-panel">
@@ -296,7 +95,7 @@ export default async function ProductsWorkspacePage({ searchParams }: {
                 {pt.nameKa} / {pt.nameEn}
               </div>
               <div style={{ fontSize: "0.72rem", color: "#64748b", marginTop: "0.2rem" }}>
-                ატრიბუტები: {pt.attributeSchemaJson.length} · ფოტო სლოტები:{" "}
+                {t("ui.attributes")}: {pt.attributeSchemaJson.length} · {t("ui.photo_slots")}:{" "}
                 {pt.photoInstructionsJson.length}
               </div>
             </div>
