@@ -1,4 +1,5 @@
 "use client";
+import { TableScroll } from "./table-scroll.tsx";
 import { useRef,useState,type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { t } from "@khidi/i18n";
@@ -16,11 +17,11 @@ export function SubtypeCreateForm({types,sharedDevice}:{types:Type[];sharedDevic
    form.reset();setMessage(t("users.saved"));router.refresh();
   }catch{setMessage(t("auth.network_error"));}finally{setBusy(false);}
  }
- return <section><h1>{t("setup.subtypes")}</h1><p>{t("setup.subtypes_help")}</p>
+ return <section className="hub-panel hub-stack"><div className="hub-heading"><h1>{t("setup.subtypes")}</h1><p>{t("setup.subtypes_help")}</p></div>
   {reauth?<StrongReauthentication sharedDevice={sharedDevice} onSuccess={()=>{setReauth(false);setMessage(t("users.retry"));}}/>:null}
   <label>{t("setup.product_type")}<select value={typeKey} onChange={e=>setTypeKey(e.target.value)}>{types.map(type=><option key={type.key} value={type.key}>{type.name}</option>)}</select></label>
-  <table><thead><tr><th>{t("setup.key")}</th><th>{t("setup.label_ka")}</th><th>{t("setup.label_en")}</th><th>{t("setup.required_specs")}</th></tr></thead><tbody>{types.find(type=>type.key===typeKey)?.values.map(value=><tr key={value.key}><td>{value.key}</td><td>{value.labelKa}</td><td>{value.labelEn}</td><td>{value.requiredSpecFields.join(", ")||t("setup.specs_pending")}</td></tr>)}</tbody></table>
-  <form onSubmit={submit}><fieldset disabled={busy||!typeKey}><label>{t("setup.key")}<input name="key" required minLength={2} maxLength={48} pattern="[A-Z][A-Z0-9_]*"/></label>
+  <TableScroll><table><thead><tr><th>{t("setup.key")}</th><th>{t("setup.label_ka")}</th><th>{t("setup.label_en")}</th><th>{t("setup.required_specs")}</th></tr></thead><tbody>{types.find(type=>type.key===typeKey)?.values.map(value=><tr key={value.key}><td>{value.key}</td><td>{value.labelKa}</td><td>{value.labelEn}</td><td>{value.requiredSpecFields.join(", ")||t("setup.specs_pending")}</td></tr>)}</tbody></table></TableScroll>
+  <form onSubmit={submit}><fieldset className="hub-form-row hub-fieldset" disabled={busy||!typeKey}><label>{t("setup.key")}<input name="key" required minLength={2} maxLength={48} pattern="[A-Z][A-Z0-9_]*"/></label>
   <label>{t("setup.label_ka")}<input name="labelKa" required maxLength={120}/></label><label>{t("setup.label_en")}<input name="labelEn" required maxLength={120}/></label><button>{t("setup.create")}</button></fieldset></form><p role="status">{message}</p>
  </section>;
 }

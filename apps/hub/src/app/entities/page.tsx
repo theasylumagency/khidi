@@ -1,3 +1,4 @@
+import { TableScroll } from "../../components/table-scroll.tsx";
 import Link from "next/link";
 import { getDb } from "@khidi/db";
 import { listLegalEntities, listEntityRelationships } from "@khidi/entities";
@@ -19,10 +20,11 @@ export default async function EntitiesPage() {
   const names = new Map(entities.map((entity) => [entity.id, entity.legalName]));
 
   return (
-    <div style={{ display: "grid", gap: "1.5rem" }}>
+    <div className="hub-stack">
+      <h1>{t("ui.entities")}</h1>
       <EntityCreateForm sharedDevice={sharedDevice} />
-      <nav aria-label={t("setup.next_steps")}>
-        <p>{t("setup.next_steps")}</p>
+      <nav className="hub-panel hub-setup-links" aria-label={t("setup.next_steps")}>
+        <h2>{t("setup.next_steps")}</h2>
         <ol>
           <li><Link href="/storefronts">{t("setup.stores")}</Link></li>
           <li><Link href="/inventory">{t("setup.pools_relationships")}</Link></li>
@@ -31,7 +33,7 @@ export default async function EntitiesPage() {
         </ol>
       </nav>
 
-      <div style={{ overflowX: "auto" }}>
+      <TableScroll>
         <table>
           <thead>
             <tr>
@@ -54,12 +56,12 @@ export default async function EntitiesPage() {
             ))}
           </tbody>
         </table>
-      </div>
+      </TableScroll>
 
-      <section>
+      <section className="hub-panel">
         <h2>{t("inventory.relationship")}</h2>
         <p>{t("setup.relationship_help")}</p>
-        <div style={{ overflowX: "auto" }}>
+        <TableScroll>
           <table>
             <thead>
               <tr>
@@ -82,7 +84,7 @@ export default async function EntitiesPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
       </section>
     </div>
   );

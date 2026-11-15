@@ -19,7 +19,7 @@ export default async function PricesPage({ searchParams }: { searchParams: Promi
     listStorefronts(db), listSkusWorkspace(db), listProductTypes(db), db.query.users.findMany(), searchParams, db.query.legalEntities.findMany()
   ]);
   const store = stores.find((row) => row.id === query.storefrontId) ?? stores[0];
-  if (!store) return <p>{t("pricing.empty")}</p>;
+  if (!store) return <section className="hub-panel"><h1>{t("pricing.title")}</h1><p>{t("pricing.empty")}</p></section>;
   const latest = await listLatestPrices(db, { storefrontId: store.id });
   const bySku = new Map(latest.map((row) => [row.skuId, row]));
   const byStaff = new Map(staff.map((row) => [row.id, formatStaffName(row.fullName)]));

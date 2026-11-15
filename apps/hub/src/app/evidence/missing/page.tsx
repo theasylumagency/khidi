@@ -1,3 +1,4 @@
+import { TableScroll } from "../../../components/table-scroll.tsx";
 import Link from "next/link";
 import { getDb } from "@khidi/db";
 import { listMissingEvidence } from "@khidi/evidence";
@@ -9,17 +10,20 @@ export default async function MissingEvidencePage({ searchParams }: { searchPara
   const principal = await requirePageAuth({ allowedRoles: ["ADMIN"] });
   const supplier = (await searchParams).supplier?.trim().slice(0, 200) ?? "";
   const rows = await listMissingEvidence(getDb(), { userId: principal.userId }, supplier);
-  return <section className="office-login">
+  return <section className="hub-panel hub-stack">
     <h1>{t("evidence.missing")}</h1>
-    <form><label>{t("evidence.supplier")}<input name="supplier" defaultValue={supplier} maxLength={200} /></label>
+    <form className="hub-form-row"><label>{t("evidence.supplier")}<input name="supplier" defaultValue={supplier} maxLength={200} /></label>
       <button>{t("evidence.filter")}</button></form>
-    <a href={`/api/evidence/export?supplier=${encodeURIComponent(supplier)}`}>{t("evidence.export")}</a>
-    <table><thead><tr><th>SKU</th><th>{t("evidence.supplier")}</th><th>{t("evidence.fields")}</th><th>{t("evidence.status")}</th></tr></thead>
+    <nav className="hub-actions">
+      <a href={`/api/evidence/export?supplier=${encodeURIComponent(supplier)}`}>{t("evidence.export")}</a>
+      <Link href="/evidence/jobs">{t("evidence.ai_jobs")}</Link>
+    </nav>
+    <TableScroll><table><thead><tr><th>SKU</th><th>{t("evidence.supplier")}</th><th>{t("evidence.fields")}</th><th>{t("evidence.status")}</th></tr></thead>
       <tbody>{rows.map((row) => <tr key={row.id}>
         <td><Link href={`/products/${row.id}`}>{row.name ?? row.internalSku}</Link></td>
         <td>{row.supplierNames.join(", ")}</td><td>{row.missingFields.join(", ")}</td>
         <td>{row.reverificationRequired ? t("evidence.reverification") : row.missingAnchor ? t("evidence.no_anchor") : "—"}</td>
       </tr>)}</tbody>
-    </table>
+    </table></TableScroll>
   </section>;
 }

@@ -1,3 +1,4 @@
+import { TableScroll } from "../../components/table-scroll.tsx";
 import { getDb } from "@khidi/db";
 import { reportEntities,movementReport,reportSheets,reportAccessSettings,recentDailyReports } from "@khidi/reports";
 import { t } from "@khidi/i18n";
@@ -15,7 +16,7 @@ export default async function ReportsPage({searchParams}:{searchParams:Promise<R
   <label>{t("reports.from")}<input type="date" name="from" defaultValue={input.from} required/></label><label>{t("reports.to")}<input type="date" name="to" defaultValue={input.to} required/></label>
   <label><input type="checkbox" name="availability" value="1" defaultChecked={input.availability}/>{t("reports.availability_option")}</label><button>{t("reports.show")}</button></form>
   {report?<><p><a href={"/api/reports?"+query+"&format=CSV"}>{t("reports.download_csv")}</a> · <a href={"/api/reports?"+query+"&format=XLSX"}>{t("reports.download_xlsx")}</a></p>
-   <p>{t("reports.preview")}</p>{reportSheets(report).map(s=><section key={s.name}><h2>{s.name}</h2><div className="inventory-scroll"><table><thead><tr>{s.headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{s.rows.slice(0,100).map((row,i)=><tr key={i}>{row.map((v,j)=><td key={j}>{v}</td>)}</tr>)}</tbody></table></div></section>)}</>:null}
+   <p>{t("reports.preview")}</p>{reportSheets(report).map(s=><section key={s.name}><h2>{s.name}</h2><TableScroll><table><thead><tr>{s.headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{s.rows.slice(0,100).map((row,i)=><tr key={i}>{row.map((v,j)=><td key={j}>{v}</td>)}</tr>)}</tbody></table></TableScroll></section>)}</>:null}
   <section><h2>{t("reports.daily")}</h2>{(await recentDailyReports(db,p.userId)).map(r=><p key={r.id}><a href={"/reports/"+r.id}>{r.day} · {r.entity}</a></p>)}</section>
   {p.role==="ADMIN"?<ReportAccess rows={await reportAccessSettings(db,p.userId)}/>:null}</div>;
 }

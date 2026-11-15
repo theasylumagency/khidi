@@ -1,3 +1,4 @@
+import { TableScroll } from "../../components/table-scroll.tsx";
 import Link from "next/link";
 import { getDb } from "@khidi/db";
 import { t } from "@khidi/i18n";
@@ -38,126 +39,33 @@ export default async function ProductsWorkspacePage({ searchParams }: {
   });
 
   return (
-    <div style={{ display: "grid", gap: "1.5rem" }}>
-      {principal.role==="ADMIN"?<Link href="/products/configuration">{t("setup.subtypes")}</Link>:null}
-      {/* Header & Summary */}
-      <section
-        style={{
-          background: "#ffffff",
-          border: "1px solid #e2e8f0",
-          borderRadius: "12px",
-          padding: "1.5rem"
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div>
-            <h1 style={{ margin: "0 0 0.4rem 0", fontSize: "1.45rem" }}>
-              {t("content.catalog")}
-            </h1>
-          </div>
-        </div>
-
-        <div
-          style={{
-            marginTop: "1.1rem",
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-            gap: "0.9rem"
-          }}
-        >
-          <div
-            style={{
-              padding: "0.9rem",
-              borderRadius: "10px",
-              background: "#f8fafc",
-              border: "1px solid #cbd5e1"
-            }}
-          >
-            <div style={{ fontSize: "0.78rem", color: "#64748b" }}>სულ SKU / ვარიანტი</div>
-            <div style={{ fontSize: "1.6rem", fontWeight: 800, marginTop: "0.2rem" }}>
-              {skus.length}
-            </div>
-          </div>
-          <div
-            style={{
-              padding: "0.9rem",
-              borderRadius: "10px",
-              background: "#f8fafc",
-              border: "1px solid #cbd5e1"
-            }}
-          >
-            <div style={{ fontSize: "0.78rem", color: "#64748b" }}>კატეგორიები (§5.7)</div>
-            <div style={{ fontSize: "1.6rem", fontWeight: 800, marginTop: "0.2rem" }}>
-              {categories.filter((c) => !c.isUnclassified).length} + 1 UNCLASSIFIED
-            </div>
-          </div>
-          <div
-            style={{
-              padding: "0.9rem",
-              borderRadius: "10px",
-              background: "#f8fafc",
-              border: "1px solid #cbd5e1"
-            }}
-          >
-            <div style={{ fontSize: "0.78rem", color: "#64748b" }}>პროდუქტის ტიპები (§5.8)</div>
-            <div style={{ fontSize: "1.6rem", fontWeight: 800, marginTop: "0.2rem" }}>
-              {productTypes.length}
-            </div>
-          </div>
-          <div
-            style={{
-              padding: "0.9rem",
-              borderRadius: "10px",
-              background: "#f8fafc",
-              border: "1px solid #cbd5e1"
-            }}
-          >
-            <div style={{ fontSize: "0.78rem", color: "#64748b" }}>Legacy SEO URL-ები (§12.5)</div>
-            <div style={{ fontSize: "1.6rem", fontWeight: 800, marginTop: "0.2rem" }}>
-              {legacyUrls.length}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Quick Create SKU Draft Form */}
-      {canCreateSku && (
-        <section
-          style={{
-            background: "#ffffff",
-            border: "1px solid #e2e8f0",
-            borderRadius: "12px",
-            padding: "1.25rem 1.5rem"
-          }}
-        >
-          <h2 style={{ margin: "0 0 0.75rem 0", fontSize: "1.05rem" }}>
-            ახალი SKU Draft-ის დამატება (`INTAKE`, `canonical_slug = NULL` [C8])
-          </h2>
+    <div className="hub-stack">
+      <header className="hub-page-toolbar">
+        <h1>{t("content.catalog")}</h1>
+        {principal.role === "ADMIN" ? <Link className="hub-control-link" href="/products/configuration">{t("setup.subtypes")}</Link> : null}
+      </header>
+      <dl className="hub-summary">
+        <div><dt>{t("ui.catalog.skus")}</dt><dd>{skus.length}</dd></div>
+        <div><dt>{t("ui.catalog.categories")}</dt><dd>{categories.filter((category) => !category.isUnclassified).length}</dd></div>
+        <div><dt>{t("ui.catalog.types")}</dt><dd>{productTypes.length}</dd></div>
+        <div><dt>{t("ui.catalog.legacy")}</dt><dd>{legacyUrls.length}</dd></div>
+      </dl>
+      {canCreateSku ? (
+        <details className="hub-panel">
+          <summary>{t("ui.catalog.create")}</summary>
           <ProductCreateForm productTypes={productTypes} />
-        </section>
-      )}
-
-      {/* Desktop Products Workspace Table (§15.4) */}
-      <section
-        style={{
-          background: "#ffffff",
-          border: "1px solid #e2e8f0",
-          borderRadius: "12px",
-          padding: "1.5rem",
-          overflowX: "auto"
-        }}
-      >
-        <h2 style={{ margin: "0 0 1rem 0", fontSize: "1.1rem" }}>
-          {t("content.catalog_table")}
-        </h2>
-        <form action="/products" style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" }}>
+        </details>
+      ) : null}
+      <section className="hub-panel hub-stack">
+        <h2>{t("content.catalog_table")}</h2>
+        <form action="/products" className="hub-form-row">
           <label>{t("content.search")} <input type="search" name="q" defaultValue={search} /></label>
           <label><input type="checkbox" name="english" value="ready-without-approval" defaultChecked={readyWithoutEnglish} /> {t("content.ready_without_en")}</label>
           <button type="submit">{t("content.apply_filters")}</button>
         </form>
-        {visibleSkus.length === 0 ? <p>{t("content.no_matches")}</p> : null}
+        {visibleSkus.length === 0 ? <p className="hub-empty">{t("content.no_matches")}</p> : null}
 
-        <table
+        <TableScroll label={t("content.catalog_table")}><table
           style={{
             width: "100%",
             borderCollapse: "collapse",
@@ -166,15 +74,15 @@ export default async function ProductsWorkspacePage({ searchParams }: {
         >
           <thead>
             <tr style={{ borderBottom: "2px solid #cbd5e1", textAlign: "left" }}>
-              <th style={{ padding: "0.6rem" }}>SKU (§5.4)</th>
-              <th style={{ padding: "0.6rem" }}>პროდუქტი / დეტერმინისტული სახელი (§5.10)</th>
-              <th style={{ padding: "0.6rem" }}>ტიპი & კატეგორია</th>
-              <th style={{ padding: "0.6rem" }}>სტატუსი & სლაგი ([C8])</th>
+              <th style={{ padding: "0.6rem" }}>{t("ui.catalog.sku")}</th>
+              <th style={{ padding: "0.6rem" }}>{t("ui.catalog.product")}</th>
+              <th style={{ padding: "0.6rem" }}>{t("ui.catalog.classification")}</th>
+              <th style={{ padding: "0.6rem" }}>{t("ui.catalog.status")}</th>
               <th scope="col" style={{ padding: "0.6rem" }}>{t("content.english_status")}</th>
-              <th style={{ padding: "0.6rem" }}>ერთეულები (§5.6)</th>
-              <th style={{ padding: "0.6rem" }}>ბუღალტრული მეპინგი ([C9])</th>
-              <th style={{ padding: "0.6rem" }}>მაღაზიები (§4.5)</th>
-              <th style={{ padding: "0.6rem" }}>ეტიკეტი</th>
+              <th style={{ padding: "0.6rem" }}>{t("ui.catalog.units")}</th>
+              <th style={{ padding: "0.6rem" }}>{t("ui.catalog.accounting")}</th>
+              <th style={{ padding: "0.6rem" }}>{t("ui.storefronts")}</th>
+              <th style={{ padding: "0.6rem" }}>{t("ui.catalog.label")}</th>
             </tr>
           </thead>
           <tbody>
@@ -358,25 +266,15 @@ export default async function ProductsWorkspacePage({ searchParams }: {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></TableScroll>
       </section>
 
-      {/* Taxonomy & 30 Product Types Reference */}
-      <section
-        style={{
-          background: "#ffffff",
-          border: "1px solid #e2e8f0",
-          borderRadius: "12px",
-          padding: "1.5rem"
-        }}
-      >
-        <h2 style={{ margin: "0 0 0.75rem 0", fontSize: "1.05rem" }}>
-          30 საწყისი Product Type სქემა (§5.8 Product Type Matrix v1)
-        </h2>
+      <details className="hub-panel">
+        <summary>{t("ui.catalog.types")}</summary>
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 240px), 1fr))",
             gap: "0.65rem"
           }}
         >
@@ -404,7 +302,7 @@ export default async function ProductsWorkspacePage({ searchParams }: {
             </div>
           ))}
         </div>
-      </section>
+      </details>
     </div>
   );
 }

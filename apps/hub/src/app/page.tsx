@@ -3,10 +3,12 @@ import { redirect } from "next/navigation";
 import { getDb } from "@khidi/db";
 import { listLegalEntities, listStorefronts, listEntityRelationships } from "@khidi/entities";
 import { listUsersWithMemberships } from "@khidi/auth";
-import { t } from "@khidi/i18n";
+import { getNavigationForRole, t, type TranslationKey } from "@khidi/i18n";
 import { requirePageAuth } from "../lib/session.ts";
 
 export const dynamic = "force-dynamic";
+
+const shortcuts = ["products", "inventory", "prices", "tasks", "fulfillment", "reports"] as const;
 
 export default async function HomePage() {
   const principal = await requirePageAuth();
@@ -18,146 +20,68 @@ export default async function HomePage() {
     listStorefronts(db),
     listEntityRelationships(db)
   ]);
-
-  const users =
-    principal.role === "ADMIN" ? await listUsersWithMemberships(db, principal) : [];
+  const admin = principal.role === "ADMIN";
+  const users = admin ? await listUsersWithMemberships(db, principal) : [];
+  const navigation = getNavigationForRole(principal.role, principal.permissions);
 
   return (
-    <div style={{ display: "grid", gap: "1.5rem" }}>
-      <section
-        style={{
-          background: "#ffffff",
-          border: "1px solid #e2e8f0",
-          borderRadius: "12px",
-          padding: "1.5rem"
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div>
-            <h1 style={{ margin: "0 0 0.5rem 0", fontSize: "1.5rem" }}>
-              {t("app.title", "ka")} — Milestone 1 (Foundation)
-            </h1>
-            <p style={{ margin: 0, color: "#475569" }}>{t("app.subtitle", "ka")}</p>
-          </div>
-          <span
-            style={{
-              background: "#dcfce7",
-              color: "#166534",
-              padding: "0.35rem 0.75rem",
-              borderRadius: "999px",
-              fontSize: "0.8rem",
-              fontWeight: 700
-            }}
-          >
-            PostgreSQL 18 + Append-Only [C7] Active
-          </span>
-        </div>
-
-        <div
-          style={{
-            marginTop: "1.25rem",
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "1rem"
-          }}
-        >
-          <div
-            style={{
-              padding: "1rem",
-              borderRadius: "10px",
-              background: "#f8fafc",
-              border: "1px solid #cbd5e1"
-            }}
-          >
-            <div style={{ fontSize: "0.8rem", color: "#64748b" }}>იურიდიული პირები (§4.1, C11)</div>
-            <div style={{ fontSize: "1.75rem", fontWeight: 800, marginTop: "0.25rem" }}>
-              {entities.length}
-            </div>
-            {principal.role === "ADMIN" && (
-              <Link href="/entities" style={{ fontSize: "0.85rem", color: "#15803d" }}>
-                მართვა →
-              </Link>
-            )}
-          </div>
-
-          <div
-            style={{
-              padding: "1rem",
-              borderRadius: "10px",
-              background: "#f8fafc",
-              border: "1px solid #cbd5e1"
-            }}
-          >
-            <div style={{ fontSize: "0.8rem", color: "#64748b" }}>ონლაინ მაღაზიები (§4.2)</div>
-            <div style={{ fontSize: "1.75rem", fontWeight: 800, marginTop: "0.25rem" }}>
-              {storefronts.length}
-            </div>
-            {principal.role === "ADMIN" && (
-              <Link href="/storefronts" style={{ fontSize: "0.85rem", color: "#15803d" }}>
-                მართვა →
-              </Link>
-            )}
-          </div>
-
-          {principal.role === "ADMIN" && (
-            <div
-              style={{
-                padding: "1rem",
-                borderRadius: "10px",
-                background: "#f8fafc",
-                border: "1px solid #cbd5e1"
-              }}
-            >
-              <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
-                მომხმარებლები და როლები (§13.1, C12)
-              </div>
-              <div style={{ fontSize: "1.75rem", fontWeight: 800, marginTop: "0.25rem" }}>
-                {users.length}
-              </div>
-              <Link href="/users" style={{ fontSize: "0.85rem", color: "#15803d" }}>
-                მართვა →
-              </Link>
-            </div>
-          )}
-
-          <div
-            style={{
-              padding: "1rem",
-              borderRadius: "10px",
-              background: "#f0fdf4",
-              border: "1px solid #86efac"
-            }}
-          >
-            <div style={{ fontSize: "0.8rem", color: "#166534" }}>
-              კომერციული რეჟიმი (§4.4, C17)
-            </div>
-            <div style={{ fontSize: "1.35rem", fontWeight: 800, marginTop: "0.25rem" }}>
-              {relationships[0]?.mode ?? "CONSIGNMENT"}
-            </div>
-            <Link href="/diagnostics/pwa-spike" style={{ fontSize: "0.85rem", color: "#15803d" }}>
-              Access Gateway PWA Spike [C6] →
-            </Link>
-          </div>
+    <div className="hub-stack hub-dashboard">
+      <section className="hub-hero" aria-labelledby="hub-overview">
+        <div className="bridge-art" aria-hidden="true"><span /><i /></div>
+        <div className="hub-hero-content">
+          <p className="hub-hero-label">{t("ui.brand")} <span /> {t("ui.workspace")}</p>
+          <h1 id="hub-overview">{t("ui.overview")}</h1>
+          <p>{t("app.subtitle")}</p>
         </div>
       </section>
 
-      <section
-        style={{
-          background: "#ffffff",
-          border: "1px solid #e2e8f0",
-          borderRadius: "12px",
-          padding: "1.5rem"
-        }}
-      >
-        <h2 style={{ margin: "0 0 0.75rem 0", fontSize: "1.15rem" }}>
-          {t("settings.operating_model_title", "ka")}
-        </h2>
-        <ul style={{ margin: 0, paddingLeft: "1.25rem", color: "#334155", lineHeight: 1.6 }}>
-          <li>{t("settings.operating_model_rule1", "ka")}</li>
-          <li>{t("settings.operating_model_rule2", "ka")}</li>
-          <li>{t("settings.operating_model_rule3", "ka")}</li>
+      <dl className="hub-summary" aria-label={t("ui.summary")}>
+        <div>
+          <dt>{t("ui.entities")}</dt>
+          <dd>{entities.length}</dd>
+          {admin ? <dd><Link href="/entities" aria-label={t("ui.entities")}>{t("ui.manage")} <span aria-hidden="true">↗</span></Link></dd> : null}
+        </div>
+        <div>
+          <dt>{t("ui.storefronts")}</dt>
+          <dd>{storefronts.length}</dd>
+          {admin ? <dd><Link href="/storefronts" aria-label={t("ui.storefronts")}>{t("ui.manage")} <span aria-hidden="true">↗</span></Link></dd> : null}
+        </div>
+        {admin ? <div>
+          <dt>{t("users.title")}</dt>
+          <dd>{users.length}</dd>
+          <dd><Link href="/users" aria-label={t("users.title")}>{t("ui.manage")} <span aria-hidden="true">↗</span></Link></dd>
+        </div> : null}
+        <div className="hub-summary-mode">
+          <dt>{t("ui.commercial_mode")}</dt>
+          <dd>{t(relationships[0]?.mode === "PURCHASE" ? "inventory.mode.PURCHASE" : "inventory.mode.CONSIGNMENT")}</dd>
+          <dd><Link href="/diagnostics/pwa-spike">{t("ui.diagnostics")} <span aria-hidden="true">↗</span></Link></dd>
+        </div>
+      </dl>
+
+      <section className="hub-shortcuts" aria-labelledby="shortcut-title">
+        <h2 id="shortcut-title">{t("ui.shortcuts")}</h2>
+        <div className="hub-shortcut-grid">
+          {shortcuts.map((key) => {
+            const item = navigation.find((entry) => entry.key === key);
+            if (!item) return null;
+            return (
+              <Link key={key} href={item.href} className="hub-shortcut">
+                <span className="hub-shortcut-icon" data-kind={key} aria-hidden="true" />
+                <strong>{item.labelKa}</strong>
+                <small>{t(`ui.shortcut.${key}` as TranslationKey)}</small>
+                <span className="hub-shortcut-arrow" aria-hidden="true">↗</span>
+              </Link>
+            );
+          })}
+        </div>
+      </section>
+
+      <details className="hub-panel hub-operating-model">
+        <summary>{t("settings.operating_model_title")}</summary>
+        <ul>
+          {[1, 2, 3].map((rule) => <li key={rule}>{t(`settings.operating_model_rule${rule}` as TranslationKey)}</li>)}
         </ul>
-      </section>
+      </details>
     </div>
   );
 }

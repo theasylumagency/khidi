@@ -1,3 +1,4 @@
+import { TableScroll } from "../../../components/table-scroll.tsx";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@khidi/db";
@@ -19,14 +20,14 @@ export default async function FulfillmentDetail({params}:{params:Promise<{id:str
     {detail.expiresAt?<p>{t("fulfillment.expires")}: {date(detail.expiresAt)}</p>:null}
     {r.requiresReturnToShelf?<p role="status">{t("fulfillment.return_required")}</p>:null}
     {r.status==="HANDED_OVER"?<p>{t("fulfillment.closed_hint")}</p>:null}
-    <div className="inventory-scroll"><table><thead><tr>{["product","quantity","picked","returned","lost_quantity","handed_over"].map((k)=><th key={k}>{t(("fulfillment."+k) as TranslationKey)}</th>)}</tr></thead><tbody>{detail.lines.map((l)=><tr key={l.id}><td><Link href={"/products/"+l.skuId}>{l.code}</Link></td><td>{l.quantity}</td><td>{l.picked}</td><td>{l.returned}</td><td>{l.lost}</td><td>{l.handedOver}</td></tr>)}</tbody></table></div>
+    <TableScroll><table><thead><tr>{["product","quantity","picked","returned","lost_quantity","handed_over"].map((k)=><th key={k}>{t(("fulfillment."+k) as TranslationKey)}</th>)}</tr></thead><tbody>{detail.lines.map((l)=><tr key={l.id}><td><Link href={"/products/"+l.skuId}>{l.code}</Link></td><td>{l.quantity}</td><td>{l.picked}</td><td>{l.returned}</td><td>{l.lost}</td><td>{l.handedOver}</td></tr>)}</tbody></table></TableScroll>
     <FulfillmentActions id={id} canCancel={detail.canCancel} canMarkLost={detail.canMarkLost} lines={detail.lines.map((l)=>({...l,staged:l.picked-l.returned-l.lost-l.handedOver}))}/>
     <h2>{t("fulfillment.history")}</h2><p>{t("fulfillment.provenance_hint")}</p>
-    <div className="inventory-scroll"><table><thead><tr>{["time","status","confirmation","executor","trigger","reason"].map((k)=><th key={k}>{t(("fulfillment."+k) as TranslationKey)}</th>)}</tr></thead><tbody>{detail.history.map((h)=><tr key={h.id}>
+    <TableScroll><table><thead><tr>{["time","status","confirmation","executor","trigger","reason"].map((k)=><th key={k}>{t(("fulfillment."+k) as TranslationKey)}</th>)}</tr></thead><tbody>{detail.history.map((h)=><tr key={h.id}>
       <td>{date(h.createdAt)}</td><td>{t(("fulfillment."+h.toStatus) as TranslationKey)}</td><td>{h.confirmation?t(("fulfillment."+h.confirmation) as TranslationKey):"—"}</td><td>{t(("fulfillment."+h.actorType) as TranslationKey)}<small> · {h.actorId}</small></td><td>{h.triggerApiKeyId??"—"}</td><td>{h.reason??"—"}</td>
-    </tr>)}</tbody></table></div>
-    <h2>{t("fulfillment.units")}</h2><div className="inventory-scroll"><table><thead><tr>{["time","product","step","confirmation","quantity","reason"].map((k)=><th key={k}>{t(("fulfillment."+k) as TranslationKey)}</th>)}</tr></thead><tbody>{detail.confirmations.map((c)=><tr key={c.id}>
+    </tr>)}</tbody></table></TableScroll>
+    <h2>{t("fulfillment.units")}</h2><TableScroll><table><thead><tr>{["time","product","step","confirmation","quantity","reason"].map((k)=><th key={k}>{t(("fulfillment."+k) as TranslationKey)}</th>)}</tr></thead><tbody>{detail.confirmations.map((c)=><tr key={c.id}>
       <td>{date(c.createdAt)}</td><td>{detail.lines.find((l)=>l.skuId===c.skuId)?.code}</td><td>{t(("fulfillment."+c.action) as TranslationKey)}</td><td>{t(("fulfillment."+c.method) as TranslationKey)}</td><td>{c.quantity}</td><td>{c.reason??"—"}</td>
-    </tr>)}</tbody></table></div>
+    </tr>)}</tbody></table></TableScroll>
   </section>;
 }

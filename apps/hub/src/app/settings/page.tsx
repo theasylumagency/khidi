@@ -13,16 +13,9 @@ export default async function SettingsPage() {
     .map(({ group, unit, aliases }) => ({ group, unit, aliases }));
 
   return (
-    <div style={{ display: "grid", gap: "1.5rem" }}>
+    <div className="hub-stack">
       <TechnicalSynonymsForm terms={terms} />
-      <section
-        style={{
-          background: "#ffffff",
-          border: "1px solid #e2e8f0",
-          borderRadius: "12px",
-          padding: "1.5rem"
-        }}
-      >
+      <section className="hub-panel">
         <h1 style={{ margin: "0 0 0.75rem 0", fontSize: "1.35rem" }}>
           {t("settings.operating_model_title", "ka")}
         </h1>
@@ -45,14 +38,7 @@ export default async function SettingsPage() {
         </div>
       </section>
 
-      <section
-        style={{
-          background: "#ffffff",
-          border: "1px solid #e2e8f0",
-          borderRadius: "12px",
-          padding: "1.5rem"
-        }}
-      >
+      <section className="hub-panel">
         <h2 style={{ margin: "0 0 0.75rem 0", fontSize: "1.15rem" }}>
           უსაფრთხოება და Concealment კონფიგურაცია (§4.3, §16.3, ADR-002, ADR-003)
         </h2>

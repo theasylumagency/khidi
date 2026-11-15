@@ -1,4 +1,5 @@
 "use client";
+import { TableScroll } from "./table-scroll.tsx";
 import { Fragment,useRef,useState,type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { t,type TranslationKey } from "@khidi/i18n";
@@ -33,18 +34,18 @@ export function UserManagement({users,entities,roles,permissions,selfId,hours,sh
    setEditing(null);setSetupUrl(body.setupUrl??"");setMessage(t("users.saved"));router.refresh();
   }catch{setMessage(t("users.failed"));}finally{setBusy(false);}
  }
- return <section style={{display:"grid",gap:"1rem"}}><h1>{t("users.title")}</h1><p>{t("users.help")}</p>
+ return <section className="hub-panel hub-stack"><div className="hub-heading"><h1>{t("users.title")}</h1><p>{t("users.help")}</p></div>
   {reauth?<StrongReauthentication sharedDevice={sharedDevice} onSuccess={()=>{setReauth(false);setMessage(t("users.retry"));}}/>:null}
   {message?<p role="status">{message}</p>:null}
   {setupUrl?<aside role="status"><h2>{t("users.setup_link")}</h2><p>{t("users.link_help")}</p><textarea aria-label={t("users.setup_link")} readOnly value={setupUrl} rows={3}/><button type="button" onClick={()=>void navigator.clipboard.writeText(setupUrl).then(()=>setMessage(t("users.copied"))).catch(()=>setMessage(t("auth.copy_failed")))}>{t("users.copy")}</button><button type="button" onClick={()=>setSetupUrl("")}>{t("users.close_link")}</button></aside>:null}
   <details><summary>{t("users.create")}</summary><UserEditor entities={entities} roles={roles} permissions={permissions} busy={busy} self={false} onSave={fields=>void command({action:"CREATE",...fields})}/></details>
-  <form onSubmit={e=>{e.preventDefault();void command({action:"TTL",hours:ttl});}}><label>{t("users.ttl")}<input type="number" min={1} step={1} required value={ttl} onChange={e=>setTtl(Number(e.target.value))}/></label><button disabled={busy}>{t("users.save")}</button></form>
-  <div style={{overflowX:"auto"}}><table><thead><tr>{["users.name","auth.email","users.role","users.entities","users.status","users.actions"].map(key=><th key={key}>{t(key as TranslationKey)}</th>)}</tr></thead><tbody>
+  <form className="hub-form-row" onSubmit={e=>{e.preventDefault();void command({action:"TTL",hours:ttl});}}><label>{t("users.ttl")}<input type="number" min={1} step={1} required value={ttl} onChange={e=>setTtl(Number(e.target.value))}/></label><button disabled={busy}>{t("users.save")}</button></form>
+  <TableScroll><table><thead><tr>{["users.name","auth.email","users.role","users.entities","users.status","users.actions"].map(key=><th key={key}>{t(key as TranslationKey)}</th>)}</tr></thead><tbody>
    {users.map(user=><Fragment key={user.id}><tr><td>{user.fullName}</td><td>{user.email??"—"}</td><td>{t(`scanning.role.${user.role}`)}</td><td>{entities.filter(e=>user.entityIds.includes(e.id)).map(e=>e.key).join(", ")}</td><td>{t(!user.active?"users.inactive":user.setupPending?"users.pending":user.totpEnrollmentRequired?"users.totp_pending":"users.active")}</td><td>
     <button type="button" disabled={busy} onClick={()=>setEditing(editing===user.id?null:user.id)}>{t("users.edit")}</button>
     <button type="button" disabled={busy||user.id===selfId} onClick={()=>{if(window.confirm(t(user.active?"users.confirm_deactivate":"users.confirm_reactivate")))void command({action:"ACTIVE",id:user.id,active:!user.active});}}>{t(user.active?"users.deactivate":"users.reactivate")}</button>
     {user.active?<button type="button" disabled={busy||user.id===selfId} onClick={()=>{if(user.setupPending||window.confirm(t("users.confirm_reset")))void command({action:user.setupPending?"ISSUE":"RESET",id:user.id});}}>{t(user.setupPending?"users.reissue":"users.reset")}</button>:null}
    </td></tr>{editing===user.id?<tr><td colSpan={6}><UserEditor user={user} entities={entities} roles={roles} permissions={permissions} busy={busy} self={user.id===selfId} onSave={fields=>void command({action:"EDIT",id:user.id,...fields})}/></td></tr>:null}</Fragment>)}
-  </tbody></table></div>
+  </tbody></table></TableScroll>
  </section>;
 }

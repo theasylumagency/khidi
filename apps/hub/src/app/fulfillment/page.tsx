@@ -1,3 +1,4 @@
+import { TableScroll } from "../../components/table-scroll.tsx";
 import Link from "next/link";
 import { getDb } from "@khidi/db";
 import { listStorefrontServiceKeys } from "@khidi/auth";
@@ -15,12 +16,12 @@ export default async function FulfillmentPage({searchParams}:{searchParams:Promi
   const [view,settings]=await Promise.all([listFulfillmentOffice(db,staff,query.status==="ACTION_REQUIRED"),p.role==="ADMIN" ? Promise.all([db.query.storefronts.findMany({columns:{id:true,name:true,webhookUrl:true}}),listStorefrontServiceKeys(db,p),listWebhookDeliveries(db,staff)]) : Promise.resolve(null)]);
   const rows=view.requests;
   return <section className="inventory-workspace"><h1>{t("fulfillment.title")}</h1><p>{t("fulfillment.overview_hint")}</p>
-    <nav><Link href="/fulfillment">{t("fulfillment.all")}</Link>{" · "}<Link href="/fulfillment?status=ACTION_REQUIRED">{t("fulfillment.ACTION_REQUIRED")}</Link></nav>
-    <div className="inventory-scroll"><table><thead><tr>{["order","store","status","ship_by","confirmation"].map((k)=><th key={k}>{t(("fulfillment."+k) as TranslationKey)}</th>)}</tr></thead><tbody>{rows.map((r)=><tr key={r.id}>
+    <nav className="hub-actions"><Link href="/fulfillment">{t("fulfillment.all")}</Link>{" · "}<Link href="/fulfillment?status=ACTION_REQUIRED">{t("fulfillment.ACTION_REQUIRED")}</Link></nav>
+    <TableScroll><table><thead><tr>{["order","store","status","ship_by","confirmation"].map((k)=><th key={k}>{t(("fulfillment."+k) as TranslationKey)}</th>)}</tr></thead><tbody>{rows.map((r)=><tr key={r.id}>
       <td><Link href={"/fulfillment/"+r.id}>{r.orderRef}</Link></td><td>{r.store}</td><td>{t(("fulfillment."+r.status) as TranslationKey)}{r.requiresReturnToShelf?<p>{t("fulfillment.return_required")}</p>:null}</td><td>{r.shipBy}</td><td>{r.confirmation?t(("fulfillment."+r.confirmation) as TranslationKey):"—"}</td>
-    </tr>)}</tbody></table>{!rows.length?<p>{t("fulfillment.empty")}</p>:null}</div>
+    </tr>)}</tbody></table></TableScroll>{!rows.length?<p className="hub-empty">{t("fulfillment.empty")}</p>:null}
     <h2>{t("fulfillment.reservation_expiry")}</h2><p>{t("fulfillment.expiry_hint")}</p>
-    <div className="inventory-scroll"><table><thead><tr>{["order","store","payment","expires"].map((k)=><th key={k}>{t(("fulfillment."+k) as TranslationKey)}</th>)}</tr></thead><tbody>{view.expiry.map((r)=><tr key={r.id}><td>{r.orderRef}</td><td>{r.store}</td><td>{t(("fulfillment."+r.paymentMethod) as TranslationKey)}</td><td>{date(r.expiresAt)}</td></tr>)}</tbody></table></div>
+    <TableScroll><table><thead><tr>{["order","store","payment","expires"].map((k)=><th key={k}>{t(("fulfillment."+k) as TranslationKey)}</th>)}</tr></thead><tbody>{view.expiry.map((r)=><tr key={r.id}><td>{r.orderRef}</td><td>{r.store}</td><td>{t(("fulfillment."+r.paymentMethod) as TranslationKey)}</td><td>{date(r.expiresAt)}</td></tr>)}</tbody></table></TableScroll>
     {settings&&view.mode?<FulfillmentSettings mode={view.mode} stores={settings[0]} keys={settings[1].map((k)=>({...k,expiresAt:k.expiresAt?.toISOString()??null,lastUsedAt:k.lastUsedAt?.toISOString()??null}))} deliveries={settings[2].map((r)=>({...r.delivery,eventType:r.eventType}))}/>:null}
   </section>;
 }

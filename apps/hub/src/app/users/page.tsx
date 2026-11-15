@@ -10,8 +10,8 @@ export const dynamic="force-dynamic";
 export default async function UsersPage() {
  const principal=await requirePageAuth({ allowedRoles: ["ADMIN"] }),db=getDb();
  const [users,entities,hours,sharedDevice]=await Promise.all([listUsersWithMemberships(db,principal),listLegalEntities(db),setupLinkHours(db),isSharedWarehouseBrowser()]);
- return <div style={{display:"grid",gap:"1.5rem"}}>
+ return <div className="hub-stack">
   <UserManagement users={users} entities={entities.map(e=>({id:e.id,key:e.key}))} roles={[...USER_ROLES]} permissions={[...GRANULAR_PERMISSIONS]} selfId={principal.userId} hours={hours} sharedDevice={sharedDevice}/>
-  <section><h2>{t("auth.warehouse_pin")}</h2><RegisterDeviceButton sharedDevice={sharedDevice}/></section>
+  <section className="hub-panel"><h2>{t("auth.warehouse_pin")}</h2><RegisterDeviceButton sharedDevice={sharedDevice}/></section>
  </div>;
 }

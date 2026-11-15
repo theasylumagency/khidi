@@ -1,3 +1,5 @@
+import { TableScroll } from "../../components/table-scroll.tsx";
+import { t } from "@khidi/i18n";
 import { getDb } from "@khidi/db";
 import { listLegalEntities, listStorefronts } from "@khidi/entities";
 import { StorefrontCreateForm } from "../../components/storefront-create-form.tsx";
@@ -12,24 +14,15 @@ export default async function StorefrontsPage() {
   const [storefronts, sellers] = await Promise.all([listStorefronts(db), listLegalEntities(db)]);
 
   return (
-    <div style={{ display: "grid", gap: "1.5rem" }}>
+    <div className="hub-stack">
       <StorefrontCreateForm sellers={sellers.filter((row) => row.active).map((row) => ({ id: row.id, name: row.legalName }))} />
-      <section
-        style={{
-          background: "#ffffff",
-          border: "1px solid #e2e8f0",
-          borderRadius: "12px",
-          padding: "1.5rem"
-        }}
-      >
-        <h1 style={{ margin: "0 0 0.5rem 0", fontSize: "1.35rem" }}>
-          ონლაინ მაღაზიები — Storefronts (§4.2, §4.3)
-        </h1>
+      <section className="hub-panel">
+        <h1>{t("ui.storefronts")}</h1>
         <p style={{ margin: "0 0 1.25rem 0", color: "#475569", fontSize: "0.9rem" }}>
           თითოეული მაღაზია იღებს მხოლოდ საკუთარ ფასებს, ხელმისაწვდომობას და მისსავე <code>media_base_url</code>-ზე მიბმულ სურათების ბმულებს.
         </p>
 
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9rem" }}>
+        <TableScroll><table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9rem" }}>
           <thead>
             <tr style={{ borderBottom: "2px solid #cbd5e1", textAlign: "left" }}>
               <th style={{ padding: "0.75rem" }}>კოდი (Key)</th>
@@ -66,7 +59,7 @@ export default async function StorefrontsPage() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></TableScroll>
       </section>
     </div>
   );

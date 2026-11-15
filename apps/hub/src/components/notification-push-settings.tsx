@@ -25,7 +25,7 @@ export function NotificationPushSettings(){
   }
   await refresh();setMessage(t("inventory.saved"));
  }catch(e){setMessage(e instanceof Error?e.message:t("notification.push_failed"));}finally{setBusy(false);}}
- return <section><h2>{t("notification.push_title")}</h2><p>{t("notification.push_hint")}</p>
+ return <section className="hub-panel"><h2>{t("notification.push_title")}</h2><p>{t("notification.push_hint")}</p>
   {supported===false?<p>{t("notification.push_unsupported")}</p>:state?<>
    <button disabled={busy} onClick={()=>void action(state.enabled?"DISABLE":"ENABLE")}>{t(state.enabled?"notification.push_disable":"notification.push_enable")}</button>
    {state.enabled?<label><input type="checkbox" checked={state.infoOptIn} disabled={busy} onChange={e=>void action("INFO",e.target.checked)}/>{t("notification.push_info")}</label>:null}

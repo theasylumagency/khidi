@@ -1,4 +1,5 @@
 "use client";
+import { TableScroll } from "./table-scroll.tsx";
 import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -65,7 +66,7 @@ export function PriceWorkspace({ storefrontId, stores, rows, canEdit, admin, def
   }
   return <>
     {preview ? <PricePreview key={requestKey} rows={preview} names={names} busy={busy} onCommit={(reason, confirmed) => void commit(reason, confirmed)} onCancel={() => setPreview(null)} /> : <>
-      <fieldset disabled={busy}><div style={{ overflowX: "auto" }}><table><thead><tr>
+      <fieldset disabled={busy}><TableScroll><table><thead><tr>
         {canEdit ? <th>{t("pricing.select")}</th> : null}<th>{t("pricing.product")}</th><th>{t("pricing.current")}</th>
         {canEdit ? <><th>{t("pricing.new")}</th><th>{t("pricing.difference")}</th></> : null}<th>{t("pricing.vat")}</th><th>{t("pricing.changed")}</th><th>{t("pricing.author")}</th>
       </tr></thead><tbody>{rows.map((row) => { const edit = editFor(row), amount = parsePriceInput(edit.input), delta = amount !== null && row.amount ? amount - row.amount : null; return <tr key={row.skuId}>
@@ -76,7 +77,7 @@ export function PriceWorkspace({ storefrontId, stores, rows, canEdit, admin, def
           <td>{edit.kind === "SET" && delta !== null ? `${formatPrice(delta)} (${(delta / row.amount! * 100).toLocaleString("ka-GE", { maximumFractionDigits: 2 })}%)` : "—"}</td></> : null}
         <td>{row.amount === null ? "—" : t(row.vatIncluded ? "pricing.yes" : "pricing.no")}{admin && canEdit ? <select aria-label={t("pricing.vat") + " " + row.code} value={edit.vat} onChange={(event) => update(row, { vat: event.target.value })}><option value="">{t(row.expectedPriceId ? "pricing.keep_vat" : "pricing.default_vat")} ({t((row.vatIncluded ?? defaultVat) ? "pricing.yes" : "pricing.no")})</option><option value="true">{t("pricing.yes")}</option><option value="false">{t("pricing.no")}</option></select> : null}</td>
         <td>{row.setAt ? new Date(row.setAt).toLocaleString("en-GB", { timeZone: "Asia/Tbilisi", hour12: false }) : "—"}</td><td>{row.author || "—"}</td>
-      </tr>; })}</tbody></table></div>
+      </tr>; })}</tbody></table></TableScroll>
       {canEdit ? <div className="price-actions"><button type="button" onClick={() => void prepare()}>{t("pricing.preview")}</button>
         <label>{t("pricing.copy_from")} <select value={copyFrom} onChange={(event) => setCopyFrom(event.target.value)}>{stores.filter((row) => row.id !== storefrontId).map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}</select></label>
         <button type="button" disabled={!copyFrom} onClick={() => void prepare(true)}>{t("pricing.copy")}</button></div> : null}

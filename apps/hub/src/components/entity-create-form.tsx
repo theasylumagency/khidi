@@ -16,9 +16,9 @@ export function EntityCreateForm({sharedDevice}:{sharedDevice:boolean}) {
    form.reset();setMessage(t("users.saved"));router.refresh();
   }catch{setMessage(t("auth.network_error"));}finally{setBusy(false);}
  }
- return <section><h2>{t("setup.entity_create")}</h2><p>{t("setup.entity_help")}</p>
+ return <section className="hub-panel hub-stack"><div><h2>{t("setup.entity_create")}</h2><p>{t("setup.entity_help")}</p></div>
   {reauth?<StrongReauthentication sharedDevice={sharedDevice} onSuccess={()=>{setReauth(false);setMessage(t("users.retry"));}}/>:null}
-  <form onSubmit={submit}><fieldset disabled={busy}><label>{t("setup.key")}<input name="key" required minLength={2} maxLength={32} pattern="[A-Z0-9_]+" autoCapitalize="characters"/></label>
+  <form onSubmit={submit}><fieldset className="hub-form-row hub-fieldset" disabled={busy}><label>{t("setup.key")}<input name="key" required minLength={2} maxLength={32} pattern="[A-Z0-9_]+" autoCapitalize="characters"/></label>
   <label>{t("setup.legal_name")}<input name="legalName" required minLength={2} maxLength={200}/></label>
   <label>{t("setup.tax_id")}<input name="taxId" required minLength={5} maxLength={32} inputMode="numeric"/></label>
   <label>{t("setup.vat")}<select name="vat" required defaultValue=""><option value="" disabled>{t("setup.choose")}</option><option value="true">{t("setup.yes")}</option><option value="false">{t("setup.no")}</option></select></label><button>{t("setup.create")}</button></fieldset></form><p role="status">{message}</p>

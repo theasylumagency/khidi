@@ -1,4 +1,5 @@
 "use client";
+import { TableScroll } from "./table-scroll.tsx";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { t, type TranslationKey } from "@khidi/i18n";
@@ -38,9 +39,9 @@ export function InventoryAdvanced({storefrontId,configured,pools,stores,entities
   }
   const select=(name:string,choices:Choice[],label:TranslationKey)=><label>{t(label)}<select name={name} required>{choices.map((p)=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>;
   return <details className="inventory-advanced"><summary>{t("inventory.advanced")}</summary>
-    <div className="inventory-scroll"><table><thead><tr><th>{t("inventory.product")}</th><th>{t("inventory.pool")}</th><th>{t("inventory.shelf")}</th><th>{t("inventory.staging")}</th><th>{t("inventory.unallocated")}</th><th>{t("inventory.store")}</th></tr></thead><tbody>
+    <TableScroll><table><thead><tr><th>{t("inventory.product")}</th><th>{t("inventory.pool")}</th><th>{t("inventory.shelf")}</th><th>{t("inventory.staging")}</th><th>{t("inventory.unallocated")}</th><th>{t("inventory.store")}</th></tr></thead><tbody>
       {balances.pools.map((p)=><tr key={p.poolId+p.skuId}><td>{p.code}</td><td>{p.poolName}</td><td>{p.shelf}</td><td>{p.staging}</td><td>{p.unallocated}</td><td>{balances.assigned.filter((a)=>a.poolId===p.poolId&&a.skuId===p.skuId).map((a)=><div key={a.storefrontId}>{a.storeName}: {t("inventory.free")} {a.availableToSell}, {t("inventory.reserved")} {a.reserved}, {t("inventory.committed")} {a.committed}</div>)}</td></tr>)}
-    </tbody></table></div>
+    </tbody></table></TableScroll>
     {pending?<section className="inventory-confirm"><h2>{t("inventory.preview")}</h2><ul>{pending.summary.map((s,i)=><li key={i}>{s}</li>)}</ul>
       {pending.action==="configure-pool"?<p>{t("inventory.pool_once")}</p>:null}
       {pending.input.operation==="TRANSFER_PURCHASE"?<p>{t("inventory.cross_entity")}</p>:null}

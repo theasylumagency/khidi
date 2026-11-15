@@ -7,13 +7,16 @@ import { getDb } from "@khidi/db";
 import { getQuickSignInAccount } from "@khidi/auth";
 import { QUICK_SIGN_IN_COOKIE, readQuickSignInPreference } from "../../lib/quick-sign-in-cookie.ts";
 import { UserSetup } from "../../components/user-setup.tsx";
+import type { ReactNode } from "react";
 
 export const dynamic = "force-dynamic";
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ session?: string;setup?:string }> }) {
   const query=await searchParams;
   const existingPrincipal = await getCurrentPrincipal();
-  if(query.setup==="1")return <UserSetup sessionId={existingPrincipal?.sessionId} registeredDevice={Boolean(await getRegisteredDevicePinContext())}/>;
+  if (query.setup === "1") {
+    return <LoginStage><UserSetup sessionId={existingPrincipal?.sessionId} registeredDevice={Boolean(await getRegisteredDevicePinContext())} /></LoginStage>;
+  }
   if (existingPrincipal) {
     redirect("/");
   }
@@ -25,7 +28,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const quickAccount = preference && preference.mode !== "deferred" ? await getQuickSignInAccount(getDb(), preference.id) : null;
 
   return (
-    <div style={{ display: "grid", gap: "1.5rem" }}>
+    <LoginStage>
       {query.session === "expired" ? <p role="status">{t("session.ended")}</p> : null}
       <LoginForms
         sharedWarehouseDevice={sharedWarehouseDevice}
@@ -34,6 +37,22 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         registeredDevice={devicePinContext?.device ?? null}
         pinUsers={devicePinContext?.users ?? []}
       />
+    </LoginStage>
+  );
+}
+
+function LoginStage({ children }: { children: ReactNode }) {
+  return (
+    <div className="hub-login-stage">
+      <div className="hub-login-brand">
+        <div className="bridge-art" aria-hidden="true"><span /><i /></div>
+        <div className="hub-hero-content">
+          <span className="hub-mark" aria-hidden="true" />
+          <strong>{t("ui.login_title")}</strong>
+          <p>{t("scanner.protected")}</p>
+        </div>
+      </div>
+      <div className="hub-login-body">{children}</div>
     </div>
   );
 }
