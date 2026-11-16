@@ -61,7 +61,7 @@ export async function createReviewCheckpointIfReached(ctx: DomainTransactionCont
     name: sql<string | null>`${products.baseline}->>'არსებული სახელი'`,
     required: sql<number>`(SELECT count(*)::int FROM catalog_review_proposals WHERE product_id = ${products.id})`,
     field: decisions.field, action: decisions.action, note: decisions.note,
-    editedText: decisions.editedText, photoPosition: links.position
+    editedText: decisions.editedText, approvedText: decisions.approvedText, photoPosition: links.position
   }).from(decisions)
     .innerJoin(products, eq(products.id, decisions.productId))
     .leftJoin(links, and(eq(links.productId, products.id), eq(links.photoId, decisions.selectedPhotoId)))
@@ -75,7 +75,7 @@ export async function createReviewCheckpointIfReached(ctx: DomainTransactionCont
     const item = byProduct.get(row.productId) ?? { wordpressId: row.wordpressId, name: row.name, outcomes: new Map() };
     const wasPassed = item.outcomes.size === row.required;
     item.outcomes.set(row.field, { field: row.field, action: row.action, note: row.note,
-      editedText: row.editedText, photoPosition: row.photoPosition });
+      editedText: row.editedText, approvedText: row.approvedText, photoPosition: row.photoPosition });
     if (!wasPassed && item.outcomes.size === row.required) firstPass.push(row.productId);
     byProduct.set(row.productId, item);
   }

@@ -14,11 +14,20 @@ export { getReviewCheckpoint, listReviewCheckpoints, markReviewCheckpointViewed 
 
 export const reviewRoles = ["ADMIN", "CATALOG_REVIEWER"] as const;
 export const reviewId = z.string().uuid();
+const reviewText = z.string().min(1).max(20000).refine((value) => value.trim().length > 0);
+export const textField = z.enum(["NAME", "SHORT", "FULL"]);
+export const createTextInput = z.object({
+  productId: reviewId, field: textField, text: reviewText,
+  note: z.string().trim().max(2000).optional()
+}).strict();
+export type CreateTextInput = z.infer<typeof createTextInput>;
+export const reviewTextSource = { NAME: "არსებული სახელი", SHORT: "არსებული მოკლე აღწერა", FULL: "არსებული სრული აღწერა" } as const;
 export const decisionInput = z.object({
   proposalId: reviewId,
   revision: z.number().int().min(0),
   action: z.enum(["APPROVE", "REJECT", "EDIT", "DEFER"]),
-  editedText: z.string().trim().min(1).max(20000).optional(),
+  editedText: reviewText.optional(),
+  textVersion: z.union([z.literal("PROPOSAL"), reviewId]).optional(),
   photoId: reviewId.optional(),
   note: z.string().trim().max(2000).optional()
 }).strict();
@@ -56,7 +65,12 @@ export async function listReviewProducts(db: AppDatabase, principal: Authenticat
   const rows = await db.select({
     id: products.id, wordpressId: products.wordpressId, sourceStatus: products.sourceStatus,
     recommendedOrder: products.recommendedOrder,
-    name: sql<string | null>`${products.baseline}->>'არსებული სახელი'`,
+    name: sql<string | null>`COALESCE((
+      SELECT COALESCE(approved_text, edited_text) FROM catalog_review_decisions
+      WHERE product_id = ${products.id} AND field = 'NAME'
+      ${principal.role === "CATALOG_REVIEWER" ? sql`AND actor_id = ${principal.userId}` : sql.empty()}
+      ORDER BY revision DESC LIMIT 1
+    ), ${products.baseline}->>'არსებული სახელი')`,
     category: sql<string | null>`${products.baseline}->>'კატეგორია (სამუშაო)'`,
     action: sql<DecisionInput["action"] | null>`(
       SELECT action FROM catalog_review_decisions WHERE proposal_id = ${proposals.id}
@@ -90,6 +104,7 @@ export async function getReviewProduct(db: AppDatabase, principal: Authenticated
     db.select({
       id: decisions.id, proposalId: decisions.proposalId, action: decisions.action,
       note: decisions.note, editedText: decisions.editedText, photoId: decisions.selectedPhotoId,
+      approvedText: decisions.approvedText, approvedTextEditId: decisions.approvedTextEditId,
       revision: decisions.revision, createdAt: decisions.createdAt, actor: users.fullName, actorId: decisions.actorId
     }).from(decisions).innerJoin(users, eq(decisions.actorId, users.id))
       .where(eq(decisions.productId, product.id)).orderBy(desc(decisions.revision)),
@@ -119,6 +134,9 @@ async function findProposal(db: DbExecutor, principal: AuthenticatedPrincipal, p
 }
 
 export async function recordReviewDecision(db: AppDatabase, principal: AuthenticatedPrincipal, key: string, input: DecisionInput) {
+  const parsed = decisionInput.safeParse(input);
+  if (!parsed.success) throw new AppError("VALIDATION_ERROR", "Invalid catalog decision.");
+  input = parsed.data;
   await findProposal(db, principal, input.proposalId);
   return executeIdempotent(db, { scope: `catalog-review:${principal.userId}`, idempotencyKey: key, payload: input },
     (tx) => withDomainTransaction(tx, { userId: principal.userId }, async (ctx) => {
@@ -137,8 +155,23 @@ export async function recordReviewDecision(db: AppDatabase, principal: Authentic
       const selectedPhotoId = isPhoto && input.action === "APPROVE" ? input.photoId ?? proposal.proposedPhotoId : null;
       if ((input.action === "EDIT") !== Boolean(input.editedText) || (isPhoto && input.action === "EDIT")
         || (input.photoId && (!isPhoto || input.action !== "APPROVE"))
-        || (isPhoto && input.action === "APPROVE" && !selectedPhotoId)) {
+        || (isPhoto && input.action === "APPROVE" && !selectedPhotoId)
+        || (Boolean(input.textVersion) !== (!isPhoto && input.action === "APPROVE"))
+        || (proposal.origin === "MANUAL" && input.textVersion === "PROPOSAL")) {
         throw new AppError("VALIDATION_ERROR", "Decision does not match the proposal.");
+      }
+      let approvedText: string | null = null;
+      let approvedTextEditId: string | null = null;
+      if (!isPhoto && input.action === "APPROVE") {
+        if (input.textVersion === "PROPOSAL") approvedText = proposal.proposed;
+        else {
+          const [source] = await ctx.tx.select({ text: decisions.editedText }).from(decisions).where(and(
+            eq(decisions.id, input.textVersion!), eq(decisions.proposalId, proposal.id), eq(decisions.action, "EDIT")
+          ));
+          if (!source?.text) throw new AppError("VALIDATION_ERROR", "Text version is not available for this field.");
+          approvedText = source.text;
+          approvedTextEditId = input.textVersion!;
+        }
       }
       if (selectedPhotoId) {
         const [linked] = await ctx.tx.select({ id: links.photoId }).from(links)
@@ -150,10 +183,11 @@ export async function recordReviewDecision(db: AppDatabase, principal: Authentic
       const revision = input.revision + 1;
       await ctx.tx.insert(decisions).values({
         id, proposalId: proposal.id, productId: proposal.productId, field: proposal.field, revision, actorId: principal.userId,
-        action: input.action, editedText: input.editedText, selectedPhotoId, note: input.note || null,
+        action: input.action, editedText: input.editedText, approvedText, approvedTextEditId, selectedPhotoId, note: input.note || null,
         createdAt: new Date()
       });
-      const summary = { proposalId: proposal.id, field: proposal.field, action: input.action, revision };
+      const summary = { proposalId: proposal.id, field: proposal.field, action: input.action, revision,
+        ...(approvedText !== null ? { textVersion: input.textVersion } : {}) };
       await ctx.recordAudit({ action: "CATALOG_REVIEW_DECIDED", entityType: "catalog_review_decision", entityId: id, after: summary });
       await ctx.emitOutboxEvent({
         eventType: "CATALOG_REVIEW_DECIDED", aggregateType: "catalog_review_proposal",
@@ -161,6 +195,53 @@ export async function recordReviewDecision(db: AppDatabase, principal: Authentic
       });
       if (principal.role === "CATALOG_REVIEWER") await createReviewCheckpointIfReached(ctx, batchId, principal.userId);
       return { status: 200, body: { id, revision } };
+    })
+  );
+}
+
+/** Create a previously absent text field and its first edit atomically, without changing the import. */
+export async function createReviewText(db: AppDatabase, principal: AuthenticatedPrincipal, key: string, rawInput: CreateTextInput) {
+  const parsed = createTextInput.safeParse(rawInput);
+  if (!parsed.success) throw new AppError("VALIDATION_ERROR", "Invalid review text.");
+  const input = parsed.data;
+  const findProduct = async (executor: DbExecutor) => {
+    const [product] = await executor.select().from(products).where(and(
+      eq(products.id, input.productId), assigned(executor, principal), inPilot(executor)
+    ));
+    if (!product) throw new AppError("NOT_FOUND", "Catalog review product unavailable.");
+    return product;
+  };
+  await findProduct(db);
+  return executeIdempotent(db, { scope: `catalog-review-text:${principal.userId}`, idempotencyKey: key, payload: input },
+    (tx) => withDomainTransaction(tx, { userId: principal.userId }, async (ctx) => {
+      const product = await findProduct(ctx.tx);
+      if (principal.role === "CATALOG_REVIEWER") {
+        await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`review-checkpoint:${product.batchId}:${principal.userId}`}, 0))`);
+      }
+      await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`review-text:${product.id}:${input.field}`}, 0))`);
+      const [existing] = await ctx.tx.select({ id: proposals.id }).from(proposals)
+        .where(and(eq(proposals.productId, product.id), eq(proposals.field, input.field)));
+      if (existing) throw new AppError("CONFLICT", "This field already has a review version.");
+      const proposalId = createUuidV7(), id = createUuidV7();
+      const original = product.baseline[reviewTextSource[input.field]];
+      await ctx.tx.insert(proposals).values({
+        id: proposalId, productId: product.id, field: input.field,
+        original: original == null ? null : String(original), proposed: input.text,
+        observation: "Manual text entry", rationale: "Reviewer supplied a version for a field without an imported proposal.",
+        origin: "MANUAL", createdBy: principal.userId
+      });
+      await ctx.tx.insert(decisions).values({
+        id, proposalId, productId: product.id, field: input.field, revision: 1, actorId: principal.userId,
+        action: "EDIT", editedText: input.text, note: input.note || null
+      });
+      const summary = { proposalId, productId: product.id, field: input.field, action: "EDIT", revision: 1 };
+      await ctx.recordAudit({ action: "CATALOG_REVIEW_TEXT_CREATED", entityType: "catalog_review_proposal", entityId: proposalId,
+        after: { field: input.field, productId: product.id, origin: "MANUAL" } });
+      await ctx.recordAudit({ action: "CATALOG_REVIEW_DECIDED", entityType: "catalog_review_decision", entityId: id, after: summary });
+      await ctx.emitOutboxEvent({ eventType: "CATALOG_REVIEW_DECIDED", aggregateType: "catalog_review_proposal",
+        aggregateId: proposalId, payload: summary, consumers: [] });
+      if (principal.role === "CATALOG_REVIEWER") await createReviewCheckpointIfReached(ctx, product.batchId, principal.userId);
+      return { status: 201, body: { id, proposalId, revision: 1 } };
     })
   );
 }

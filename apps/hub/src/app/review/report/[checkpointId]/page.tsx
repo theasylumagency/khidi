@@ -34,6 +34,7 @@ export default async function ReviewReportPage({ params }: { params: Promise<{ c
         `${t(`review.field.${item.field}`)} · ${t(`review.status.${item.action}`)}`,
         ...(item.photoPosition !== null ? [`${t("review.photo_selected")} ${item.photoPosition}`] : []),
         ...(item.editedText ? [item.editedText] : []),
+        ...(item.approvedText ? [`${t("review.approved_text")}:\n${item.approvedText}`] : []),
         ...(item.note ? [item.note] : [])
       ]), ""
     ])
@@ -60,6 +61,7 @@ export default async function ReviewReportPage({ params }: { params: Promise<{ c
             <strong>{t(`review.field.${item.field}`)} · {t(`review.status.${item.action}`)}</strong>
             {item.photoPosition !== null ? <p>{t("review.photo_selected")} {item.photoPosition}</p> : null}
             {item.editedText ? <p>{item.editedText}</p> : null}
+            {item.approvedText ? <p>{t("review.approved_text")}: {item.approvedText}</p> : null}
             {item.note ? <p>{item.note}</p> : null}
           </div>)}
         </li>)}

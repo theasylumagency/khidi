@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { t } from "@khidi/i18n";
+import { t, type TranslationKey } from "@khidi/i18n";
 import { compareReviewText } from "../lib/catalog-review-diff.ts";
 import { CatalogReviewOriginal } from "./catalog-review-original.tsx";
 
-export function CatalogReviewComparison({ original, proposed }: { original: string; proposed: string | null }) {
+export function CatalogReviewComparison({ original, proposed, proposedLabel = "review.proposed", editable = false }: {
+  original: string; proposed: string | null; proposedLabel?: TranslationKey; editable?: boolean;
+}) {
   const [highlight, setHighlight] = useState(true);
   const comparison = useMemo(() => compareReviewText(original, proposed ?? ""), [original, proposed]);
   const changed = proposed !== null && original !== proposed;
@@ -29,7 +31,7 @@ export function CatalogReviewComparison({ original, proposed }: { original: stri
         ) : t("review.no_text")}</p>
       </div> : <CatalogReviewOriginal text={original || t("review.no_text")} />}
       <div className="review-proposal-text">
-        <h3>{t("review.proposed")}</h3>
+        <h3>{t(proposedLabel)}</h3>
         <p>{proposed === null ? t("review.no_proposal") : !proposed ? t("review.no_text") : highlight
           ? comparison.changes.filter((part) => part.kind !== "removed").map((part, index) =>
             part.kind === "added" ? <ins key={index}>{part.text}</ins> : <span key={index}>{part.text}</span>)
@@ -38,6 +40,6 @@ export function CatalogReviewComparison({ original, proposed }: { original: stri
     </div>
     {proposed !== null ? <p className="review-quiet review-comparison-help">
       {t(highlight && comparison.coarse ? "review.coarse_comparison" : "review.comparison_help")}
-    </p> : <p className="review-empty-help">{t("review.no_proposal_help")}</p>}
+    </p> : <p className="review-empty-help">{t(editable ? "review.add_text_help" : "review.no_proposal_help")}</p>}
   </div>;
 }

@@ -51,7 +51,9 @@ export const catalogReviewProposals = pgTable("catalog_review_proposals", {
   proposed: text("proposed"),
   observation: text("observation").notNull(),
   rationale: text("rationale").notNull(),
-  proposedPhotoId: uuid("proposed_photo_id")
+  proposedPhotoId: uuid("proposed_photo_id"),
+  origin: text("origin").$type<"IMPORT" | "MANUAL">().default("IMPORT").notNull(),
+  createdBy: uuid("created_by")
 });
 
 export const catalogReviewDecisions = pgTable("catalog_review_decisions", {
@@ -63,6 +65,8 @@ export const catalogReviewDecisions = pgTable("catalog_review_decisions", {
   actorId: uuid("actor_id").notNull(),
   action: text("action").$type<"APPROVE" | "REJECT" | "EDIT" | "DEFER">().notNull(),
   editedText: text("edited_text"),
+  approvedText: text("approved_text"),
+  approvedTextEditId: uuid("approved_text_edit_id"),
   selectedPhotoId: uuid("selected_photo_id"),
   note: text("note"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
@@ -76,6 +80,7 @@ export type CatalogReviewCheckpointProduct = {
     action: "APPROVE" | "REJECT" | "EDIT" | "DEFER";
     note: string | null;
     editedText: string | null;
+    approvedText?: string | null;
     photoPosition: number | null;
   }[];
 };

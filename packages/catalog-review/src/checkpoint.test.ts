@@ -46,7 +46,8 @@ it("counts distinct personally reviewed products, includes deferrals, and freeze
 
   for (const item of items.slice(0, 19)) {
     await recordReviewDecision(db, reviewer, uuid(), {
-      proposalId: item.proposalId, revision: 0, action: item === items[0] ? "DEFER" : "APPROVE"
+      proposalId: item.proposalId, revision: 0, action: item === items[0] ? "DEFER" : "APPROVE",
+      ...(item !== items[0] ? { textVersion: "PROPOSAL" } : {})
     });
   }
   // A repeat on one product and another reviewer's decision on the remaining field cannot finish the twentieth.
@@ -61,7 +62,7 @@ it("counts distinct personally reviewed products, includes deferrals, and freeze
     pending: 1, deferred: 1, recommendedOrder: null
   });
 
-  const final = { proposalId: partial.proposalId, revision: 1, action: "APPROVE" } as const;
+  const final = { proposalId: partial.proposalId, revision: 1, action: "APPROVE", textVersion: "PROPOSAL" } as const;
   const key = uuid();
   await Promise.all([recordReviewDecision(db, reviewer, key, final), recordReviewDecision(db, reviewer, key, final)]);
   const [offer] = await listReviewCheckpoints(db, reviewer);
@@ -70,14 +71,15 @@ it("counts distinct personally reviewed products, includes deferrals, and freeze
   expect(report.report.map((item) => item.wordpressId)).toEqual(items.slice(0, 20).map((item) => item.wordpressId));
   expect(report.report[0]?.outcomes[0]?.action).toBe("DEFER");
   expect(report.report[1]?.outcomes[0]).toMatchObject({ action: "EDIT", editedText: "Revised" });
+  expect(report.report[2]?.outcomes[0]).toMatchObject({ action: "APPROVE", approvedText: "new" });
   expect(report.report[19]?.outcomes).toContainEqual(expect.objectContaining({ action: "DEFER", note: "Check source" }));
   await expect(getReviewCheckpoint(db, other, report.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(markReviewCheckpointViewed(db, other, report.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
 
   await Promise.all([markReviewCheckpointViewed(db, reviewer, report.id), markReviewCheckpointViewed(db, reviewer, report.id)]);
   expect((await listReviewCheckpoints(db, reviewer))[0]?.viewedAt).toBeInstanceOf(Date);
-  await recordReviewDecision(db, reviewer, uuid(), { proposalId: items[20]!.proposalId, revision: 0, action: "APPROVE" });
-  await recordReviewDecision(db, reviewer, uuid(), { proposalId: items[0]!.proposalId, revision: 1, action: "APPROVE" });
+  await recordReviewDecision(db, reviewer, uuid(), { proposalId: items[20]!.proposalId, revision: 0, action: "APPROVE", textVersion: "PROPOSAL" });
+  await recordReviewDecision(db, reviewer, uuid(), { proposalId: items[0]!.proposalId, revision: 1, action: "APPROVE", textVersion: "PROPOSAL" });
   expect(await listReviewCheckpoints(db, reviewer)).toHaveLength(1);
   expect((await getReviewCheckpoint(db, reviewer, report.id)).report).toEqual(report.report);
   for (const action of ["CATALOG_REVIEW_CHECKPOINT_CREATED", "CATALOG_REVIEW_CHECKPOINT_VIEWED"]) {

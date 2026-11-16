@@ -1,22 +1,28 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { t, type TranslationKey } from "@khidi/i18n";
 import type { DecisionInput } from "@khidi/catalog-review";
 import { CatalogReviewPhotos, type ReviewPhoto } from "./catalog-review-photos.tsx";
 
 type Props = {
-  id: string;
+  id: string | null;
+  productId?: string;
+  field?: "NAME" | "SHORT" | "FULL";
+  textVersion?: string;
+  onLockedChange?: (locked: boolean) => void;
   revision: number;
   text: string | null;
   photos?: ReviewPhoto[];
   proposedPhotoId: string | null;
   currentPhotoId: string | null;
   continueHref?: string;
+  stayHref?: string;
 };
 
-export function CatalogDecisionForm({ id, revision, text, photos, proposedPhotoId, currentPhotoId, continueHref }: Props) {
+export function CatalogDecisionForm({ id, revision, text, photos, proposedPhotoId, currentPhotoId, continueHref,
+  productId, field, textVersion, onLockedChange, stayHref }: Props) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [showNote, setShowNote] = useState(false);
@@ -26,6 +32,7 @@ export function CatalogDecisionForm({ id, revision, text, photos, proposedPhotoI
   const [message, setMessage] = useState<TranslationKey>();
   const request = useRef<{ body: string; key: string } | null>(null);
   const missingPhoto = photos?.length === 0;
+  useEffect(() => { onLockedChange?.(editing || busy || saved); }, [editing, busy, saved, onLockedChange]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -33,28 +40,34 @@ export function CatalogDecisionForm({ id, revision, text, photos, proposedPhotoI
     const action = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") as DecisionInput["action"] | undefined;
     if (!action) return;
     const values = new FormData(event.currentTarget);
-    const input: DecisionInput = {
+    const input = id ? {
       proposalId: id, revision, action,
       note: String(values.get("note") ?? ""),
       ...(action === "EDIT" ? { editedText: String(values.get("editedText") ?? "") } : {}),
-      ...(photos && action === "APPROVE" ? { photoId: selected } : {})
+      ...(photos && action === "APPROVE" ? { photoId: selected } : {}),
+      ...(!photos && action === "APPROVE" ? { textVersion } : {})
+    } : {
+      productId, field, text: String(values.get("editedText") ?? ""), note: String(values.get("note") ?? "")
     };
     const body = JSON.stringify(input);
     if (request.current?.body !== body) request.current = { body, key: crypto.randomUUID() };
     setBusy(true);
     setMessage(undefined);
     try {
-      const response = await fetch("/api/catalog-review/decision", {
+      const response = await fetch(id ? "/api/catalog-review/decision" : "/api/catalog-review/text", {
         method: "POST", body,
         headers: { "Content-Type": "application/json", "Idempotency-Key": request.current.key }
       });
       if (!response.ok) {
-        setMessage(response.status === 409 ? "review.conflict" : response.status === 401 ? "review.expired" : "review.failed");
+        setMessage(response.status === 409 ? (editing ? "review.text_conflict" : "review.conflict")
+          : response.status === 401 ? "review.expired" : "review.failed");
         return;
       }
       setSaved(true);
       setMessage("review.saved");
-      if (continueHref) router.replace(continueHref);
+      if (action === "EDIT" && stayHref && stayHref !== window.location.pathname + window.location.search) {
+        router.replace(stayHref, { scroll: false });
+      } else if (continueHref && action !== "EDIT") router.replace(continueHref);
       else router.refresh();
     } catch {
       setMessage("review.failed");
@@ -79,13 +92,14 @@ export function CatalogDecisionForm({ id, revision, text, photos, proposedPhotoI
         <button value="EDIT" data-primary="true" disabled={busy || saved}>{t("review.save_edit")}</button>
         <button type="button" onClick={() => setEditing(false)} disabled={busy || saved}>{t("review.cancel_edit")}</button>
       </> : <>
-        {!missingPhoto ? <button value="APPROVE" data-primary="true" disabled={busy || saved || Boolean(photos && !selected)}>{t("review.text.APPROVE")}</button> : null}
-        {!photos ? <button type="button" onClick={() => setEditing(true)} disabled={busy || saved}>{t("review.text.EDIT")}</button> : null}
-        <button value="DEFER" data-primary={missingPhoto} disabled={busy || saved}>{t("review.text.DEFER")}</button>
-        {!missingPhoto ? <button value="REJECT" disabled={busy || saved}>{t("review.text.REJECT")}</button> : null}
+        {id && !missingPhoto ? <button value="APPROVE" data-primary="true" disabled={busy || saved || Boolean(photos && !selected)}>{t(photos ? "review.text.APPROVE" : "review.approve_text_version")}</button> : null}
+        {!photos ? <button type="button" data-primary={!id} onClick={() => setEditing(true)} disabled={busy || saved}>{t(id || text?.trim() ? "review.text.EDIT" : "review.add_text")}</button> : null}
+        {id ? <button value="DEFER" data-primary={missingPhoto} disabled={busy || saved}>{t("review.text.DEFER")}</button> : null}
+        {id && !missingPhoto ? <button value="REJECT" disabled={busy || saved}>{t("review.text.REJECT")}</button> : null}
       </>}
     </div>
-    {continueHref ? <p className="review-quiet review-continue-hint">{t("review.continue_hint")}</p> : null}
+    {editing ? <p className="review-quiet review-continue-hint">{t("review.edit_save_hint")}</p>
+      : continueHref ? <p className="review-quiet review-continue-hint">{t("review.continue_hint")}</p> : null}
     <p className="review-feedback" role="status">{message ? t(message) : null}</p>
   </form>;
 }

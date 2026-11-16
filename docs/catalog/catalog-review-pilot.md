@@ -12,7 +12,7 @@ The pilot adds an editorial queue to the existing Hub. It uses the same sessions
 
 The legacy records and photos have no canonical Product Master or SKU association. In this pilot, verification of specifications and identities remains with the existing evidence workflow. READY, publishing, pricing, stock and sellability retain their existing lifecycle. Any future promotion of reviewed material needs an explicitly approved mapping and existing verification gates.
 
-The queue supports search by name or WordPress ID and filters for category and decision status. A product opens at its first pending field. Saving a new decision continues to the next pending field or to the product history. The photo panel shows only the original WordPress archive previews. When the archive has no photo, the reviewer can defer that field and leave a note.
+The queue supports search by name or WordPress ID and filters for category and decision status. A product opens at its first pending field. Approval, rejection or deferral continues to the next pending field or to the product history; saving an edit stays on that field for explicit approval. The photo panel shows only the original WordPress archive previews. When the archive has no photo, the reviewer can defer that field and leave a note.
 
 The next-product link preserves all active filters, including search. The text panel can
 highlight additions and removals without changing either source; this is a textual comparison,
@@ -21,6 +21,31 @@ photo. The viewer uses the same protected preview (up to 960 px), with original 
 and automatic quality hints displayed separately. Blank source fields and absent proposals are
 identified explicitly. See the [workspace plan and verification record](catalog-review-workspace.md)
 for the interface work and proposed follow-up decisions.
+
+### Text entry and exact approval (ADR-016 Part A)
+
+After migration 0059, a reviewer can add NAME, SHORT or FULL when no proposal exists. Saving
+creates a manually attributed proposal and the first EDIT in one audited transaction. It never
+changes the source baseline or requires a new import. A simultaneous first save gets CONFLICT;
+an identical retry replays the original result.
+
+Saving an edit stays on the field for inspection. The version picker lists the original imported
+proposal and saved edits with author/revision/date. **ამ ტექსტის დამტკიცება** approves precisely
+the displayed version. The request carries its identity, and the server copies its immutable
+text into the approval; history and new reports include that snapshot. A stale global revision
+fails without overwriting a newer decision. An error leaves the open form intact; persistent
+draft recovery is a separate future change.
+
+Old approvals have no recorded text version and are marked accordingly; the UI does not infer
+their intended version from nearby edits. Old reports remain frozen. First-pass counting still
+includes EDIT and DEFER. Adding a field creates an additional review item; no new publishing or
+completion gate is introduced. Saved/approved names appear in the private review heading/search
+under the existing personal/global decision scope, while the comparison retains the old name.
+
+Deploy 0059 with the new app while Hub is stopped, using the existing operations environment
+and normal recovery point. Do not re-import or seed. The previous binary cannot write new text
+approvals after this migration because it omits the explicit source/snapshot: use a forward fix
+if needed; do not remove the migration or rewrite history. Existing photo decisions are compatible.
 
 A product counts toward the first pass when the assigned reviewer has made a decision on each available proposal. Deferral counts as a decision and remains a follow-up item. The twentieth distinct product creates one immutable report per reviewer and batch. Opening or postponing the offer acknowledges it. The report stays accessible from the queue while review continues. The email action opens a summary draft addressed to `hello@theasylum.agency`. The reviewer sends it through their mail app and can copy the full report from the preview.
 
