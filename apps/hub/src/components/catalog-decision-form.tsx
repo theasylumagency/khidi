@@ -4,13 +4,13 @@ import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { t, type TranslationKey } from "@khidi/i18n";
 import type { DecisionInput } from "@khidi/catalog-review";
+import { CatalogReviewPhotos, type ReviewPhoto } from "./catalog-review-photos.tsx";
 
-type Photo = { id: string; url: string; position: number; needsAttention: boolean };
 type Props = {
   id: string;
   revision: number;
   text: string | null;
-  photos?: Photo[];
+  photos?: ReviewPhoto[];
   proposedPhotoId: string | null;
   currentPhotoId: string | null;
   continueHref?: string;
@@ -64,19 +64,11 @@ export function CatalogDecisionForm({ id, revision, text, photos, proposedPhotoI
   }
 
   return <form className="review-form" onSubmit={submit} aria-busy={busy}>
-    {photos && photos.length > 0 ? <fieldset className="review-photos" disabled={busy || saved}>
-      <legend>{t("review.choose_photo")}</legend>
-      {photos.map((photo) => <label key={photo.id}>
-        <img src={photo.url} alt={`${t("review.photo")} ${photo.position}`} loading="lazy" decoding="async" />
-        <input type="radio" name="photo" value={photo.id} checked={selected === photo.id} onChange={() => setSelected(photo.id)} />
-        <span>{t("review.photo")} {photo.position}</span>
-        {photo.position === 1 ? <small>{t("review.old_main")}</small> : null}
-        {photo.id === proposedPhotoId ? <small>{t("review.suggested_photo")}</small> : null}
-        {photo.needsAttention ? <small>{t("review.photo_attention")}</small> : null}
-      </label>)}
-    </fieldset> : null}
+    {photos && photos.length > 0 ? <CatalogReviewPhotos photos={photos} selected={selected} onSelect={setSelected}
+      proposedPhotoId={proposedPhotoId} disabled={busy || saved} /> : null}
+    {missingPhoto ? <p className="review-empty-help">{t("review.photo_defer_archive")}</p> : null}
     {editing ? <label>{t("review.text.EDIT")}
-      <textarea name="editedText" rows={5} defaultValue={text ?? ""} required maxLength={20000} autoFocus />
+      <textarea name="editedText" rows={8} defaultValue={text ?? ""} required maxLength={20000} disabled={busy || saved} autoFocus />
     </label> : null}
     {showNote ? <label>{t("review.note")}
       <textarea name="note" rows={2} maxLength={2000} disabled={busy || saved} autoFocus />

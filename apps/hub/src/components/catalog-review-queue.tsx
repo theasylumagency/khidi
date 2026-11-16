@@ -17,12 +17,7 @@ export function CatalogReviewQueue({ products, initialFilters }: {
     .sort((a, b) => a.localeCompare(b, "ka"));
   const completed = products.filter((product) => product.pending === 0).length;
   const selection = { q: query, category, status: filter };
-  const search = query.trim().replace(/^#/u, "").toLocaleLowerCase("ka");
-  const visible = products.filter((product) => {
-    return matchesReviewScope(product, category, filter)
-      && (!search || (product.name ?? t("review.unnamed")).toLocaleLowerCase("ka").includes(search)
-        || String(product.wordpressId).includes(search));
-  });
+  const visible = products.filter((product) => matchesReviewScope(product, selection));
   const resume = visible.find((product) => product.pending > 0) ?? visible.find((product) => product.deferred > 0);
 
   return <>
@@ -62,7 +57,7 @@ export function CatalogReviewQueue({ products, initialFilters }: {
       {visible.map((product) => <li key={product.id}>
         <Link href={reviewHref(selection, product.id)} prefetch={false}>
           <span className="review-list-name">
-            <strong>{product.name ?? t("review.unnamed")}</strong>
+            <strong>{product.name?.trim() || t("review.unnamed")}</strong>
             <small>#{product.wordpressId}{product.category ? ` · ${product.category}` : ""}
               {product.sourceStatus === "DRAFT" ? ` · ${t("review.DRAFT")}` : ""}</small>
           </span>
