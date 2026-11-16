@@ -1,4 +1,5 @@
 import type { ReviewProductSummary } from "@khidi/catalog-review";
+import { t } from "@khidi/i18n";
 
 export const reviewFilters = ["all", "pending", "deferred", "done"] as const;
 export type ReviewFilter = (typeof reviewFilters)[number];
@@ -22,9 +23,13 @@ export function reviewHref(filters: ReviewQueueFilters, productId?: string, view
   return `/review${productId ? `/${productId}` : ""}${query ? `?${query}` : ""}`;
 }
 
-export function matchesReviewScope(product: ReviewProductSummary, category: string, status: ReviewFilter) {
+export function matchesReviewScope(product: ReviewProductSummary,
+  { q = "", category = "", status = "all" }: Partial<ReviewQueueFilters> = {}) {
+  const search = q.trim().replace(/^#/u, "").toLocaleLowerCase("ka");
   return (!category || product.category === category) && (status === "all"
-    || (status === "done" ? product.pending === 0 && product.deferred === 0 : product[status] > 0));
+    || (status === "done" ? product.pending === 0 && product.deferred === 0 : product[status] > 0))
+    && (!search || (product.name?.trim() || t("review.unnamed")).toLocaleLowerCase("ka").includes(search)
+      || String(product.wordpressId).includes(search));
 }
 
 export function orderReviewQueue(products: ReviewProductSummary[]) {
@@ -34,8 +39,8 @@ export function orderReviewQueue(products: ReviewProductSummary[]) {
 }
 
 export function nextReviewProduct(products: ReviewProductSummary[], currentId: string,
-  { category = "", status = "all" }: Partial<ReviewQueueFilters> = {}) {
+  { q = "", category = "", status = "all" }: Partial<ReviewQueueFilters> = {}) {
   const index = products.findIndex((product) => product.id === currentId);
-  const eligible = (product: ReviewProductSummary) => matchesReviewScope(product, category, status === "all" ? "pending" : status);
+  const eligible = (product: ReviewProductSummary) => matchesReviewScope(product, { q, category, status: status === "all" ? "pending" : status });
   return products.slice(index + 1).find(eligible) ?? products.slice(0, Math.max(index, 0)).find(eligible);
 }

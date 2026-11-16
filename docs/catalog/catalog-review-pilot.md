@@ -14,6 +14,14 @@ The legacy records and photos have no canonical Product Master or SKU associatio
 
 The queue supports search by name or WordPress ID and filters for category and decision status. A product opens at its first pending field. Saving a new decision continues to the next pending field or to the product history. The photo panel shows only the original WordPress archive previews. When the archive has no photo, the reviewer can defer that field and leave a note.
 
+The next-product link preserves all active filters, including search. The text panel can
+highlight additions and removals without changing either source; this is a textual comparison,
+not factual verification. Photo inspection opens a separate viewer and does not select a main
+photo. The viewer uses the same protected preview (up to 960 px), with original archive dimensions
+and automatic quality hints displayed separately. Blank source fields and absent proposals are
+identified explicitly. See the [workspace plan and verification record](catalog-review-workspace.md)
+for the interface work and proposed follow-up decisions.
+
 A product counts toward the first pass when the assigned reviewer has made a decision on each available proposal. Deferral counts as a decision and remains a follow-up item. The twentieth distinct product creates one immutable report per reviewer and batch. Opening or postponing the offer acknowledges it. The report stays accessible from the queue while review continues. The email action opens a summary draft addressed to `hello@theasylum.agency`. The reviewer sends it through their mail app and can copy the full report from the preview.
 
 ## Run locally

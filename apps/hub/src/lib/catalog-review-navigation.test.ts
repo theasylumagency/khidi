@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ReviewProductSummary } from "@khidi/catalog-review";
-import { nextReviewProduct, orderReviewQueue, readReviewFilters, reviewHref } from "./catalog-review-navigation.ts";
+import { matchesReviewScope, nextReviewProduct, orderReviewQueue, readReviewFilters, reviewHref } from "./catalog-review-navigation.ts";
 
 function product(wordpressId: number, pending: number, deferred = 0): ReviewProductSummary {
   return { id: String(wordpressId), wordpressId, pending, deferred, total: 4, recommendedOrder: null,
@@ -40,9 +40,35 @@ describe("review queue navigation", () => {
       { ...product(12, 0, 1), category: "სხვა" },
       { ...product(13, 0, 1), category: "ავტო" }
     ];
-    expect(nextReviewProduct(products, "10", filters)?.id).toBe("13");
+    expect(nextReviewProduct(products, "10", { ...filters, q: "" })?.id).toBe("13");
     const href = new URL(reviewHref(filters, "13", "photos"), "http://localhost");
     expect(href.pathname).toBe("/review/13");
     expect(Object.fromEntries(href.searchParams)).toEqual({ ...filters, view: "photos" });
+  });
+
+  it("keeps next and wrapped navigation inside the same text search as the queue", () => {
+    const products = [
+      { ...product(8135, 1), name: "გენერატორი FT51975" },
+      { ...product(8138, 1), name: "FT51975 გენერატორი" },
+      { ...product(8169, 1), name: "აბრაზიული დისკი" }
+    ];
+    const filters = { q: " ft51975 ", category: "", status: "all" } as const;
+    expect(products.filter((item) => matchesReviewScope(item, filters)).map((item) => item.id)).toEqual(["8135", "8138"]);
+    expect(nextReviewProduct(products, "8135", filters)?.id).toBe("8138");
+    expect(nextReviewProduct(products, "8138", filters)?.id).toBe("8135");
+    expect(nextReviewProduct(products, "8138", { ...filters, q: "#8138" })).toBeUndefined();
+    expect(nextReviewProduct(products, "8138", { ...filters, q: "არ არსებობს" })).toBeUndefined();
+  });
+
+  it("combines search, category and deferred status without escaping any filter", () => {
+    const products = [
+      { ...product(1, 0, 1), name: "ტუმბო", category: "წყალი" },
+      { ...product(2, 1), name: "ტუმბო", category: "წყალი" },
+      { ...product(3, 0, 1), name: "ტუმბო", category: "სხვა" },
+      { ...product(4, 0, 1), name: "მილი", category: "წყალი" },
+      { ...product(5, 0, 1), name: "ტუმბო", category: "წყალი" }
+    ];
+    expect(nextReviewProduct(products, "1", { q: "ტუმბო", category: "წყალი", status: "deferred" })?.id).toBe("5");
+    expect(matchesReviewScope(product(7161, 1), { q: "უსახელო" })).toBe(true);
   });
 });

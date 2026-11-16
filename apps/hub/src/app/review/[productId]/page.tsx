@@ -7,7 +7,7 @@ import { t } from "@khidi/i18n";
 import { requirePageAuth } from "../../../lib/session.ts";
 import { nextReviewProduct, orderReviewQueue, readReviewFilters, reviewHref } from "../../../lib/catalog-review-navigation.ts";
 import { CatalogDecisionForm } from "../../../components/catalog-decision-form.tsx";
-import { CatalogReviewOriginal } from "../../../components/catalog-review-original.tsx";
+import { CatalogReviewComparison } from "../../../components/catalog-review-comparison.tsx";
 import { CatalogReviewCheckpoint } from "../../../components/catalog-review-checkpoint.tsx";
 
 const fields = [
@@ -44,7 +44,9 @@ export default async function ReviewProductPage({ params, searchParams }: {
   const offer = reports.find((report) => report.batchId === product.batchId && !report.viewedAt);
   const options = photos.map((photo) => ({
     id: photo.id, position: photo.position,
-    needsAttention: Boolean(photo.audit.quality_flags),
+    width: Number(photo.audit.width_px) > 0 ? Number(photo.audit.width_px) : null,
+    height: Number(photo.audit.height_px) > 0 ? Number(photo.audit.height_px) : null,
+    qualityFlags: (photo.audit.quality_flags ?? "").split(";").map((flag) => flag.trim()).filter(Boolean),
     url: `/api/catalog-review/photo/${productId}/${photo.id}`
   }));
   const sections = fields.map((item) => {
@@ -72,8 +74,13 @@ export default async function ReviewProductPage({ params, searchParams }: {
         {t("review.next_product")} <span aria-hidden="true">→</span>
       </Link> : null}
       <div className="review-product-title">
-        <h1>{String(product.baseline["არსებული სახელი"] ?? t("review.unnamed"))}</h1>
-        <p className="review-quiet">#{product.wordpressId}{product.sourceStatus === "DRAFT" ? ` · ${t("review.DRAFT")}` : ""}</p>
+        {options[0] ? <Link href={href("photos")} className="review-product-thumbnail" aria-label={t("review.field.PHOTO")}>
+          <img src={options[0].url} alt="" width={80} height={80} />
+        </Link> : null}
+        <div>
+          <h1>{String(product.baseline["არსებული სახელი"] ?? "").trim() || t("review.unnamed")}</h1>
+          <p className="review-quiet">#{product.wordpressId}{product.sourceStatus === "DRAFT" ? ` · ${t("review.DRAFT")}` : ""}</p>
+        </div>
       </div>
       <div className="review-progress review-product-progress">
         <label htmlFor="review-progress">{completed} / {proposals.length} {t("review.items_reviewed")}</label>
@@ -85,7 +92,9 @@ export default async function ReviewProductPage({ params, searchParams }: {
     <nav className="review-section-nav" aria-label={t("review.sections")}>
       {sections.map((item) => {
         const state = item.current ? `review.status.${item.current.action}` as const
-          : item.proposal ? "review.pending" : "review.no_change";
+          : item.proposal ? "review.pending"
+            : item.field !== "PHOTO" && !String(product.baseline[item.source] ?? "").trim()
+              ? "review.missing_text" : "review.no_proposal_short";
         return <Link key={item.field} href={href(item.view)} prefetch={false}
           aria-current={active?.field === item.field ? "page" : undefined}>
           <span>{t(`review.field.${item.field}`)}</span>
@@ -103,19 +112,18 @@ export default async function ReviewProductPage({ params, searchParams }: {
         <h2>{t(`review.field.${active.field}`)}</h2>
         {active.field === "PHOTO" && options.length > 0 ? <p className="review-quiet">{t("review.photo_source")}</p> : null}
       </div>
-      {active.proposal ? <dl className="review-explanation">
-        <div><dt>{t("review.observation")}</dt><dd>{active.proposal.observation}</dd></div>
-        <div><dt>{t("review.rationale")}</dt><dd>{
-          active.field !== "PHOTO" || active.proposal.proposedPhotoId ? active.proposal.rationale
-            : t(options.length ? "review.photo_review_archive" : "review.photo_defer_archive")
-        }</dd></div>
-      </dl> : null}
-      {active.field !== "PHOTO" ? <div className="review-comparison">
-        <CatalogReviewOriginal key={active.field} text={String(product.baseline[active.source] ?? t("review.no_text"))} />
-        <div className="review-proposal-text"><h3>{t("review.proposed")}</h3>
-          <p>{active.proposal?.proposed ?? t("review.no_proposal")}</p>
-        </div>
-      </div> : null}
+      {active.proposal ? <details className="review-source-notes">
+        <summary>{t("review.import_notes")}</summary>
+        <dl className="review-explanation">
+          <div><dt>{t("review.observation")}</dt><dd>{active.proposal.observation}</dd></div>
+          <div><dt>{t("review.rationale")}</dt><dd>{
+            active.field !== "PHOTO" || active.proposal.proposedPhotoId ? active.proposal.rationale
+              : t(options.length ? "review.photo_review_archive" : "review.photo_defer_archive")
+          }</dd></div>
+        </dl>
+      </details> : null}
+      {active.field !== "PHOTO" ? <CatalogReviewComparison key={active.field}
+        original={String(product.baseline[active.source] ?? "")} proposed={active.proposal?.proposed ?? null} /> : null}
       {active.current?.editedText ? <div className="review-explanation">
         <h3>{t("review.edited_text")}</h3><p className="review-edited-text">{active.current.editedText}</p>
       </div> : null}
