@@ -1,4 +1,5 @@
 import type { GranularPermission, SupportedLocale, UserRole } from "@khidi/shared";
+import { CATALOG_REVIEW_LABELS } from "./catalog-review.ts";
 
 export interface NavItem {
   key: string;
@@ -856,6 +857,7 @@ const SCANNING_LABELS = {
   "scanning.role.STOCK_MANAGER": "მარაგების მენეჯერი",
   "scanning.role.WAREHOUSE": "საწყობის თანამშრომელი",
   "scanning.role.ORDER_MANAGER": "შეკვეთების მენეჯერი",
+  "scanning.role.CATALOG_REVIEWER": "კატალოგის მიმომხილველი",
   "scanning.all": "ყველა",
   "scanning.unset": "არ არის მითითებული",
   "scanning.result": "შედეგი",
@@ -1056,6 +1058,7 @@ const SETUP_LABELS = {
 
 export const DICTIONARY = {
   ka: {
+    ...CATALOG_REVIEW_LABELS,
     ...USER_LABELS,
     ...SETUP_LABELS,
     ...INVENTORY_LABELS,
@@ -1076,6 +1079,7 @@ export const DICTIONARY = {
     "settings.operating_model_rule3": "გადაცემის შემდეგ დაბრუნებასა და თანხის დაბრუნებას სხვა სისტემა მართავს. ონლაინ ხელახალი გაყიდვისთვის მომხმარებელი ახალ ხელმისაწვდომობას ადასტურებს. შევსების მოთხოვნა რაოდენობას ავტომატურად არ ცვლის."
   },
   en: {
+    ...CATALOG_REVIEW_LABELS,
     ...USER_LABELS,
     ...SETUP_LABELS,
     ...INVENTORY_LABELS,

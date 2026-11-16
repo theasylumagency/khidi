@@ -51,7 +51,9 @@ export async function captureRestoreSnapshot(connectionString: string): Promise<
      UNION ALL SELECT d.value->>'key',d.value->>'sha256',(d.value->>'bytes')::double precision,d.value->>'versionId'
       FROM image_master_versions m CROSS JOIN LATERAL jsonb_each(m.derivatives_json) d
      UNION ALL SELECT private_storage_key,private_sha256,NULL::double precision,NULL::text FROM evidence WHERE private_storage_key IS NOT NULL
-     UNION ALL SELECT storage_key,sha256,bytes::double precision,storage_version_id FROM daily_report_files`);
+     UNION ALL SELECT storage_key,sha256,bytes::double precision,storage_version_id FROM daily_report_files
+     UNION ALL SELECT raw_key,raw_sha256,NULL::double precision,raw_version FROM catalog_review_photos
+     UNION ALL SELECT preview_key,preview_sha256,NULL::double precision,preview_version FROM catalog_review_photos`);
     await client.query("COMMIT");
     return { database: databases[0]!.name, capturedAt: new Date().toISOString(), rowCounts, migrations, mediaSamples,privateReferences };
   } finally { client.release(); await pool.end(); }

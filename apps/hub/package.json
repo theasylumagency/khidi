@@ -13,6 +13,7 @@
   "dependencies": {
     "@khidi/ai": "workspace:*",
     "@khidi/auth": "workspace:*",
+    "@khidi/catalog-review": "workspace:*",
     "@khidi/db": "workspace:*",
     "@khidi/domain": "workspace:*",
     "@khidi/entities": "workspace:*",

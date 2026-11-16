@@ -13,3 +13,4 @@ export * from "./public-media.ts";
 export * from "./evidence-capture.ts";
 export { assertProcessedAiImage } from "./processing.ts";
 export { queueMediaJob } from "./transactions.ts";
+export { storeLegacyReviewPhoto } from "./legacy-review.ts";

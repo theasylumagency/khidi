@@ -18,7 +18,10 @@ export async function isSharedWarehouseBrowser(): Promise<boolean> {
   return isWarehouseBrowser(getDb(), cookieStore.get(KHIDI_DEVICE_COOKIE)?.value);
 }
 
-export async function getCurrentPrincipal(options?: { throwOnUnavailable: boolean }): Promise<AuthenticatedPrincipal | null> {
+export async function getCurrentPrincipal(options?: {
+  throwOnUnavailable?: boolean;
+  allowCatalogReviewer?: boolean;
+}): Promise<AuthenticatedPrincipal | null> {
   if((await headers()).get("host")?.toLowerCase()===storefrontApiHost()) notFound();
   const cookieStore = await cookies();
   const rawToken = cookieStore.get(KHIDI_SESSION_COOKIE)?.value;
@@ -28,7 +31,9 @@ export async function getCurrentPrincipal(options?: { throwOnUnavailable: boolea
 
   try {
     const db = getDb();
-    return await verifySessionToken(db, rawToken);
+    const principal = await verifySessionToken(db, rawToken);
+    if (principal.role === "CATALOG_REVIEWER" && !options?.allowCatalogReviewer) return null;
+    return principal;
   } catch (error) {
     if (options?.throwOnUnavailable && !(error instanceof AppError)) throw error;
     return null;
@@ -38,9 +43,13 @@ export async function getCurrentPrincipal(options?: { throwOnUnavailable: boolea
 export async function requirePageAuth(options?: {
   allowedRoles?: UserRole[];
 }): Promise<AuthenticatedPrincipal> {
-  const principal = await getCurrentPrincipal();
+  const principal = await getCurrentPrincipal({ allowCatalogReviewer: true });
   if (!principal) {
     redirect("/login");
+  }
+
+  if (principal.role === "CATALOG_REVIEWER" && !options?.allowedRoles?.includes(principal.role)) {
+    redirect("/review");
   }
 
   if (options?.allowedRoles && !options.allowedRoles.includes(principal.role)) {

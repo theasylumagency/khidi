@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { ScanQueueProvider } from "../components/scan-queue-provider.tsx";
 import "../components/scanning.css";
+import "../components/catalog-review.css";
 import type { ReactNode } from "react";
 import { formatStaffName, getNavigationForRole, t, type TranslationKey } from "@khidi/i18n";
 import { PwaRegister } from "../components/pwa-register.tsx";
@@ -26,7 +27,26 @@ export const viewport: Viewport = {
 };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
-  const principal = await getCurrentPrincipal();
+  const principal = await getCurrentPrincipal({ allowCatalogReviewer: true });
+  if (principal?.role === "CATALOG_REVIEWER") {
+    return (
+      <html lang="ka">
+        <body className="review-shell">
+          {principal.sessionTiming ? <SessionIdleMonitor key={principal.sessionId} timing={principal.sessionTiming} /> : null}
+          <header className="review-header">
+            <div>
+              <Link href="/review">{t("review.title")}</Link>
+              <nav aria-label={t("review.account")}>
+                <Link href="/account/security">{t("review.account")}</Link>
+                {principal.sessionId ? <LogoutButton sessionId={principal.sessionId} /> : null}
+              </nav>
+            </div>
+          </header>
+          <main className="review-main">{children}</main>
+        </body>
+      </html>
+    );
+  }
   const navItems = principal ? getNavigationForRole(principal.role, principal.permissions) : [];
 
   return (
@@ -125,6 +145,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                   alignItems: "center"
                 }}
               >
+                {principal.role === "ADMIN" ? <Link href="/review" style={{ color: "#e2e8f0", padding: ".75rem" }}>{t("review.title")}</Link> : null}
                 {navItems.map((item) => (
                   <Link
                     key={item.key}

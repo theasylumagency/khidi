@@ -7,6 +7,7 @@
     "node": ">=24.0.0"
   },
   "scripts": {
+    "ops:catalog-review-pilot": "node --import tsx packages/catalog-review/src/import-cli.ts",
     "ops:reference-data": "node --env-file-if-exists=.env --import tsx ops/reference-data.ts",
     "reports:daily": "node --env-file-if-exists=.env --import tsx ops/reports-daily.ts",
     "build": "corepack pnpm -r build",
