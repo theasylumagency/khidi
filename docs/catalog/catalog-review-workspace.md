@@ -62,10 +62,16 @@ and no database global setup. Production test configuration and database safety 
 not changed. No authorization, persistence, migrations or decision semantics changed. The
 compiled UI has not been visually verified; keep the PR in draft until the walkthrough above.
 
+Subsequently the owner requested the straightforward server update, PR #21 was merged and
+deployed, and the owner confirmed the improved screen. This does not independently certify
+keyboard behavior or the full mobile checklist.
+
 ## Phase 2 — decision model and reviewer workflow
 
-See [Proposed ADR-016](../adr/ADR-016-catalog-review-candidates-and-completion.md). Resolve the
-candidate/version contract first; then add missing-field editing, explicit deferred work,
+See [ADR-016](../adr/ADR-016-catalog-review-candidates-and-completion.md). The owner accepted
+Part A: missing-field editing and approval of the exact edited version. The implementation uses
+immutable imported proposals and EDIT IDs with an approval text snapshot (migration 0059).
+The broader completion, role/report and issue changes remain Proposed. Later add explicit deferred work,
 personal progress for an administrator acting as a reviewer, and result summaries. Add
 server-backed draft recovery scoped to actor/product/field/base revision. Drafts never submit
 automatically; a conflicting revision requires comparison. Decide retention and logout behavior
@@ -75,6 +81,31 @@ Improve the initial 20-item guided sequence using useful complete examples, with
 missing-name and suspected-duplicate cases later. Keep the original imported rank as provenance;
 any new working order must be explicit and must not rewrite old reports. Add a focused review
 shell for ADMIN without granting or removing permissions.
+
+### Part A verification — 2026-11-16
+
+Base: `0874de0` (merged PR #21). Branch: `feat/catalog-review-text-versions`.
+
+| Check | Result |
+| --- | --- |
+| Full suite, fresh `khidi_acceptance_test` on PostgreSQL 17.12 | 689 passed; 1 optional S3 integration test skipped (no MinIO) |
+| Additional text-entry HTTP tests | 5 passed: session/role, origin, validation/idempotency header, byte limit, exact request text |
+| Additional text-panel rendering tests | 3 passed: edited selection, missing-field actions, legacy approval explanation |
+| Migration 0058 → 0059, separate fresh `khidi_upgrade_test` | Passed: old columns/decisions/report snapshots unchanged; old approval remains without a snapshot; explicit old EDIT approval works; migration rerun applies nothing |
+| Typecheck, boundaries, lint, production build | Passed; Hub checks repeated after the final navigation fix |
+| `git diff --check` | Passed |
+| Browser interaction / real-device walkthrough | Pending; static rendering is not interaction or mobile validation |
+
+The full suite includes six new database-backed text-version tests covering exact whitespace,
+concurrent creation, replay, stale and cross-field references, role/assignment checks, SQL
+insertion guards, immutable history and rollback on audit failure. No project dependencies,
+lockfile, production data or previous migrations changed. Test databases were local and disposable.
+
+Walkthrough after deploying the matching application and migration: open a product directly
+from the queue (without a `view` parameter), edit and save, confirm that the same field remains
+open with the saved version selected, then approve it and inspect its exact history text.
+Also fill a field with no proposal, select an earlier edit, and check both flows on mobile.
+Use test records for writes; inspect existing production history without submitting decisions.
 
 ## Phase 3 — quality assistance and AI experiment
 

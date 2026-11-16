@@ -7,7 +7,7 @@ import { t } from "@khidi/i18n";
 import { requirePageAuth } from "../../../lib/session.ts";
 import { nextReviewProduct, orderReviewQueue, readReviewFilters, reviewHref } from "../../../lib/catalog-review-navigation.ts";
 import { CatalogDecisionForm } from "../../../components/catalog-decision-form.tsx";
-import { CatalogReviewComparison } from "../../../components/catalog-review-comparison.tsx";
+import { CatalogReviewTextPanel } from "../../../components/catalog-review-text-panel.tsx";
 import { CatalogReviewCheckpoint } from "../../../components/catalog-review-checkpoint.tsx";
 
 const fields = [
@@ -53,7 +53,7 @@ export default async function ReviewProductPage({ params, searchParams }: {
     const proposal = proposals.find((entry) => entry.field === item.field);
     const decisions = proposal ? history.filter((decision) => decision.proposalId === proposal.id) : [];
     const current = decisions.find((decision) => principal.role === "ADMIN" || decision.actorId === principal.userId);
-    return { ...item, proposal, current, revision: decisions[0]?.revision ?? 0 };
+    return { ...item, proposal, current, decisions, revision: decisions[0]?.revision ?? 0 };
   });
   const undecided = sections.filter((item) => item.proposal && !item.current);
   const deferred = sections.filter((item) => item.current?.action === "DEFER");
@@ -65,7 +65,20 @@ export default async function ReviewProductPage({ params, searchParams }: {
   const next = nextReviewProduct(orderReviewQueue(queue), productId, filters);
   const completed = proposals.length - undecided.length;
   const nextField = undecided.find((item) => item.field !== active?.field);
-  const continueHref = active && !active.current ? href(nextField?.view ?? "history") : undefined;
+  const continueHref = active && (!active.current || active.current.action === "EDIT") ? href(nextField?.view ?? "history") : undefined;
+  const versions = active?.field !== "PHOTO" && active?.proposal ? [
+    ...active.decisions.filter((decision) => decision.editedText !== null).map((decision) => ({
+      id: decision.id, text: decision.editedText!,
+      label: `${t("review.text_revision")} ${decision.revision} · ${decision.actor} · ${date.format(decision.createdAt)}`
+    })),
+    ...(active.proposal.origin === "IMPORT" && active.proposal.proposed !== null
+      ? [{ id: "PROPOSAL", text: active.proposal.proposed, label: t("review.imported_version") }] : [])
+  ] : [];
+  const selectedVersion = active?.current?.action === "EDIT" ? active.current.id
+    : active?.current?.approvedText != null ? active.current.approvedTextEditId ?? "PROPOSAL"
+      : active?.proposal?.origin === "IMPORT" ? "PROPOSAL" : versions[0]?.id;
+  const nameDecision = sections.find((item) => item.field === "NAME")?.current;
+  const displayName = nameDecision?.approvedText ?? nameDecision?.editedText ?? String(product.baseline["არსებული სახელი"] ?? "");
 
   return <article className="catalog-review">
     <div className="review-product-header">
@@ -78,7 +91,7 @@ export default async function ReviewProductPage({ params, searchParams }: {
           <img src={options[0].url} alt="" width={80} height={80} />
         </Link> : null}
         <div>
-          <h1>{String(product.baseline["არსებული სახელი"] ?? "").trim() || t("review.unnamed")}</h1>
+          <h1>{displayName.trim() || t("review.unnamed")}</h1>
           <p className="review-quiet">#{product.wordpressId}{product.sourceStatus === "DRAFT" ? ` · ${t("review.DRAFT")}` : ""}</p>
         </div>
       </div>
@@ -112,7 +125,7 @@ export default async function ReviewProductPage({ params, searchParams }: {
         <h2>{t(`review.field.${active.field}`)}</h2>
         {active.field === "PHOTO" && options.length > 0 ? <p className="review-quiet">{t("review.photo_source")}</p> : null}
       </div>
-      {active.proposal ? <details className="review-source-notes">
+      {active.proposal?.origin === "IMPORT" ? <details className="review-source-notes">
         <summary>{t("review.import_notes")}</summary>
         <dl className="review-explanation">
           <div><dt>{t("review.observation")}</dt><dd>{active.proposal.observation}</dd></div>
@@ -122,12 +135,13 @@ export default async function ReviewProductPage({ params, searchParams }: {
           }</dd></div>
         </dl>
       </details> : null}
-      {active.field !== "PHOTO" ? <CatalogReviewComparison key={active.field}
-        original={String(product.baseline[active.source] ?? "")} proposed={active.proposal?.proposed ?? null} /> : null}
-      {active.current?.editedText ? <div className="review-explanation">
-        <h3>{t("review.edited_text")}</h3><p className="review-edited-text">{active.current.editedText}</p>
-      </div> : null}
-      {active.proposal ? <CatalogDecisionForm
+      {active.field !== "PHOTO" ? <CatalogReviewTextPanel key={`${active.field}:${active.revision}`}
+        productId={productId} field={active.field} proposalId={active.proposal?.id ?? null} revision={active.revision}
+        original={String(product.baseline[active.source] ?? "")} versions={versions} initialVersion={selectedVersion}
+        needsApproval={active.current?.action === "EDIT"}
+        legacyApproval={active.current?.action === "APPROVE" && active.current.approvedText === null}
+        continueHref={continueHref} stayHref={href(active.view)} /> : null}
+      {active.field === "PHOTO" && active.proposal ? <CatalogDecisionForm
         key={`${active.proposal.id}:${active.revision}`}
         id={active.proposal.id} revision={active.revision}
         text={active.current?.editedText ?? active.proposal.proposed}
@@ -146,6 +160,9 @@ export default async function ReviewProductPage({ params, searchParams }: {
             <div>{decision.actor} · <time dateTime={decision.createdAt.toISOString()}>{date.format(decision.createdAt)}</time></div>
             {photo ? <p>{t("review.photo_selected")} {photo.position}</p> : null}
             {decision.editedText ? <p>{decision.editedText}</p> : null}
+            {decision.approvedText !== null ? <div className="review-approved-snapshot">
+              <h3>{t("review.approved_text")}</h3><p>{decision.approvedText}</p>
+            </div> : field !== "PHOTO" && decision.action === "APPROVE" ? <p className="review-quiet">{t("review.legacy_approval_history")}</p> : null}
             {decision.note ? <p>{decision.note}</p> : null}
           </li>;
         })}

@@ -69,7 +69,7 @@ describe("catalog review", () => {
       proposalId: nameProposal, revision: 0, action: "APPROVE"
     })).rejects.toMatchObject({ code: "NOT_FOUND" });
 
-    const approve = { proposalId: nameProposal, revision: 0, action: "APPROVE" } as const;
+    const approve = { proposalId: nameProposal, revision: 0, action: "APPROVE", textVersion: "PROPOSAL" } as const;
     const key = uuid();
     const accepted = await recordReviewDecision(db, principal, key, approve);
     expect(await recordReviewDecision(db, principal, key, approve)).toMatchObject({ replayed: true, body: accepted.body });
