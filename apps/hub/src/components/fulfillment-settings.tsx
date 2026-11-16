@@ -1,4 +1,5 @@
 "use client";
+import { TableScroll } from "./table-scroll.tsx";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { t, type TranslationKey } from "@khidi/i18n";
@@ -32,20 +33,20 @@ export function FulfillmentSettings({mode,stores,keys,deliveries}:{mode:string;s
         <label>{t("fulfillment.expires_tbilisi")}<input name="expires" type="datetime-local"/></label><button>{t("fulfillment.issue_key")}</button>
       </fieldset>
     </form>
-    <div className="inventory-scroll"><table><thead><tr>{["store","key_name","prefix","rate","expires","last_used","actions"].map((k)=><th key={k}>{t(("fulfillment."+k) as TranslationKey)}</th>)}</tr></thead><tbody>{keys.map((k)=><tr key={k.id}>
+    <TableScroll><table><thead><tr>{["store","key_name","prefix","rate","expires","last_used","actions"].map((k)=><th key={k}>{t(("fulfillment."+k) as TranslationKey)}</th>)}</tr></thead><tbody>{keys.map((k)=><tr key={k.id}>
       <td>{storeName(k.storefrontId)}</td><td>{k.name} · {t(k.active?"fulfillment.active":"fulfillment.revoked")}</td><td><code>{k.keyPrefix}</code></td><td>{k.rateLimitPerMinute}</td><td>{date(k.expiresAt)}</td><td>{date(k.lastUsedAt)}</td><td>{k.active?<>
         <button disabled={busy} onClick={()=>void run("/api/storefront-keys",{action:"ROTATE",keyId:k.id,name:k.name,allowedIps:k.allowedIps??[],rateLimitPerMinute:k.rateLimitPerMinute,...(k.expiresAt?{expiresAt:k.expiresAt}:{})})}>{t("fulfillment.rotate")}</button>{" "}
         <button disabled={busy} onClick={()=>void run("/api/storefront-keys",{action:"REVOKE",keyId:k.id})}>{t("fulfillment.revoke")}</button></>:null}</td>
-    </tr>)}</tbody></table></div>
+    </tr>)}</tbody></table></TableScroll>
     <h3>{t("fulfillment.webhooks")}</h3>
     {stores.map((s)=><form key={s.id+":"+s.webhookUrl} onSubmit={(e)=>{e.preventDefault();const data=new FormData(e.currentTarget);void run("/api/fulfillment",{action:"webhook",input:{storefrontId:s.id,url:String(data.get("url")??"").trim()||null,rotateSecret:data.has("rotate")}});}}>
       <fieldset disabled={busy}><legend>{s.name}</legend><label>{t("fulfillment.webhook_url")}<input name="url" type="url" maxLength={2048} defaultValue={s.webhookUrl??""} autoComplete="off"/></label>
         <label><input name="rotate" type="checkbox"/>{t("fulfillment.rotate_secret")}</label><button>{t("inventory.confirm")}</button></fieldset>
     </form>)}
-    <div className="inventory-scroll"><table><thead><tr>{["store","event","status","attempts","actions"].map((k)=><th key={k}>{t(("fulfillment."+k) as TranslationKey)}</th>)}</tr></thead><tbody>{deliveries.map((d)=><tr key={d.id}>
+    <TableScroll><table><thead><tr>{["store","event","status","attempts","actions"].map((k)=><th key={k}>{t(("fulfillment."+k) as TranslationKey)}</th>)}</tr></thead><tbody>{deliveries.map((d)=><tr key={d.id}>
       <td>{storeName(d.consumer.slice("storefront:".length))}</td><td><code>{d.eventType}</code></td><td>{t(("fulfillment."+d.status) as TranslationKey)}{d.lastErrorCode?<small> · {t("fulfillment.delivery_failed")}</small>:null}</td><td>{d.attempts}</td>
       <td>{d.status==="DEAD_LETTER"?<button disabled={busy} onClick={()=>void run("/api/fulfillment",{action:"retry-webhook",input:{deliveryId:d.id}})}>{t("fulfillment.retry")}</button>:null}</td>
-    </tr>)}</tbody></table></div>
+    </tr>)}</tbody></table></TableScroll>
     <p role="status">{busy?t("auth.checking"):notice}</p>{reauth?<StrongReauthentication onSuccess={()=>setReauth(false)}/>:null}
     {pending&&!busy?<button onClick={()=>void run(pending.url,pending.input,pending.key)}>{t("fulfillment.retry")}</button>:null}
     {secret?<section><h3>{t("fulfillment.copy_secret")}</h3><p>{t("fulfillment.secret_hint")}</p><textarea aria-label={t("fulfillment.copy_secret")} readOnly value={secret} autoComplete="off" spellCheck={false}/><button onClick={()=>setSecret("")}>{t("fulfillment.hide_secret")}</button></section>:null}

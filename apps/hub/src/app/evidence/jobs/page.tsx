@@ -1,3 +1,4 @@
+import { TableScroll } from "../../../components/table-scroll.tsx";
 import Link from "next/link";
 import { getDb } from "@khidi/db";
 import { listAiJobs } from "@khidi/ai";
@@ -9,9 +10,10 @@ export const dynamic = "force-dynamic";
 export default async function EvidenceJobsPage() {
   await requirePageAuth({ allowedRoles: ["ADMIN"] });
   const jobs = await listAiJobs(getDb());
-  return <section className="office-login">
+  return <section className="hub-panel hub-stack">
     <h1>{t("evidence.ai_jobs")}</h1>
-    <table><thead><tr><th>{t("evidence.ai_job")}</th><th>{t("evidence.status")}</th><th>{t("evidence.ai_usage")}</th><th>{t("evidence.review")}</th></tr></thead>
+    <nav className="hub-actions"><Link href="/evidence/missing">{t("evidence.missing")}</Link></nav>
+    <TableScroll><table><thead><tr><th>{t("evidence.ai_job")}</th><th>{t("evidence.status")}</th><th>{t("evidence.ai_usage")}</th><th>{t("evidence.review")}</th></tr></thead>
       <tbody>{jobs.map((job) => <tr key={job.id}>
         <td><Link href={`/products/${job.skuId}`}>{job.jobName}</Link></td><td>{job.status}</td>
         <td><ul>{job.attempts.map((attempt) => <li key={attempt.id}>
@@ -23,6 +25,6 @@ export default async function EvidenceJobsPage() {
         <td>{job.result ? <details><summary>{t("evidence.ai_result")}</summary><pre>{JSON.stringify(job.result, null, 2)}</pre></details> : null}
           {["DEAD_LETTER", "BUDGET_BLOCKED", "SKIPPED"].includes(job.status) ? <AiJobAction id={job.id} /> : null}</td>
       </tr>)}</tbody>
-    </table>
+    </table></TableScroll>
   </section>;
 }

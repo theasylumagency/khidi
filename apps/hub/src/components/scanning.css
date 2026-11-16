@@ -8,9 +8,6 @@
 .scanning-panel button { color: white; background: #166534; cursor: pointer; min-height: 44px; }
 .scanning-panel button:disabled { opacity: .5; cursor: default; }
 .scanning-panel :focus-visible { outline: 3px solid #2563eb; outline-offset: 2px; }
-.scanning-table-wrap { overflow-x: auto; }
-.scanning-panel table { width: 100%; border-collapse: collapse; font-size: .875rem; text-align: left; }
-.scanning-panel th, .scanning-panel td { padding: 10px 8px; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
 .scanning-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
 .scanning-panel [role=alert] { color: #991b1b; }
 .scan-queue-status { background: #eff6ff; border: 1px solid #93c5fd; border-radius: 6px; margin-bottom: 16px; padding: 10px 14px; font-size: .875rem; }

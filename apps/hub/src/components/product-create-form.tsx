@@ -75,7 +75,7 @@ export function ProductCreateForm({
       onSubmit={handleSubmit}
       style={{
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+        gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 190px), 1fr))",
         gap: "0.75rem",
         alignItems: "end"
       }}

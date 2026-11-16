@@ -1,4 +1,5 @@
 "use client";
+import { TableScroll } from "./table-scroll.tsx";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -46,7 +47,7 @@ export function InventoryWorkspace({storefrontId,rows,requests,initialSearch=""}
     <p className="inventory-risk">{t("inventory.risk")}</p>
     {preview?<AvailabilityConfirmation preview={preview} busy={busy} onConfirm={()=>void commit()} onCancel={()=>setPreview(null)}/>:<>
       <label>{t("inventory.search")} <input value={search} onChange={(e)=>setSearch(e.target.value)}/></label>
-      <div className="inventory-scroll"><table><thead><tr>{["product","free","reserved","committed","target","minimum","replenishment"].map((k)=><th key={k}>{t(("inventory."+k) as TranslationKey)}</th>)}<th>{t("inventory.preview")}</th></tr></thead>
+      <TableScroll><table><thead><tr>{["product","free","reserved","committed","target","minimum","replenishment"].map((k)=><th key={k}>{t(("inventory."+k) as TranslationKey)}</th>)}<th>{t("inventory.preview")}</th></tr></thead>
         <tbody>{rows.filter((r)=>(r.code+" "+r.name).toLowerCase().includes(search.toLowerCase())).map((row)=><tr key={row.skuId}>
           <td><Link href={`/products/${row.skuId}`}>{row.code}</Link><div>{row.name}</div><small>{row.allocationId?t(("inventory.status."+row.status) as TranslationKey):t("inventory.undeclared")}</small></td>
           <td>{row.allocationId?row.availableToSell:"—"}</td><td>{row.reserved}</td><td>{row.committed}</td>
@@ -58,7 +59,7 @@ export function InventoryWorkspace({storefrontId,rows,requests,initialSearch=""}
             {row.allocationId?<form onSubmit={(e)=>{e.preventDefault();const data=new FormData(e.currentTarget);void smallAction("request",{allocationId:row.allocationId,quantity:Number(data.get("quantity"))});}}>
               <input name="quantity" type="number" min="1" defaultValue="1" required aria-label={t("inventory.quantity")+" "+row.code}/><button disabled={busy}>{t("inventory.request")}</button></form>:null}</td>
           <td><button type="button" disabled={busy} onClick={()=>void prepare(row)}>{t("inventory.preview")}</button></td>
-        </tr>)}</tbody></table></div>
+        </tr>)}</tbody></table></TableScroll>
     </>}
     <p role="status">{busy?t("inventory.loading"):message}</p>
   </section>;

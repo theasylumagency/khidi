@@ -331,7 +331,7 @@ export function SkuDetailActions({
           border: "1px solid #cbd5e1",
           borderRadius: "10px",
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 180px), 1fr))",
           gap: "0.75rem",
           alignItems: "end"
         }}

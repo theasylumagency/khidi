@@ -1,3 +1,4 @@
+import { TableScroll } from "../../components/table-scroll.tsx";
 import { getDb } from "@khidi/db";
 import { auditHistory,inventoryHistory,historyEntities,type AuditFilter } from "@khidi/reports/audit";
 import { t } from "@khidi/i18n";
@@ -17,11 +18,11 @@ export default async function HistoryPage({searchParams}:{searchParams:Promise<R
   {admin?<><label>{t("history.actor")}<select name="actorType" defaultValue={q.actorType??""}><option value="">{t("history.all")}</option>{(["USER","STOREFRONT_SERVICE","SYSTEM_JOB","SYSTEM_WORKFLOW"] as const).map(v=><option key={v} value={v}>{t(`history.actor.${v}`)}</option>)}</select></label>
    {(["actorId","entityType","entityId","action","correlationId"] as const).map(k=><label key={k}>{t(`history.${k}`)}<input name={k} defaultValue={q[k]} maxLength={k==="action"||k==="entityType"?100:200}/></label>)}</>:null}
   <button>{t("reports.show")}</button><a href="/history">{t("history.reset")}</a></form>
-  <div className="inventory-scroll">{audit?<table><thead><tr>{(["time","actor","action","object","before","after","reason","correlationId"] as const).map(k=><th key={k}>{t(`history.${k}`)}</th>)}</tr></thead><tbody>{audit.rows.map(r=><tr key={r.id}>
+  {audit?<TableScroll><table><thead><tr>{(["time","actor","action","object","before","after","reason","correlationId"] as const).map(k=><th key={k}>{t(`history.${k}`)}</th>)}</tr></thead><tbody>{audit.rows.map(r=><tr key={r.id}>
    <td>{formatTbilisiDateTime(r.createdAt)}</td><td>{r.actorType??(r.actorUserId?"USER":"")}<br/>{r.actorId??r.actorUserId}</td><td>{r.action}</td><td>{r.entityType}<br/>{r.entityId}</td>
    <td><pre>{JSON.stringify(r.beforeJson,null,2)}</pre></td><td><pre>{JSON.stringify(r.afterJson,null,2)}</pre></td><td>{r.reason}<br/>{r.externalDocumentRef}</td><td>{r.correlationId}<br/>{r.triggerCallId}</td>
-  </tr>)}</tbody></table>:<table><thead><tr>{(["time","action","sku","quantity","pool","deltas","reason","correlationId"] as const).map(k=><th key={k}>{t(`history.${k}`)}</th>)}</tr></thead><tbody>{inventory!.rows.map(r=><tr key={r.id}>
+  </tr>)}</tbody></table></TableScroll>:<TableScroll><table><thead><tr>{(["time","action","sku","quantity","pool","deltas","reason","correlationId"] as const).map(k=><th key={k}>{t(`history.${k}`)}</th>)}</tr></thead><tbody>{inventory!.rows.map(r=><tr key={r.id}>
    <td>{formatTbilisiDateTime(r.date)}</td><td>{r.movement}</td><td>{r.sku}</td><td>{r.quantity}</td><td>{r.pool}</td><td>{r.shelfDelta} / {r.stagingDelta} / {r.allocatedDelta} / {r.reservedDelta} / {r.committedDelta}</td>
-   <td>{r.reason}<br/>{r.document}</td><td>{r.correlation}</td></tr>)}</tbody></table>}</div>
+   <td>{r.reason}<br/>{r.document}</td><td>{r.correlation}</td></tr>)}</tbody></table></TableScroll>}
   {cursor?<a href={"/history?"+next}>{t("notification.next")}</a>:null}</div>;
 }

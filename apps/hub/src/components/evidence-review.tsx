@@ -1,5 +1,6 @@
 "use client";
 
+import { TableScroll } from "./table-scroll.tsx";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { t, type TranslationKey } from "@khidi/i18n";
@@ -101,7 +102,7 @@ export function EvidenceReview({ skuId, kind, items, fields, distinguishing, pho
       <button disabled={busy}>{t(kind === "HOUSE_DEFINED" ? "evidence.set_manufacturer" : "evidence.set_house")}</button>
     </form>
     <h3>{t("evidence.fields")}</h3>
-    <table><thead><tr><th>{t("evidence.field")}</th><th>{t("evidence.value")}</th><th>{t("evidence.status")}</th><th>{t("evidence.review")}</th></tr></thead>
+    <TableScroll><table><thead><tr><th>{t("evidence.field")}</th><th>{t("evidence.value")}</th><th>{t("evidence.status")}</th><th>{t("evidence.review")}</th></tr></thead>
       <tbody>{[...new Set([...distinguishing, ...fields.map((field) => field.fieldName)])].map((key) => {
         const field = fields.find((value) => value.fieldName === key);
         const medium = items.filter((item) => item.status === "ACCEPTED" && item.strength === "MEDIUM" && Object.hasOwn(item.claims, key));
@@ -123,7 +124,7 @@ export function EvidenceReview({ skuId, kind, items, fields, distinguishing, pho
             <button disabled={busy}>{t("evidence.save")}</button>
           </form> : null}</td></tr>;
       })}</tbody>
-    </table>
+    </table></TableScroll>
     <h3>{t("evidence.items")}</h3>
     {items.map((item) => <details key={item.id} id={`evidence-${item.id}`}>
       <summary>{t(`evidence.type.${item.type}` as TranslationKey)} · {t(`evidence.status.${item.status}` as TranslationKey)}</summary>

@@ -1,3 +1,4 @@
+import { TableScroll } from "../../../components/table-scroll.tsx";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@khidi/db";
@@ -96,9 +97,9 @@ export default async function SkuDetailPage({
     label:t("evidence.photo")+" · "+t(`media.slot.${image.slot}` as TranslationKey)+" · "+(image.sortOrder+1)}));
 
   return (
-    <div style={{ display: "grid", gap: "1.5rem" }}>
+    <div className="hub-stack">
       {canViewPrices(principal) ? <PriceHistory skuId={skuId} userId={principal.userId} storefronts={allStorefronts} /> : null}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div className="hub-page-toolbar">
         <Link href="/products" style={{ color: "#15803d", fontWeight: 600, fontSize: "0.9rem" }}>
           ← პროდუქტების ცხრილზე დაბრუნება
         </Link>
@@ -119,18 +120,7 @@ export default async function SkuDetailPage({
       </div>
 
       {/* Main Identity Card */}
-      <section
-        style={{
-          background: "#ffffff",
-          border: "1px solid #e2e8f0",
-          borderRadius: "12px",
-          padding: "1.5rem",
-          display: "grid",
-          gridTemplateColumns: "1fr auto",
-          gap: "1.5rem",
-          alignItems: "start"
-        }}
-      >
+      <section className="hub-panel hub-product-identity">
         <div>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
             <span
@@ -182,7 +172,7 @@ export default async function SkuDetailPage({
             style={{
               marginTop: "0.85rem",
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))",
               gap: "0.65rem",
               fontSize: "0.85rem"
             }}
@@ -217,7 +207,7 @@ export default async function SkuDetailPage({
             borderRadius: "8px",
             padding: "0.75rem",
             background: "#f8fafc",
-            width: "240px"
+            width: "min(100%, 240px)"
           }}
         >
           <div style={{ fontSize: "0.72rem", color: "#64748b", marginBottom: "0.4rem" }}>
@@ -246,14 +236,7 @@ export default async function SkuDetailPage({
 
       {/* Admin Controls ([C7, C8, C9], §4.5) */}
       {principal.role === "ADMIN" && (
-        <section
-          style={{
-            background: "#ffffff",
-            border: "1px solid #e2e8f0",
-            borderRadius: "12px",
-            padding: "1.5rem"
-          }}
-        >
+        <section className="hub-panel">
           <h2 style={{ margin: "0 0 1rem 0", fontSize: "1.1rem" }}>
             ადმინისტრატორის მართვის პანელი ([C7, C8, C9], §4.5)
           </h2>
@@ -271,9 +254,9 @@ export default async function SkuDetailPage({
         </section>
       )}
       {contentReview ? <CanonicalContentEditor skuId={skuId} review={contentReview} archived={sku.lifecycleState === "ARCHIVED"} /> : null}
-      {principal.role === "ADMIN" ? <section className="office-login">
+      {principal.role === "ADMIN" ? <section className="hub-panel hub-stack">
         <h2>{t("publishing.title")}</h2>
-        {publicationReview.length ? <table>
+        {publicationReview.length ? <TableScroll><table>
           <thead><tr><th scope="col">{t("publishing.storefront")}</th><th scope="col">{t("content.locale")}</th>
             <th scope="col">{t("publishing.publish_ready")}</th><th scope="col">{t("publishing.sellable")}</th><th scope="col">{t("inventory.free")}</th></tr></thead>
           <tbody>{publicationReview.map((row) => <tr key={`${row.storefrontId}:${row.locale}`}>
@@ -282,7 +265,7 @@ export default async function SkuDetailPage({
             <td>{row.sellable ? t("publishing.eligible") : <ul>{row.blockingReasons.map((reason) => <li key={reason}>{t(`publishing.blocker.${reason}` as TranslationKey)}</li>)}</ul>}</td>
             <td><Link href={`/inventory?storefrontId=${row.storefrontId}&skuId=${skuId}`}>{row.availableToSell}</Link></td>
           </tr>)}</tbody>
-        </table> : <p>{t("publishing.no_storefronts")}</p>}
+        </table></TableScroll> : <p>{t("publishing.no_storefronts")}</p>}
       </section> : null}
       {sku.mergedIntoSkuId ? <p><Link href={`/products/${sku.mergedIntoSkuId}`}>{t("merge.survivor_link")}</Link></p> : null}
       {sku.mergedUndeterminedFields.length?<p role="status">{t("correction.merged_unknowns")}: {sku.mergedUndeterminedFields.map((key)=>
@@ -299,7 +282,7 @@ export default async function SkuDetailPage({
         photos={[...sourcePhotos,...(evidenceView?.comparisonPhotos??[]).map((photo)=>({
           id:photo.imageId,skuId:photo.skuId,verified:true,label:photo.internalSku+" · "+t(`media.slot.${photo.slot}` as TranslationKey)
         }))]}/>:null}
-      {correction?.splitTargets.length?<section>
+      {correction?.splitTargets.length?<section className="hub-panel">
         <p>{correction.splitTargets.map((target)=><Link key={target.id} href={`/products/${target.id}`}>{target.internalSku} </Link>)}</p>
         <SkuAttributionForm sourceSkuId={skuId} targets={correction.splitTargets.map((target)=>({id:target.id,label:target.internalSku}))}
           assets={[...sourceEvidence.map((item)=>({...item,kind:"EVIDENCE" as const})),
@@ -310,7 +293,7 @@ export default async function SkuDetailPage({
           <Link href={`/intakes/${intake.id}/review`}>{intake.scannedAt.toLocaleString("ka-GE", { timeZone: "Asia/Tbilisi" })}</Link>
         </li>)}</ul>
       </details> : null}
-      {evidenceView ? <section className="office-login">
+      {evidenceView ? <section className="hub-panel hub-stack">
         <h2>{t("evidence.items")}</h2>
         {sku.reverificationRequired ? <p role="status">{t("evidence.reverification")}</p> : null}
         {evidenceView.comparisons.length ? <p>{t("evidence.duplicate_warning")} {evidenceView.comparisons.map((item) => item.internalSku).join(", ")}</p> : null}
@@ -344,7 +327,7 @@ export default async function SkuDetailPage({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))",
           gap: "1.25rem"
         }}
       >
@@ -465,7 +448,7 @@ export default async function SkuDetailPage({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))",
           gap: "1.25rem"
         }}
       >
@@ -556,7 +539,7 @@ export default async function SkuDetailPage({
       {principal.role === "ADMIN" ? (
         <>
           <AdminMediaPanel skuId={skuId} images={images} assignees={photoAssignees} />
-          <section><PhotoRequestForm skuId={skuId} assignees={photoAssignees} /></section>
+          <section className="hub-panel"><PhotoRequestForm skuId={skuId} assignees={photoAssignees} /></section>
         </>
       ) : null}
     </div>

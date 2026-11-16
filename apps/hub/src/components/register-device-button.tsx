@@ -43,13 +43,7 @@ export function RegisterDeviceButton({ sharedDevice = false }: { sharedDevice?: 
   return (
     <div><form
       onSubmit={handleRegister}
-      style={{
-        display: "flex",
-        flexWrap: "wrap",
-        gap: "0.6rem",
-        alignItems: "center",
-        marginTop: "0.75rem"
-      }}
+      className="hub-form-row"
     >
       <input
         type="text"
@@ -58,27 +52,10 @@ export function RegisterDeviceButton({ sharedDevice = false }: { sharedDevice?: 
         value={deviceName}
         onChange={(e) => setDeviceName(e.target.value)}
         placeholder="მაგ: საწყობის ტელეფონი #2"
-        style={{
-          padding: "0.5rem 0.75rem",
-          borderRadius: "8px",
-          border: "1px solid #cbd5e1",
-          fontSize: "0.85rem",
-          minWidth: "240px"
-        }}
       />
       <button
         type="submit"
         disabled={loading}
-        style={{
-          padding: "0.55rem 0.9rem",
-          borderRadius: "8px",
-          border: "none",
-          background: "#15803d",
-          color: "#ffffff",
-          fontWeight: 700,
-          fontSize: "0.85rem",
-          cursor: loading ? "wait" : "pointer"
-        }}
       >
         {loading ? "რეგისტრაცია..." : "ამ მოწყობილობის რეგისტრაცია საწყობის ტერმინალად"}
       </button>

@@ -1,4 +1,5 @@
 "use client";
+import { TableScroll } from "./table-scroll.tsx";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { t, type TranslationKey } from "@khidi/i18n";
@@ -50,10 +51,10 @@ export function PriceCsv({ storefrontId }: { storefrontId: string }) {
     }} /></label><button type="button" disabled={!csv} onClick={() => void preview()}>{t("pricing.preview")}</button></fieldset>
     {review ? <>
       {review.errors.map((error) => <p key={error} role="alert">{t(`pricing.csv.${error}` as TranslationKey)}</p>)}
-      {review.rows.length ? <table><thead><tr><th>{t("pricing.row")}</th><th>{t("pricing.product")}</th><th>{t("pricing.errors")}</th><th>{t("pricing.exclude")}</th></tr></thead><tbody>
+      {review.rows.length ? <TableScroll><table><thead><tr><th>{t("pricing.row")}</th><th>{t("pricing.product")}</th><th>{t("pricing.errors")}</th><th>{t("pricing.exclude")}</th></tr></thead><tbody>
         {review.rows.map((row) => <tr key={row.rowNumber}><td>{row.rowNumber}</td><td>{row.internalSku}</td><td>{row.unchanged && !row.errors.length ? t("pricing.unchanged") : null}{row.errors.map((error) => <div key={error}>{t(`pricing.csv.${error}` as TranslationKey)}</div>)}</td>
           <td><input type="checkbox" disabled={busy} aria-label={t("pricing.exclude") + " " + row.rowNumber} checked={row.excluded} onChange={(event) => void preview(event.target.checked ? [...excludedRows, row.rowNumber] : excludedRows.filter((number) => number !== row.rowNumber))} /></td></tr>)}
-      </tbody></table> : null}
+      </tbody></table></TableScroll> : null}
       {review.preview.length ? <PricePreview key={key} rows={review.preview} names={names} busy={busy || !review.canCommit} onCommit={(reason, confirmed) => void commit(reason, confirmed)} onCancel={() => setReview(null)} /> : null}
     </> : null}
     <p role="status">{busy ? t("pricing.loading") : message}</p>
