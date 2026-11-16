@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
         fullName: principal.fullName,
         role: principal.role
       },
-      redirectTo: "/"
+      redirectTo: principal.role === "CATALOG_REVIEWER" ? "/review" : "/"
     });
 
     response.cookies.set(KHIDI_SESSION_COOKIE, sessionToken, {

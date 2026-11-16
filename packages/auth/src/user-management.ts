@@ -53,7 +53,8 @@ async function issue(ctx:DomainTransactionContext,p:AuthenticatedPrincipal,user:
 }
 async function validateFields(db:DbExecutor,input:Extract<Command,{action:"CREATE"|"EDIT"}>) {
  if(input.role!=="WAREHOUSE"&&!input.email||input.role==="WAREHOUSE"&&(input.email!==null||input.permissions.length||input.entityIds.length!==1)
-  ||input.role!=="ADMIN"&&!input.entityIds.length||new Set(input.entityIds).size!==input.entityIds.length||new Set(input.permissions).size!==input.permissions.length)throw new AppError("VALIDATION_ERROR","Invalid user role, email or memberships.");
+  ||input.role==="CATALOG_REVIEWER"&&(input.permissions.length||input.entityIds.length)
+  ||input.role!=="ADMIN"&&input.role!=="CATALOG_REVIEWER"&&!input.entityIds.length||new Set(input.entityIds).size!==input.entityIds.length||new Set(input.permissions).size!==input.permissions.length)throw new AppError("VALIDATION_ERROR","Invalid user role, email or memberships.");
  if(input.entityIds.length&&(await db.select({id:legalEntities.id}).from(legalEntities).where(and(inArray(legalEntities.id,input.entityIds),eq(legalEntities.active,true)))).length!==input.entityIds.length)throw new AppError("VALIDATION_ERROR","Active legal entity memberships required.");
  if(input.email){const existing=await db.select({id:users.id}).from(users).where(eq(users.email,input.email));if(existing.some(u=>input.action==="CREATE"||u.id!==input.id))throw new AppError("CONFLICT","Email is already assigned.");}
 }
@@ -88,7 +89,8 @@ export async function manageUser(db:DbExecutor,p:AuthenticatedPrincipal,key:stri
    const oldEntities=(await ctx.tx.select().from(userEntityMemberships).where(eq(userEntityMemberships.userId,user.id))).map(m=>m.legalEntityId);
    const oldPermissions=(await ctx.tx.select().from(userPermissions).where(eq(userPermissions.userId,user.id))).map(m=>m.permissionKey);
    const before={role:user.role,entityIds:oldEntities,permissions:oldPermissions},after={role:input.role,entityIds:input.entityIds,permissions:input.permissions,nameChanged:user.fullName!==input.fullName,emailChanged:user.email!==input.email};
-   const changedKind=(user.role==="WAREHOUSE")!==(input.role==="WAREHOUSE");
+   const changedKind=(user.role==="WAREHOUSE")!==(input.role==="WAREHOUSE")
+     || (user.role==="CATALOG_REVIEWER")!==(input.role==="CATALOG_REVIEWER");
    const changedScope=changedKind||user.role!==input.role||user.email!==input.email||JSON.stringify([...oldEntities].sort())!==JSON.stringify([...input.entityIds].sort())||JSON.stringify([...oldPermissions].sort())!==JSON.stringify([...input.permissions].sort());
    if(changedScope)await revokeAccess(ctx,user.id);
    const [updated]=await ctx.tx.update(users).set({fullName:input.fullName,email:input.email,role:input.role,updatedAt:new Date(),...(changedKind?{passwordHash:null,pinHash:null,totpSecretEncrypted:null,totpEnabled:false,totpEnrollmentRequired:input.role!=="WAREHOUSE"}: {})}).where(eq(users.id,user.id)).returning();

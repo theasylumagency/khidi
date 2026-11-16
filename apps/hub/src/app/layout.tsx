@@ -12,6 +12,7 @@ import { getCurrentPrincipal } from "../lib/session.ts";
 import "../components/scanning.css";
 import "./hub.css";
 import "./signature.css";
+import "../components/catalog-review.css";
 
 export const metadata: Metadata = {
   title: "Khidi — სასაწყობო და კატალოგის ჰაბი",
@@ -26,8 +27,37 @@ export const viewport: Viewport = {
 };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
-  const principal = await getCurrentPrincipal();
+  const principal = await getCurrentPrincipal({ allowCatalogReviewer: true });
+  if (principal?.role === "CATALOG_REVIEWER") {
+    return (
+      <html lang="ka">
+        <body className="review-shell">
+          {principal.sessionTiming ? <SessionIdleMonitor key={principal.sessionId} timing={principal.sessionTiming} /> : null}
+          <header className="review-header">
+            <div>
+              <Link href="/review">{t("review.title")}</Link>
+              <nav aria-label={t("review.account")}>
+                <Link href="/account/security">{t("review.account")}</Link>
+                {principal.sessionId ? <LogoutButton sessionId={principal.sessionId} /> : null}
+              </nav>
+            </div>
+          </header>
+          <main className="review-main">{children}</main>
+        </body>
+      </html>
+    );
+  }
   const navItems = principal ? getNavigationForRole(principal.role, principal.permissions) : [];
+  if (principal?.role === "ADMIN") {
+    navItems.push({
+      key: "review",
+      href: "/review",
+      labelKa: t("review.title"),
+      labelEn: "Catalog review",
+      adminOnly: true,
+      allowedRoles: ["ADMIN"]
+    });
+  }
 
   return (
     <html lang="ka">

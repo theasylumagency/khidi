@@ -9,7 +9,7 @@ export async function POST(request:NextRequest) {
  try {
   const body=await readBoundedJson(request,4096);
   // The single-use setup token authenticates this ceremony. Never switch an existing session.
-  const principal=await getCurrentPrincipal();if(principal)throw new AppError("FORBIDDEN","Sign out before account setup.");
+  const principal=await getCurrentPrincipal({ allowCatalogReviewer: true });if(principal)throw new AppError("FORBIDDEN","Sign out before account setup.");
   if(typeof body.token!=="string"||!["INSPECT","COMPLETE"].includes(String(body.action))||Object.keys(body).some(k=>!["action","token","secret"].includes(k)))throw new AppError("UNAUTHORIZED","Invalid setup link.");
   const result=body.action==="INSPECT"?await inspectUserSetup(getDb(),body.token)
    :typeof body.secret==="string"&&body.secret.length<=72?await completeUserSetup(getDb(),body.token,body.secret,request.cookies.get(KHIDI_DEVICE_COOKIE)?.value):null;

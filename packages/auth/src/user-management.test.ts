@@ -9,19 +9,24 @@ const password="Synthetic setup password #2026";
 afterEach(()=>vi.useRealTimers());
 async function fixture(){const db=getDb(),auth=await serviceAdminSessionFixture(db),[entity]=await db.select().from(legalEntities).limit(1);
  const command=(body:unknown,key=createUuidV7())=>manageUser(db,auth.principal,key,body);
- const create=async(role="OPERATOR")=>{const input={action:"CREATE",fullName:"Setup fixture",email:role==="WAREHOUSE"?null:`setup-${createUuidV7()}@example.test`,role,entityIds:[entity!.id],permissions:[]};const result=await command(input);return {input,id:result.body.id,token:new URL(result.body.setupUrl!).hash.slice(7),result};};
+ const create=async(role="OPERATOR")=>{const input={action:"CREATE",fullName:"Setup fixture",email:role==="WAREHOUSE"?null:`setup-${createUuidV7()}@example.test`,role,entityIds:role==="CATALOG_REVIEWER"?[]:[entity!.id],permissions:[]};const result=await command(input);return {input,id:result.body.id,token:new URL(result.body.setupUrl!).hash.slice(7),result};};
  return {db,auth,command,create,entity:entity!};}
 async function enroll(f:Awaited<ReturnType<typeof fixture>>,u:Awaited<ReturnType<Awaited<ReturnType<typeof fixture>>["create"]>>) {
  await completeUserSetup(f.db,u.token,password);let secret="";
  try{await loginOfficeUser(f.db,{email:u.input.email!,password});}catch(e){secret=((e as {details:{totpEnrollment:{base32Secret:string}}}).details.totpEnrollment.base32Secret);}
  const logged=await loginOfficeUser(f.db,{email:u.input.email!,password,totpCode:generateCurrentTotpToken(secret)});return {...logged,secret};
 }
-for(const role of ["ADMIN","STOCK_MANAGER","OPERATOR","ORDER_MANAGER"])it(`creates ${role} with hashed single-use setup and mandatory TOTP, never an admin-chosen password`,async()=>{
+for(const role of ["ADMIN","STOCK_MANAGER","OPERATOR","ORDER_MANAGER","CATALOG_REVIEWER"])it(`creates ${role} with hashed single-use setup and mandatory TOTP, never an admin-chosen password`,async()=>{
  const f=await fixture(),u=await f.create(role);expect(await inspectUserSetup(f.db,u.token)).toMatchObject({kind:"OFFICE",email:u.input.email});
  const [link]=await f.db.select().from(userSetupLinks).where(eq(userSetupLinks.userId,u.id));expect(link!.tokenHash).toBe(sha256Hex(u.token));expect(link!.expiresAt.getTime()-link!.createdAt.getTime()).toBeGreaterThan(71*3600000);
  const before=await f.db.query.users.findFirst({where:eq(users.id,u.id)});expect(before).toMatchObject({passwordHash:null,totpEnabled:false,totpEnrollmentRequired:true});
  await expect(loginOfficeUser(f.db,{email:u.input.email!,password})).rejects.toMatchObject({code:"UNAUTHORIZED"});
- await enroll(f,u);await expect(completeUserSetup(f.db,u.token,password)).rejects.toMatchObject({code:"UNAUTHORIZED"});
+ const signedIn=await enroll(f,u);await expect(completeUserSetup(f.db,u.token,password)).rejects.toMatchObject({code:"UNAUTHORIZED"});
+ if(role==="CATALOG_REVIEWER"){
+  expect(signedIn.principal).toMatchObject({role,entityIds:[],permissions:[]});
+  await expect(f.command({...u.input,action:"EDIT",id:u.id,entityIds:[f.entity.id]})).rejects.toMatchObject({code:"VALIDATION_ERROR"});
+  await expect(f.command({...u.input,action:"EDIT",id:u.id,permissions:["price.edit"]})).rejects.toMatchObject({code:"VALIDATION_ERROR"});
+ }
  const rows=[await f.db.select().from(auditLogs).where(eq(auditLogs.entityId,u.id)),await f.db.select().from(outboxEvents).where(eq(outboxEvents.aggregateId,u.id)),await f.db.select().from(idempotencyKeys).where(eq(idempotencyKeys.scope,`users:${f.auth.principal.userId}:${f.auth.principal.sessionId}`))];
  expect(JSON.stringify(rows)).not.toContain(u.token);expect(JSON.stringify(rows)).not.toContain(password);expect((await f.db.query.users.findFirst({where:eq(users.id,u.id)}))!.totpEnabled).toBe(true);
 });

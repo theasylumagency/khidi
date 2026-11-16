@@ -65,6 +65,7 @@ const nextConfig: NextConfig = {
     "@khidi/db",
     "@khidi/domain",
     "@khidi/auth",
+    "@khidi/catalog-review",
     "@khidi/entities",
     "@khidi/products",
     "@khidi/publishing",
