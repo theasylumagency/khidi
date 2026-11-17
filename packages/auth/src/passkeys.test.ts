@@ -67,6 +67,25 @@ it("lists multiple independent account keys and permits passkey sign-in again af
   expect((await verifySessionToken(f.db, again.sessionToken!)).authMethod).toBe("OFFICE_PASSKEY");
 });
 
+it("accepts a phone credential in a fresh browser while retaining user verification and browser binding", async () => {
+  const f = await fixture(), { key, keyId } = await registered(f);
+  const start = await beginPasskeyCeremony(f.db, "SIGN_IN", null);
+  expect(start.options).toMatchObject({ allowCredentials: [], userVerification: "required" });
+  const response = { ...key.assertion(start.options.challenge, f.id), authenticatorAttachment: "cross-platform" as const };
+  await expect(finishPasskeyCeremony(f.db, { ceremony: "SIGN_IN", challengeId: start.challengeId,
+    bindingToken: "f".repeat(64), response })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  expect(await f.db.select().from(sessions).where(eq(sessions.passkeyId, keyId))).toHaveLength(0);
+
+  const result = await finishPasskeyCeremony(f.db, { ceremony: "SIGN_IN", challengeId: start.challengeId,
+    bindingToken: start.bindingToken, response });
+  expect(await verifySessionToken(f.db, result.sessionToken!)).toMatchObject({ userId: f.id, authMethod: "OFFICE_PASSKEY" });
+  const withoutVerification = await beginPasskeyCeremony(f.db, "SIGN_IN", null);
+  await expect(finishPasskeyCeremony(f.db, { ceremony: "SIGN_IN", challengeId: withoutVerification.challengeId,
+    bindingToken: withoutVerification.bindingToken,
+    response: { ...key.assertion(withoutVerification.options.challenge, f.id, 2, { uv: false }), authenticatorAttachment: "cross-platform" }
+  })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+});
+
 it("expires a passkey session exactly at its idle deadline", () => {
   const now = 1_700_000_000_000;
   const session = { id: "deadline-fixture", authMethod: "OFFICE_PASSKEY", lastActivityAt: new Date(now - sessionIdleLimitMs("OFFICE_PASSKEY")), expiresAt: new Date(now + 60_000) };

@@ -67,17 +67,30 @@ export function LoginForms({
 
   const canUsePin = Boolean(registeredDevice && pinUsers.length);
   const personalBrowser = !sharedWarehouseDevice && !registeredDevice;
-  const canUseQuickSignIn = personalBrowser && quickSignInPreferred && supportsQuickSignIn;
-  const greeting = canUseQuickSignIn && firstName ? t("auth.welcome_name").replace("{name}", () => firstName) : t("auth.welcome");
+  // A fresh browser can use a phone's passkey without a local remembered account.
+  const canUseQuickSignIn = personalBrowser && supportsQuickSignIn;
+  const preferQuickSignIn = canUseQuickSignIn && quickSignInPreferred;
+  const greeting = preferQuickSignIn && firstName ? t("auth.welcome_name").replace("{name}", () => firstName) : t("auth.welcome");
 
   return <div className="auth-entry">
     <h1 ref={heading} tabIndex={-1}>{greeting}</h1>
     {view === "welcome" ? <section className="office-login auth-welcome-actions">
       {canUsePin ? <button className="auth-primary" type="button" onClick={() => changeView("pin")}>{t("auth.pin_sign_in")}</button> : null}
-      {canUseQuickSignIn ? <PasskeySignIn primary /> : null}
-      <button className={canUsePin || canUseQuickSignIn ? "auth-secondary" : "auth-primary"} type="button" onClick={() => changeView("password")}>
+      {preferQuickSignIn ? <PasskeySignIn primary /> : null}
+      <button className={canUsePin || preferQuickSignIn ? "auth-secondary" : "auth-primary"} type="button" onClick={() => changeView("password")}>
         {t(canUsePin || canUseQuickSignIn ? "auth.password_sign_in" : "auth.sign_in")}
       </button>
+      {canUseQuickSignIn && !preferQuickSignIn ? <PasskeySignIn /> : null}
+      {canUseQuickSignIn ? <details className="auth-help">
+        <summary>{t("passkey.phone_help_title")}</summary>
+        <p>{t("passkey.phone_help_intro")}</p>
+        <ol>
+          <li>{t("passkey.phone_help_choose")}</li>
+          <li>{t("passkey.phone_help_scan")}</li>
+          <li>{t("passkey.phone_help_confirm")}</li>
+        </ol>
+        <p>{t("passkey.phone_help_connection")}</p>
+      </details> : null}
     </section> : <>
       {view === "password" ? <OfficeLoginForm beforeLogin={clearClientCachesBeforeSwitch} passkeysAllowed={personalBrowser} />
         : <form className="office-login" onSubmit={handlePinSubmit} aria-busy={pinLoading}>
