@@ -36,3 +36,38 @@ separate migration to a patched Zod 4 release is approved and verified. Monitor 
 advisories and run production audit on each dependency update.
 
 Verification results are recorded in the M11 milestone record at final acceptance.
+
+## Next.js security patch — 2026-11-17
+
+Owner requested the security update after the production build offered 16.4.6.
+Pin `apps/hub` to Next.js 16.4.6 (from 16.4.3), with matching `@next/env` and SWC
+platform packages in the lockfile. React, other application dependencies, application
+behavior and database migrations remain unchanged.
+
+The pre-update production audit reported one moderate Next.js finding
+[GHSA-mfr8-8qww-v76h](https://github.com/vercel/next.js/security/advisories/GHSA-mfr8-8qww-v76h)
+and the existing high Zod finding. After the update, the Next.js finding is absent;
+only the previously documented Zod 3.24.2 finding remains (1 high, 0 moderate, 0 critical).
+The audit therefore exits nonzero; no advisory is suppressed or represented as patched.
+The current bounds and Proposed ADR-015 still apply to Zod.
+
+The [16.4.5 security release](https://github.com/vercel/next.js/releases/tag/v16.4.5)
+contains the fixes, and [16.4.6](https://github.com/vercel/next.js/releases/tag/v16.4.6)
+adds subsequent bug fixes. The audited cache pattern is not used by this app; the
+upgrade removes the affected dependency version instead of relying on that observation.
+
+Verification on Node.js 24.22.1 and pinned pnpm 12.16.1:
+
+- Frozen install, full typecheck, lint (including boundaries), production build and
+  `git diff --check` passed. The build reports Next.js 16.4.6.
+- Full suite on fresh local PostgreSQL 17.12 `khidi_next_security_test`: 697 passed,
+  1 optional MinIO integration test skipped; 125 passing test files, 1 skipped file.
+- A local `next start` in production mode, with generated fixture credentials and the
+  isolated test database, passed HTTP checks for health/database, login HTML/security
+  headers, a compiled client asset, unauthenticated review redirect, missing/forged
+  session rejection and API-host isolation. This is HTTP validation, not browser/mobile QA.
+- Production audit: Next.js finding removed; the existing 1 high Zod finding remains
+  visible. No other findings and no audit exclusions.
+
+No tests or seeds ran on the production server. Deployment requires frozen dependency
+installation, rebuilding Hub and restarting it; no database migration or re-import.
