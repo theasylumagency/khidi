@@ -17,6 +17,12 @@ import "../components/catalog-review.css";
 export const metadata: Metadata = {
   title: "Khidi — სასაწყობო და კატალოგის ჰაბი",
   description: "Khidi — კანონიკური პროდუქტების, მარაგების, ფასებისა და შესრულების ცენტრი",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "16x16 32x32 48x48", type: "image/x-icon" },
+      { url: "/icons/favicon.svg", sizes: "any", type: "image/svg+xml" }
+    ]
+  },
   robots: { index: false, follow: false }
 };
 
