@@ -1,0 +1,54 @@
+import { z } from "zod";
+export const fieldKeys = ["name","description","facts","kit","links","photos"] as const;
+export type FieldKey = typeof fieldKeys[number];
+export const relationKinds = ["compare","alternative","attachment","part","kit","supply"] as const;
+const line = z.string().trim().min(1).max(300);
+export const cardDefinition = z.object({
+  wp: z.number().int().positive(), type: line, name: line, description: z.string().trim().min(1).max(4000),
+  facts: z.array(line).max(32), kit: z.array(line).max(32),
+  links: z.array(z.object({ wp: z.number().int().positive(), kind: z.enum(relationKinds) }).strict()).max(32),
+  questions: z.array(z.object({ field: line, prompt: z.string().trim().min(1).max(800) }).strict()).max(8)
+}).strict();
+export type CardDefinition = z.infer<typeof cardDefinition>;
+export const roundQuestions = ["რა აკლდა ყველა ბარათს?", "რომელ ველს არასდროს შეავსებდით მაღაზიაში?",
+  "რას გეკითხებიან მყიდველები ყველაზე ხშირად, რაც ბარათზე არ ჩანს?"] as const;
+const fieldReview = z.object({ value: z.array(z.string().trim().max(4000)).max(32),
+  verdict: z.enum(["","OK","EDIT","UNNEEDED"]), reason: z.string().trim().max(600), unknown: z.boolean() }).strict();
+export const assessments = z.object({ name: fieldReview, description: fieldReview, facts: fieldReview,
+  kit: fieldReview, links: fieldReview, photos: fieldReview }).strict();
+export type Assessments = z.infer<typeof assessments>;
+export type Originals = Record<FieldKey,string[]>;
+export function originals(card: CardDefinition, photos: string[]): Originals {
+  return { name:[card.name], description:[card.description], facts:card.facts, kit:card.kit,
+    links:card.links.map(link => link.kind+":"+link.wp), photos };
+}
+export function startReview(source: Originals): Assessments {
+  return Object.fromEntries(fieldKeys.map(key => [key,{value:source[key],verdict:"",reason:"",unknown:false}])) as Assessments;
+}
+export function sameValues(a: string[], b: string[]) { return a.length === b.length && a.every((v,i) => v === b[i]); }
+export function fieldProblem(key: FieldKey, f: Assessments[FieldKey], source: string[], submit: boolean) {
+  const single = key === "name" || key === "description";
+  if (single && f.value.length > 1 || f.value.some(v => !v || v.length > (key === "description" ? 4000 : 300))) return true;
+  if (!submit) return false;
+  if (!f.verdict || f.verdict !== "OK" && !f.reason.trim()) return true;
+  if (f.verdict === "UNNEEDED") return f.value.length !== 0 || f.unknown;
+  return f.verdict === "OK" ? !sameValues(source,f.value) : sameValues(source,f.value);
+}
+// A longest increasing subsequence identifies items that retain their relative
+// order. Inserting one new row therefore never counts the following rows as moves.
+export function changes(key: FieldKey, before: string[], after: string[]) {
+  const tokens = (v: string[]) => key === "name" || key === "description" ? v.join(" ").match(/\S+/gu) ?? [] : v;
+  const a=tokens(before), b=tokens(after), positions=new Map<string,number[]>();
+  a.forEach((word,i) => { const list=positions.get(word) ?? []; list.push(i); positions.set(word,list); });
+  const matched=b.map(word => positions.get(word)?.shift() ?? -1), tails:number[]=[], parent:number[]=[];
+  matched.forEach((n,i) => {
+    if (n<0) return;
+    let low=0, high=tails.length;
+    while (low<high) { const mid=(low+high)>>>1; if (matched[tails[mid]!]!<n) low=mid+1; else high=mid; }
+    parent[i]=tails[low-1] ?? -1; tails[low]=i;
+  });
+  const stable=new Set<number>(), used=new Set(matched);
+  for (let i=tails.at(-1) ?? -1; i>=0; i=parent[i]!) stable.add(i);
+  return { removed:a.filter((_,i)=>!used.has(i)), added:b.filter((_,i)=>matched[i]===-1),
+    moved:b.flatMap((word,i)=>matched[i]!==-1 && !stable.has(i) ? [word+" ("+(matched[i]!+1)+" → "+(i+1)+")"] : []) };
+}

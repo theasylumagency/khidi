@@ -7,7 +7,7 @@ import { executeIdempotent, withDomainTransaction, type DomainTransactionContext
 import { renderReviewComposition, storeLegacyReviewPhoto, suggestReviewPlacement } from "@khidi/media";
 import { digest, type MediaStorage } from "@khidi/media/storage";
 import { AppError, createUuidV7 } from "@khidi/shared";
-import { requireReviewProduct } from "./access.ts";
+import { lockPilotPhotoWork, requireReviewProduct } from "./access.ts";
 
 const uid = z.string().uuid();
 export const photoForm = z.discriminatedUnion("kind", [
@@ -64,6 +64,7 @@ export async function uploadReviewImage(db: AppDatabase, storage: MediaStorage, 
   return executeIdempotent(db, { scope: "review-upload:" + principal.userId, idempotencyKey: key, payload: { ...form, sha: digest(bytes) } },
     tx => withDomainTransaction(tx, { userId: principal.userId }, async ctx => {
       const { id: productId, batchId } = await requireReviewProduct(ctx.tx, principal, form.productId);
+      await lockPilotPhotoWork(ctx.tx, principal, productId);
       let placement;
       if (form.kind === "REQUEST") {
         const [base] = await ctx.tx.select().from(links).where(and(eq(links.productId,productId), eq(links.photoId,form.basePhotoId)));
@@ -89,6 +90,7 @@ export async function renderReviewDraft(db: AppDatabase, storage: MediaStorage, 
   const attempt = await executeIdempotent(db, { scope: "review-render:" + principal.userId, idempotencyKey: key, payload: input },
     tx => withDomainTransaction(tx, { userId: principal.userId }, async ctx => {
       await requireReviewProduct(ctx.tx, principal, product.id);
+      await lockPilotPhotoWork(ctx.tx, principal, product.id);
       await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${request.id},0))`);
       const [accepted] = await ctx.tx.select({ id: work.id }).from(work).where(and(eq(work.parentId,request.id),eq(work.kind,"ACCEPT")));
       if (accepted) throw new AppError("CONFLICT","A version of this request is already accepted.");
@@ -135,6 +137,7 @@ export async function acceptReviewDraft(db: AppDatabase, principal: Authenticate
   return executeIdempotent(db, { scope: "review-accept:" + principal.userId, idempotencyKey: key, payload: input },
     tx => withDomainTransaction(tx, { userId: principal.userId }, async ctx => {
       const { id: productId, batchId } = await requireReviewProduct(ctx.tx, principal, input.productId);
+      await lockPilotPhotoWork(ctx.tx, principal, productId);
       const preview = await event(ctx.tx, productId, input.previewId, "PREVIEW");
       const render = await event(ctx.tx, productId, preview.parentId!, "RENDER");
       const requestId = render.parentId!;

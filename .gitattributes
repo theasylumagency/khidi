@@ -19,3 +19,5 @@ packages/db/migrations/0053_pending_office_pin_compatibility.sql text eol=lf
 packages/db/migrations/0054_admin_guard_schema.sql text eol=lf
 packages/db/migrations/0055_identification_observations.sql text eol=lf
 packages/db/migrations/0060_catalog_review_photo_work.sql text eol=lf
+packages/db/migrations/0061_catalog_feedback_pilot.sql text eol=lf
+packages/db/migrations/0062_catalog_feedback_rounds.sql text eol=lf

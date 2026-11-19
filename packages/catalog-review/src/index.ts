@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, exists, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, not, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
 import {
@@ -12,7 +12,9 @@ import { AppError, createUuidV7 } from "@khidi/shared";
 import { createReviewCheckpointIfReached } from "./checkpoint.ts";
 export { getReviewCheckpoint, listReviewCheckpoints, markReviewCheckpointViewed } from "./checkpoint.ts";
 
-import { assigned, requireReviewProduct } from "./access.ts";
+import { assigned, pilotBatch, requireReviewProduct } from "./access.ts";
+export * from "./pilot.ts";
+export * from "./rounds.ts";
 export { reviewRoles } from "./access.ts";
 export { uploadReviewImage, renderReviewDraft, acceptReviewDraft, photoForm, renderInput, acceptInput } from "./photo-work.ts";
 export const reviewId = z.string().uuid();
@@ -119,7 +121,7 @@ export async function getReviewPhoto(db: AppDatabase, principal: AuthenticatedPr
 async function findProposal(db: DbExecutor, principal: AuthenticatedPrincipal, proposalId: string) {
   const [proposal] = await db.select({ proposal: proposals, batchId: products.batchId }).from(proposals)
     .innerJoin(products, eq(products.id, proposals.productId))
-    .where(and(eq(proposals.id, proposalId), assigned(db, principal)));
+    .where(and(eq(proposals.id, proposalId), assigned(db, principal), not(pilotBatch(db))));
   if (!proposal) throw new AppError("NOT_FOUND", "Catalog review proposal unavailable.");
   return proposal;
 }
@@ -199,6 +201,9 @@ export async function createReviewText(db: AppDatabase, principal: Authenticated
   return executeIdempotent(db, { scope: `catalog-review-text:${principal.userId}`, idempotencyKey: key, payload: input },
     (tx) => withDomainTransaction(tx, { userId: principal.userId }, async (ctx) => {
       const product = await requireReviewProduct(ctx.tx, principal, input.productId);
+      const [pilot] = await ctx.tx.select({ id: products.id }).from(products)
+        .where(and(eq(products.id, product.id), pilotBatch(ctx.tx)));
+      if (pilot) throw new AppError("CONFLICT", "Use the pilot response for this product.");
       if (principal.role === "CATALOG_REVIEWER") {
         await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`review-checkpoint:${product.batchId}:${principal.userId}`}, 0))`);
       }

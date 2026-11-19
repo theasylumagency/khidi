@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@khidi/db";
-import { getReviewProduct, listReviewCheckpoints, listReviewProducts, reviewId, reviewRoles } from "@khidi/catalog-review";
+import { getReviewProduct, listPilot, listReviewCheckpoints, listReviewProducts, reviewId, reviewRoles } from "@khidi/catalog-review";
+import { PilotProduct } from "../../../components/catalog-feedback.tsx";
 import { AppError } from "@khidi/shared";
 import { t } from "@khidi/i18n";
 import { requirePageAuth } from "../../../lib/session.ts";
@@ -33,14 +34,16 @@ export default async function ReviewProductPage({ params, searchParams }: {
   if (!reviewId.safeParse(productId).success) notFound();
 
   const db = getDb();
-  const [result, queue, reports] = await Promise.all([
+  const [result, pilot] = await Promise.all([
     getReviewProduct(db, principal, productId).catch((error: unknown) => {
       if (error instanceof AppError && error.code === "NOT_FOUND") notFound();
       throw error;
     }),
-    listReviewProducts(db, principal),
-    listReviewCheckpoints(db, principal)
+    listPilot(db, principal, productId)
   ]);
+  const card = pilot.find(row => row.id === productId);
+  if (card) return <PilotProduct row={card} rows={pilot} result={result}/>;
+  const [queue, reports] = await Promise.all([listReviewProducts(db, principal), listReviewCheckpoints(db, principal)]);
   const { product, proposals, photos, history, photoWork } = result;
   const offer = reports.find((report) => report.batchId === product.batchId && !report.viewedAt);
   const options = photos.map((photo) => ({

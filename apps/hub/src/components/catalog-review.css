@@ -317,3 +317,49 @@
 .review-edit-previews img { width: 100%; height: auto; }
 .photo-history { margin-block: 1rem; }
 .photo-history li { padding-block: .35rem; }
+
+.pilot { max-width: 62rem; margin-inline: auto; }
+.pilot progress { width: min(100%, 26rem); accent-color: #285e45; }
+.pilot header small, .pilot header p { color: #506456; }
+.pilot-notice { border-left: 4px solid #759270; background: #eaf0e6; padding: .8rem 1rem; }
+.pilot-queue { padding: 0; list-style-position: inside; margin: 0; }
+.pilot-queue li { border-bottom: 1px solid #d7dfd6; padding: .65rem .5rem; }
+.pilot-queue a { display: inline-grid; gap: .2rem; text-decoration: none; vertical-align: middle; }
+.pilot-queue small, .pilot-answers small { color: #53685a; }
+.pilot-summary, .pilot-peers { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1rem; }
+.pilot-summary > div, .pilot-peers > div { flex: 1 1 15rem; }
+.pilot-summary img { object-fit: contain; background: white; border-radius: .5rem; }
+.pilot-original { white-space: pre-line; overflow-wrap: anywhere; padding-block: .6rem; }
+.pilot-peers > div { padding-block: .5rem; }
+.pilot-form { margin-block: .5rem; }
+.pilot-form fieldset { margin: 0; min-width: 0; display: grid; gap: 1.2rem; border: 1px solid #d5ded4; border-radius: .7rem; padding: 1rem; background: white; }
+.pilot-form legend { font-size: 1.15rem; font-weight: bold; padding-inline: .35rem; }
+.pilot-form label, .pilot-question, .pilot-answers { display: grid; gap: .5rem; }
+.pilot-question { border-bottom: 1px solid #dee4dc; padding-bottom: 1rem; }
+.pilot-form textarea, .pilot-form select, .pilot-form input:not([type]) { box-sizing: border-box; width: 100%; min-height: 44px; padding: .55rem; font: inherit; border: 1px solid #85978a; border-radius: .35rem; }
+.pilot-choices, .pilot-gallery { display: flex; flex-wrap: wrap; gap: .6rem; }
+.pilot-choices label, .pilot-gallery label { display: inline-flex; align-items: center; min-height: 44px; padding: .3rem .55rem; border: 1px solid #c7d4c8; border-radius: .4rem; }
+.pilot-gallery label { flex-direction: column; padding: .45rem; }
+.pilot-gallery img { width: 6rem; height: 6rem; object-fit: contain; }
+.pilot .pilot-primary { background: #244f39; color: white; }
+.pilot table { border-collapse: collapse; width: 100%; text-align: left; }
+.pilot th, .pilot td { padding: .4rem; border-bottom: 1px solid #d7dfd6; overflow-wrap: anywhere; }
+.pilot-answers > div { padding-block: .5rem; }
+
+.field-editor {min-width:0;margin:1rem 0;padding:1rem;border:1px solid #bbc6c1;border-radius:.65rem}
+.field-editor[aria-invalid=true] {border-color:#a43c28}
+.field-editor legend {font-weight:700;padding:0 .35rem}
+.field-editor textarea,.field-editor input:not([type=checkbox]):not([type=radio]) {width:100%;box-sizing:border-box}
+.field-rows {padding-inline-start:1.6rem}
+.field-rows li {padding:.35rem 0;overflow-wrap:anywhere}
+.field-tools {display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;margin:.3rem 0}
+.field-tools input {flex:1;min-width:7rem}
+.field-tools select {max-width:100%}
+.field-tools button,.field-editor details button {min-height:2.3rem}
+.field-editor details p,.field-values {white-space:pre-wrap;overflow-wrap:anywhere}
+.field-table {overflow-x:auto;margin:1rem 0}
+.field-table th,.field-table td {padding:.4rem;text-align:start}
+.field-history {border-top:1px solid #c8d2cd;margin-top:1rem}
+.field-history dt {font-weight:600}
+.field-history dd {margin:0 0 .65rem}
+.pilot .review-actions [aria-current=page] {font-weight:700}

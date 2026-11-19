@@ -1,5 +1,15 @@
 # Catalog Review pilot
 
+## November 19 feedback round
+
+Apply migrations 0061 and 0062 with the updated Hub. The first twenty versioned proposals live in PostgreSQL. The oldest ranked import with the configured archive fingerprint supplies their product IDs and original photos. Existing feedback revisions remain immutable. An already-started unidentified card keeps its place during migration.
+
+At `/review`, the assigned reviewer edits six fields (name, description, ordered facts, kit, typed links and photos). Each field has an independent verdict. A change or inapplicable field requires a reason. Missing evidence can be marked independently. Product-specific questions retain their sources. Saving a draft preserves the initial proposal, gallery and order. Submitting freezes that card.
+
+At `/review/results`, choose a round or product type, inspect word and list changes and download the two-sheet XLSX. Only submitted cards count in the report. Once twenty are complete, the reviewer can submit the three closing answers. The next cohort remains inaccessible until an administrator records KEEP or CHANGE with a note and imports twenty prepared cards. Both operations commit together. Viewing or exporting results never opens a round.
+
+The release form lists the remaining eligible WordPress IDs and downloads a JSON template. Replace or edit its twenty entries, supply a product type and customer-facing description, and review the facts, kit, typed links and questions. Links refer to other WordPress IDs in that cohort. A round takes its gallery from the existing import. Historical results remain available under their round number. These editorial decisions do not publish changes to canonical product data.
+
 The pilot adds an editorial queue to the existing Hub. It uses the same sessions, invitation and office sign-in flow, PostgreSQL, audit/outbox transaction and private media storage. A reviewer account opens at `/review`. The reviewer can see only assigned batches and can review the products that have proposals. Admins can inspect the pilot. A reviewer has no operational entity memberships or permissions.
 
 ## Migration and data flow
