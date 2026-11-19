@@ -10,7 +10,9 @@ export async function storeLegacyReviewPhoto(storage: MediaStorage, id: string, 
   const preview = await sharp(bytes, { limitInputPixels: 64_000_000, failOn: "error" })
     .rotate().toColourspace("srgb")
     .resize({ width: 960, height: 960, fit: "inside", withoutEnlargement: true })
-    .webp({ quality: 85 }).toBuffer();
+    .webp({ quality: 85 }).toBuffer().catch(() => {
+      throw new AppError("VALIDATION_ERROR", "Image could not be decoded.");
+    });
   const raw = await storage.putPrivate(privateImageKey(id, "legacy-original"), bytes, mime);
   const derivative = await storage.putPrivate(privateImageKey(id, "v1/legacy-review.webp", "master"), preview, "image/webp");
   return { raw, preview: derivative };

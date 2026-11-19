@@ -299,3 +299,21 @@
   .review-list-status { grid-row: 2; grid-column: 1; }
   .review-list-arrow { grid-row: 1 / span 2; grid-column: 2; }
 }
+.review-photo-studio { margin-block: 2rem; border-top: 1px solid #d9d5cc; padding-top: 1.25rem; }
+.review-photo-studio fieldset { display: grid; gap: .85rem; min-width: 0; padding: 1rem; border: 1px solid #d9d5cc; border-radius: .75rem; }
+.review-photo-studio label { display: grid; gap: .35rem; }
+.review-photo-studio input, .review-photo-studio select { max-width: 100%; min-width: 0; }
+.review-photo-studio button, .review-photo-studio select { min-height: 44px; }
+.review-photo-studio button[aria-pressed="true"] { font-weight: 700; outline: 2px solid currentColor; }
+.review-base-thumb { max-width: 8rem; max-height: 6rem; object-fit: contain; }
+.review-edit-canvas { position: relative; width: min(100%, 30rem); aspect-ratio: 1; background: white; border: 1px solid #d9d5cc; touch-action: none; cursor: crosshair; }
+.review-edit-canvas img { pointer-events: none; user-select: none; }
+.review-edit-canvas img { display: block; object-fit: contain; height: 100%; width: 100%; }
+.review-edit-canvas .review-detail-layer { position: absolute; outline: 1px dashed #57534e; }
+.review-detail-layer[data-mode="INSET"] { background-color: white; }
+.review-edit-previews { display: flex; flex-wrap: wrap; gap: .75rem; }
+.review-edit-previews h4 { width: 100%; }
+.review-edit-previews figure { width: min(18rem, 100%); margin: 0; }
+.review-edit-previews img { width: 100%; height: auto; }
+.photo-history { margin-block: 1rem; }
+.photo-history li { padding-block: .35rem; }

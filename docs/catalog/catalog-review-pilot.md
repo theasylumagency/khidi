@@ -4,7 +4,7 @@ The pilot adds an editorial queue to the existing Hub. It uses the same sessions
 
 ## Migration and data flow
 
-1. Apply migrations 0056 through 0058 on an isolated local database. They create legacy snapshot, assignment, photo, proposal, decision and first-pass report tables, and add the reviewer to the office enrollment checks. Earlier migrations stay frozen.
+1. Apply migrations through 0060 on an isolated local database. Migrations 0056 through 0058 create legacy snapshot, assignment, photo, proposal, decision and first-pass report tables, and add the reviewer to the office enrollment checks. Earlier migrations stay frozen.
 2. Join the Clean Baseline and Review Data v1.1 workbooks with the photo audit on WordPress product ID, and the photo inventory on asset key. Preparation validates row identity, status, original text, photo position, counts and source references. The import validates image sizes and SHA-256 values before preserving private originals and creating metadata-free WebP previews.
 3. Import the 248 source rows including 31 WordPress drafts as one reviewable batch. Rank the selected 20 as a recommended starting order. Snapshot rows, photo associations, proposals and decisions are append-only. Repeating the same manifest preserves the batch and its history. Version 1 can only reopen an already-imported local walkthrough. Use the version 2 manifest for a fresh complete batch.
 4. Use Hub user management to invite a local `CATALOG_REVIEWER` account. The existing user-management flow handles setup, TOTP and optional passkeys. To assign an existing reviewer, rerun the local import with that account's email as the fourth argument. Successful import, assignment and decisions write an audit row and internal outbox event. There are no storefront consumers.
@@ -12,7 +12,7 @@ The pilot adds an editorial queue to the existing Hub. It uses the same sessions
 
 The legacy records and photos have no canonical Product Master or SKU association. In this pilot, verification of specifications and identities remains with the existing evidence workflow. READY, publishing, pricing, stock and sellability retain their existing lifecycle. Any future promotion of reviewed material needs an explicitly approved mapping and existing verification gates.
 
-The queue supports search by name or WordPress ID and filters for category and decision status. A product opens at its first pending field. Approval, rejection or deferral continues to the next pending field or to the product history; saving an edit stays on that field for explicit approval. The photo panel shows only the original WordPress archive previews. When the archive has no photo, the reviewer can defer that field and leave a note.
+The queue supports search by name or WordPress ID and filters for category, decision status and photo activity. A product opens at its first pending field. Approval, rejection or deferral continues to the next pending field or to the product history; saving an edit stays on that field for explicit approval. The photo panel shows archive previews, reviewer uploads and accepted compositions. A reviewer can upload a missing photo or defer the field with a note.
 
 The next-product link preserves all active filters, including search. The text panel can
 highlight additions and removals without changing either source; this is a textual comparison,
@@ -65,13 +65,30 @@ The read-only preparation step uses Python with `openpyxl`. The selection file i
 
 ## Shared pilot
 
+Apply migration 0060 for the review photo editor. In the product's photo tab a reviewer can
+upload an additional gallery image, or select a gallery base, describe an accessory, choose
+an inset or a mounted illustration and upload the accessory reference. The initial placement
+and size are suggestions. The reviewer can adjust them and compare saved previews before
+accepting one into the private review gallery. Originals and intermediate versions remain
+available. An accepted composition is editorial media and does not verify fit or box contents.
+The queue shows affected products, history identifies the actor and first-pass reports created
+after migration include the reviewer's uploads, requests and accepted edits by product.
+
+Local placement uses Sharp. Set the server-only REVIEW_GEMINI_API_KEY to enable optional
+mounted previews with Gemini 3.1 Flash Image or Gemini 3 Pro Image. The paid button sends
+three metadata-free reference images and the requested part description to Google. Each
+request asks for one 1K image with at most 4096 output tokens. The pilot shares 40 paid
+attempts across all reviewers and models. Failed or interrupted attempts consume a slot.
+Duplicate submissions do not call the provider again. Set the proxy limits in the server
+setup guide. The editor works without a provider key.
+
 Before the approved Hub release, use the [upgrade and recovery runbook](../ops/server-setup.md). Keep the version 2 manifest and the audited `originals/` tree in a restricted operator directory outside the release, Git and the web root. Run the file-only preview before the handover and again after transfer. It prints the manifest SHA-256 and validates every referenced original against its audit.
 
 ```sh
 corepack pnpm ops:catalog-review-pilot --preview LOCAL_MANIFEST.json AUDITED_MEDIA_DIRECTORY
 ```
 
-The AgroTrade batch preview should show 248 products, 31 WordPress drafts, 20 recommended starts, 733 proposals and 456 unique originals. Compare the manifest digest to the verified source. Import only that batch on the approved destination after the release and its recovery point have been verified. Apply migrations 0056 through 0058 through the normal release procedure.
+The AgroTrade batch preview should show 248 products, 31 WordPress drafts, 20 recommended starts, 733 proposals and 456 unique originals. Compare the manifest digest to the verified source. Import only that batch on the approved destination after the release and its recovery point have been verified. Run pending migrations through 0060 using the normal release procedure. An existing imported batch can use the photo editor without re-import.
 
 1. Use the approved operations configuration with `NODE_ENV=production`, the paired database credentials and the existing private media storage. Run the import from the release directory with an active administrator for audit attribution. The batch stays unassigned until a reviewer is named.
 

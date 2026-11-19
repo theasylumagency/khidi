@@ -1,8 +1,8 @@
-import { and, asc, desc, eq, exists, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
 import {
-  catalogLegacyProducts as products, catalogReviewAssignments as assignments,
+  catalogLegacyProducts as products, catalogReviewPhotoWork as work,
   catalogReviewDecisions as decisions, catalogReviewPhotoLinks as links,
   catalogReviewPhotos as photos, catalogReviewProposals as proposals, users,
   type AppDatabase, type DbExecutor
@@ -12,7 +12,9 @@ import { AppError, createUuidV7 } from "@khidi/shared";
 import { createReviewCheckpointIfReached } from "./checkpoint.ts";
 export { getReviewCheckpoint, listReviewCheckpoints, markReviewCheckpointViewed } from "./checkpoint.ts";
 
-export const reviewRoles = ["ADMIN", "CATALOG_REVIEWER"] as const;
+import { assigned, requireReviewProduct } from "./access.ts";
+export { reviewRoles } from "./access.ts";
+export { uploadReviewImage, renderReviewDraft, acceptReviewDraft, photoForm, renderInput, acceptInput } from "./photo-work.ts";
 export const reviewId = z.string().uuid();
 const reviewText = z.string().min(1).max(20000).refine((value) => value.trim().length > 0);
 export const textField = z.enum(["NAME", "SHORT", "FULL"]);
@@ -33,22 +35,6 @@ export const decisionInput = z.object({
 }).strict();
 export type DecisionInput = z.infer<typeof decisionInput>;
 
-function checkReviewer(principal: AuthenticatedPrincipal) {
-  if (!reviewRoles.some((role) => role === principal.role) || principal.authMethod === "WAREHOUSE_PIN") {
-    throw new AppError("FORBIDDEN", "Catalog review access required.");
-  }
-}
-
-function assigned(db: DbExecutor, principal: AuthenticatedPrincipal) {
-  checkReviewer(principal);
-  return principal.role === "ADMIN" ? undefined : exists(db.select({ userId: assignments.userId })
-    .from(assignments).where(and(eq(assignments.batchId, products.batchId), eq(assignments.userId, principal.userId))));
-}
-
-function inPilot(db: DbExecutor) {
-  return exists(db.select({ id: proposals.id }).from(proposals).where(eq(proposals.productId, products.id)));
-}
-
 export type ReviewProductSummary = {
   id: string;
   wordpressId: number;
@@ -59,12 +45,16 @@ export type ReviewProductSummary = {
   total: number;
   pending: number;
   deferred: number;
+  uploads?: number;
+  detailRequests?: number;
 };
 
 export async function listReviewProducts(db: AppDatabase, principal: AuthenticatedPrincipal): Promise<ReviewProductSummary[]> {
   const rows = await db.select({
     id: products.id, wordpressId: products.wordpressId, sourceStatus: products.sourceStatus,
     recommendedOrder: products.recommendedOrder,
+    uploads: sql<number>`(SELECT count(*)::int FROM catalog_review_photo_work WHERE product_id = ${products.id} AND kind = 'UPLOAD')`,
+    detailRequests: sql<number>`(SELECT count(*)::int FROM catalog_review_photo_work WHERE product_id = ${products.id} AND kind = 'REQUEST')`,
     name: sql<string | null>`COALESCE((
       SELECT COALESCE(approved_text, edited_text) FROM catalog_review_decisions
       WHERE product_id = ${products.id} AND field = 'NAME'
@@ -84,7 +74,7 @@ export async function listReviewProducts(db: AppDatabase, principal: Authenticat
   for (const row of rows) {
     const item = result.get(row.id) ?? { id: row.id, wordpressId: row.wordpressId, recommendedOrder: row.recommendedOrder,
       sourceStatus: row.sourceStatus, name: row.name, category: row.category,
-      total: 0, pending: 0, deferred: 0 };
+      total: 0, pending: 0, deferred: 0, uploads: row.uploads, detailRequests: row.detailRequests };
     item.total++;
     if (!row.action) item.pending++;
     if (row.action === "DEFER") item.deferred++;
@@ -94,12 +84,9 @@ export async function listReviewProducts(db: AppDatabase, principal: Authenticat
 }
 
 export async function getReviewProduct(db: AppDatabase, principal: AuthenticatedPrincipal, productId: string) {
-  const [product] = await db.select().from(products).where(and(
-    eq(products.id, productId), assigned(db, principal), inPilot(db)
-  ));
-  if (!product) throw new AppError("NOT_FOUND", "Catalog review product unavailable.");
+  const product = await requireReviewProduct(db, principal, productId);
 
-  const [options, history, photoOptions] = await Promise.all([
+  const [options, history, photoOptions, photoWork] = await Promise.all([
     db.select().from(proposals).where(eq(proposals.productId, product.id)),
     db.select({
       id: decisions.id, proposalId: decisions.proposalId, action: decisions.action,
@@ -110,17 +97,21 @@ export async function getReviewProduct(db: AppDatabase, principal: Authenticated
       .where(eq(decisions.productId, product.id)).orderBy(desc(decisions.revision)),
     db.select({ id: links.photoId, position: links.position, audit: photos.audit })
       .from(links).innerJoin(photos, eq(links.photoId, photos.id))
-      .where(eq(links.productId, product.id)).orderBy(asc(links.position))
+      .where(eq(links.productId, product.id)).orderBy(asc(links.position)),
+    db.select({ event: work, actor: users.fullName }).from(work).innerJoin(users, eq(users.id, work.actorId))
+      .where(eq(work.productId, product.id)).orderBy(asc(work.createdAt), asc(work.id))
   ]);
-  return { product, proposals: options, history, photos: photoOptions };
+  return { product, proposals: options, history, photos: photoOptions, photoWork };
 }
 
 export async function getReviewPhoto(db: AppDatabase, principal: AuthenticatedPrincipal, productId: string, photoId: string) {
+  const product = await requireReviewProduct(db, principal, productId);
   const [photo] = await db.select({
     key: photos.previewKey, sha256: photos.previewSha256, version: photos.previewVersion
-  }).from(links).innerJoin(products, eq(products.id, links.productId))
-    .innerJoin(photos, and(eq(photos.id, links.photoId), eq(photos.batchId, products.batchId)))
-    .where(and(eq(links.productId, productId), eq(links.photoId, photoId), assigned(db, principal), inPilot(db)));
+  }).from(photos).where(and(eq(photos.batchId, product.batchId), eq(photos.id, photoId), or(
+    exists(db.select({ id: links.photoId }).from(links).where(and(eq(links.productId, productId), eq(links.photoId, photoId)))),
+    exists(db.select({ id: work.id }).from(work).where(and(eq(work.productId, productId), eq(work.photoId, photoId))))
+  )));
   if (!photo) throw new AppError("NOT_FOUND", "Catalog review photo unavailable.");
   return photo;
 }
@@ -204,17 +195,10 @@ export async function createReviewText(db: AppDatabase, principal: Authenticated
   const parsed = createTextInput.safeParse(rawInput);
   if (!parsed.success) throw new AppError("VALIDATION_ERROR", "Invalid review text.");
   const input = parsed.data;
-  const findProduct = async (executor: DbExecutor) => {
-    const [product] = await executor.select().from(products).where(and(
-      eq(products.id, input.productId), assigned(executor, principal), inPilot(executor)
-    ));
-    if (!product) throw new AppError("NOT_FOUND", "Catalog review product unavailable.");
-    return product;
-  };
-  await findProduct(db);
+  await requireReviewProduct(db, principal, input.productId);
   return executeIdempotent(db, { scope: `catalog-review-text:${principal.userId}`, idempotencyKey: key, payload: input },
     (tx) => withDomainTransaction(tx, { userId: principal.userId }, async (ctx) => {
-      const product = await findProduct(ctx.tx);
+      const product = await requireReviewProduct(ctx.tx, principal, input.productId);
       if (principal.role === "CATALOG_REVIEWER") {
         await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`review-checkpoint:${product.batchId}:${principal.userId}`}, 0))`);
       }

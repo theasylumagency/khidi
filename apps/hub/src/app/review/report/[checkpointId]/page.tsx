@@ -23,6 +23,9 @@ export default async function ReviewReportPage({ params }: { params: Promise<{ c
   const counts = { APPROVE: 0, EDIT: 0, REJECT: 0, DEFER: 0 };
   for (const product of checkpoint.report) for (const item of product.outcomes) counts[item.action]++;
   const title = t("review.checkpoint.title");
+  const activity = (row: NonNullable<(typeof checkpoint.report)[number]["photoWork"]>) =>
+    [t("review.work_uploads") + " " + row.uploads, t("review.work_requests") + " " + row.requests,
+      t("review.work_accepted") + " " + row.accepted].join(" · ");
   const summary = [
     `${checkpoint.report.length} ${t("review.products_reviewed")}`,
     ...actions.map((action) => `${t(`review.status.${action}`)} — ${counts[action]}`)
@@ -30,6 +33,7 @@ export default async function ReviewReportPage({ params }: { params: Promise<{ c
   const plainText = [title, date.format(checkpoint.createdAt), ...summary, "",
     ...checkpoint.report.flatMap((product) => [
       `#${product.wordpressId} ${product.name ?? t("review.unnamed")}`,
+      ...(product.photoWork ? [activity(product.photoWork)] : []),
       ...product.outcomes.flatMap((item) => [
         `${t(`review.field.${item.field}`)} · ${t(`review.status.${item.action}`)}`,
         ...(item.photoPosition !== null ? [`${t("review.photo_selected")} ${item.photoPosition}`] : []),
@@ -57,6 +61,7 @@ export default async function ReviewReportPage({ params }: { params: Promise<{ c
       <ol>
         {checkpoint.report.map((product) => <li key={product.wordpressId}>
           <h3>{product.name ?? t("review.unnamed")} <small>#{product.wordpressId}</small></h3>
+          {product.photoWork && <p>{activity(product.photoWork)}</p>}
           {product.outcomes.map((item) => <div key={item.field} className="review-report-outcome">
             <strong>{t(`review.field.${item.field}`)} · {t(`review.status.${item.action}`)}</strong>
             {item.photoPosition !== null ? <p>{t("review.photo_selected")} {item.photoPosition}</p> : null}

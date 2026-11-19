@@ -8,6 +8,13 @@ function product(wordpressId: number, pending: number, deferred = 0): ReviewProd
 }
 
 describe("review queue navigation", () => {
+  it("distinguishes photo uploads from detail requests for the next pass", () => {
+    const row = { ...product(1, 0), uploads: 1, detailRequests: 0 };
+    expect(matchesReviewScope(row, { status: "uploads", q: "#1" })).toBe(true);
+    expect(matchesReviewScope(row, { status: "uploads", q: "#2" })).toBe(false);
+    expect(matchesReviewScope(row, { status: "detailRequests" })).toBe(false);
+    expect(readReviewFilters({ status: "detailRequests" }).status).toBe("detailRequests");
+  });
   it("puts recommended pending items first without hiding the rest of the set", () => {
     const ordered = orderReviewQueue([product(1, 1), { ...product(9, 1), recommendedOrder: 2 },
       { ...product(8, 1), recommendedOrder: 1 }, { ...product(2, 0, 1), recommendedOrder: 3 }]);
