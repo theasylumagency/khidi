@@ -60,6 +60,7 @@ export const SECURITY_HEADERS = getSecurityHeaders(true);
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  experimental: { proxyClientMaxBodySize: "18mb" },
   transpilePackages: [
     "@khidi/shared",
     "@khidi/db",

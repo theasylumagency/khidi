@@ -73,6 +73,7 @@ export const catalogReviewDecisions = pgTable("catalog_review_decisions", {
 });
 
 export type CatalogReviewCheckpointProduct = {
+  photoWork?: { uploads: number; requests: number; accepted: number };
   wordpressId: number;
   name: string | null;
   outcomes: {
@@ -92,4 +93,21 @@ export const catalogReviewCheckpoints = pgTable("catalog_review_checkpoints", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   viewedAt: timestamp("viewed_at", { withTimezone: true }),
   report: jsonb("report").$type<CatalogReviewCheckpointProduct[]>().notNull()
+});
+
+export type ReviewPlacement = { x: number; y: number; size: number };
+export const catalogReviewPhotoWork = pgTable("catalog_review_photo_work", {
+  id: uuid("id").primaryKey(),
+  batchId: uuid("batch_id").notNull(),
+  productId: uuid("product_id").notNull(),
+  actorId: uuid("actor_id").notNull(),
+  kind: text("kind").$type<"UPLOAD" | "REQUEST" | "RENDER" | "PREVIEW" | "ACCEPT" | "FAILED">().notNull(),
+  parentId: uuid("parent_id"),
+  basePhotoId: uuid("base_photo_id"),
+  photoId: uuid("photo_id"),
+  detail: text("detail"),
+  mode: text("mode").$type<"INSET" | "MOUNT">(),
+  model: text("model").$type<"local" | "gemini-3.1-flash-image" | "gemini-3-pro-image">(),
+  placement: jsonb("placement").$type<ReviewPlacement>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
 });

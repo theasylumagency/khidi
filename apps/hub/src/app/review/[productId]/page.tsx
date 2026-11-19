@@ -9,6 +9,7 @@ import { nextReviewProduct, orderReviewQueue, readReviewFilters, reviewHref } fr
 import { CatalogDecisionForm } from "../../../components/catalog-decision-form.tsx";
 import { CatalogReviewTextPanel } from "../../../components/catalog-review-text-panel.tsx";
 import { CatalogReviewCheckpoint } from "../../../components/catalog-review-checkpoint.tsx";
+import { ReviewPhotoStudio, ReviewPhotoHistory } from "../../../components/review-photo-studio.tsx";
 
 const fields = [
   { field: "NAME", view: "name", source: "არსებული სახელი" },
@@ -40,10 +41,10 @@ export default async function ReviewProductPage({ params, searchParams }: {
     listReviewProducts(db, principal),
     listReviewCheckpoints(db, principal)
   ]);
-  const { product, proposals, photos, history } = result;
+  const { product, proposals, photos, history, photoWork } = result;
   const offer = reports.find((report) => report.batchId === product.batchId && !report.viewedAt);
   const options = photos.map((photo) => ({
-    id: photo.id, position: photo.position,
+    id: photo.id, position: photo.position, origin: photo.audit.origin,
     width: Number(photo.audit.width_px) > 0 ? Number(photo.audit.width_px) : null,
     height: Number(photo.audit.height_px) > 0 ? Number(photo.audit.height_px) : null,
     qualityFlags: (photo.audit.quality_flags ?? "").split(";").map((flag) => flag.trim()).filter(Boolean),
@@ -57,7 +58,8 @@ export default async function ReviewProductPage({ params, searchParams }: {
   });
   const undecided = sections.filter((item) => item.proposal && !item.current);
   const deferred = sections.filter((item) => item.current?.action === "DEFER");
-  const requested = sections.find((item) => item.view === view);
+  const photoFilter = filters.status === "uploads" || filters.status === "detailRequests";
+  const requested = sections.find((item) => item.view === (view ?? (photoFilter ? "photos" : undefined)));
   const firstIssue = filters.status === "deferred" ? deferred[0] ?? undecided[0] : undecided[0] ?? deferred[0];
   const active = view === "history" ? undefined
     : requested ?? firstIssue ?? (history.length ? undefined : sections[0]);
@@ -123,7 +125,6 @@ export default async function ReviewProductPage({ params, searchParams }: {
     {active ? <section className="review-card">
       <div className="review-heading">
         <h2>{t(`review.field.${active.field}`)}</h2>
-        {active.field === "PHOTO" && options.length > 0 ? <p className="review-quiet">{t("review.photo_source")}</p> : null}
       </div>
       {active.proposal?.origin === "IMPORT" ? <details className="review-source-notes">
         <summary>{t("review.import_notes")}</summary>
@@ -149,8 +150,15 @@ export default async function ReviewProductPage({ params, searchParams }: {
         photos={active.field === "PHOTO" ? options : undefined}
         continueHref={continueHref}
       /> : null}
+      {active.field === "PHOTO" && !active.proposal && options.length > 0 &&
+        <div className="review-photos">{options.map(photo => <figure key={photo.id}>
+          <img src={photo.url} alt={`${t("review.photo")} ${photo.position}`} loading="lazy" />
+          <figcaption>{t("review.photo")} {photo.position}</figcaption></figure>)}</div>}
+      {active.field === "PHOTO" && <ReviewPhotoStudio key={productId} productId={productId} photos={options} activity={photoWork}
+        paid={Boolean(process.env.REVIEW_GEMINI_API_KEY)} />}
     </section> : <section className="review-history">
       <h2>{t("review.history")}</h2>
+      <ReviewPhotoHistory activity={photoWork} />
       {history.length ? <ol>
         {[...history].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.revision - a.revision).map((decision) => {
           const field = proposals.find((proposal) => proposal.id === decision.proposalId)!.field;

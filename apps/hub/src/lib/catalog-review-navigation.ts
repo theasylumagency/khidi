@@ -1,7 +1,7 @@
 import type { ReviewProductSummary } from "@khidi/catalog-review";
 import { t } from "@khidi/i18n";
 
-export const reviewFilters = ["all", "pending", "deferred", "done"] as const;
+export const reviewFilters = ["all", "pending", "deferred", "done", "uploads", "detailRequests"] as const;
 export type ReviewFilter = (typeof reviewFilters)[number];
 export type ReviewQueueFilters = { q: string; category: string; status: ReviewFilter };
 
@@ -27,7 +27,7 @@ export function matchesReviewScope(product: ReviewProductSummary,
   { q = "", category = "", status = "all" }: Partial<ReviewQueueFilters> = {}) {
   const search = q.trim().replace(/^#/u, "").toLocaleLowerCase("ka");
   return (!category || product.category === category) && (status === "all"
-    || (status === "done" ? product.pending === 0 && product.deferred === 0 : product[status] > 0))
+    || (status === "done" ? product.pending === 0 && product.deferred === 0 : (product[status] ?? 0) > 0))
     && (!search || (product.name?.trim() || t("review.unnamed")).toLocaleLowerCase("ka").includes(search)
       || String(product.wordpressId).includes(search));
 }

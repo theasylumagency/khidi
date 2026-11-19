@@ -5,7 +5,7 @@ import { t, type TranslationKey } from "@khidi/i18n";
 
 export type ReviewPhoto = {
   id: string; url: string; position: number;
-  width: number | null; height: number | null; qualityFlags: string[];
+  origin?: string; width: number | null; height: number | null; qualityFlags: string[];
 };
 
 const qualityLabels: Record<string, TranslationKey> = {
@@ -81,7 +81,8 @@ export function CatalogReviewPhotos({ photos, selected, onSelect, proposedPhotoI
         <label className="review-photo-choice">
           <input type="radio" name="photo" value={photo.id} checked={selected === photo.id} onChange={() => onSelect(photo.id)} />
           <span>{t("review.photo")} {photo.position}</span>
-          {photo.position === 1 ? <small>{t("review.old_main")}</small> : null}
+          {photo.origin ? <small>{t(photo.origin === "UPLOAD" ? "review.upload" : "review.generated")}</small>
+            : photo.position === 1 ? <small>{t("review.old_main")}</small> : null}
           {photo.id === proposedPhotoId ? <small>{t("review.suggested_photo")}</small> : null}
         </label>
         <PhotoDetails photo={photo} />

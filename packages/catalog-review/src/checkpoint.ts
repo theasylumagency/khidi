@@ -1,9 +1,9 @@
-import { and, asc, eq, exists, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, isNull, sql } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
 import {
   catalogLegacyProducts as products, catalogReviewAssignments as assignments,
   catalogReviewCheckpoints as checkpoints, catalogReviewDecisions as decisions,
-  catalogReviewPhotoLinks as links, catalogReviewProposals as proposals,
+  catalogReviewPhotoLinks as links, catalogReviewProposals as proposals, catalogReviewPhotoWork as work,
   type AppDatabase, type CatalogReviewCheckpointProduct, type DbExecutor
 } from "@khidi/db";
 import { executeIdempotent, withDomainTransaction, type DomainTransactionContext } from "@khidi/domain";
@@ -81,9 +81,15 @@ export async function createReviewCheckpointIfReached(ctx: DomainTransactionCont
   }
 
   if (firstPass.length < REVIEW_CHECKPOINT_SIZE) return;
-  const report = firstPass.slice(0, REVIEW_CHECKPOINT_SIZE).map((productId) => {
+  const ids = firstPass.slice(0, REVIEW_CHECKPOINT_SIZE);
+  const activity = await ctx.tx.select({ productId: work.productId, kind: work.kind }).from(work)
+    .where(and(inArray(work.productId, ids), eq(work.actorId, reviewerId), inArray(work.kind, ["UPLOAD","REQUEST","ACCEPT"])));
+  const report = ids.map((productId) => {
     const { wordpressId, name, outcomes } = byProduct.get(productId)!;
-    return { wordpressId, name, outcomes: [...outcomes.values()] };
+    const rows = activity.filter(row => row.productId === productId);
+    const photoWork = { uploads: rows.filter(r => r.kind === "UPLOAD").length,
+      requests: rows.filter(r => r.kind === "REQUEST").length, accepted: rows.filter(r => r.kind === "ACCEPT").length };
+    return { wordpressId, name, outcomes: [...outcomes.values()], photoWork };
   });
   const id = createUuidV7();
   const [created] = await ctx.tx.insert(checkpoints).values({ id, batchId, reviewerId, report })

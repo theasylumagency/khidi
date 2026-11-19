@@ -1,4 +1,9 @@
 import { afterAll, describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { FilesystemMediaStorage } from "@khidi/media/storage";
+import { acceptReviewDraft, renderReviewDraft, uploadReviewImage } from "./photo-work.ts";
 import { and, eq, sql } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
 import {
@@ -94,6 +99,29 @@ describe("catalog review", () => {
       .toEqual(["APPROVE", "DEFER", "EDIT", "REJECT"]);
     expect(detail.history).toHaveLength(5);
     expect(detail.proposals.find((entry) => entry.id === nameProposal)).toMatchObject({ original: "Source", proposed: "v2" });
+    const directory = await mkdtemp(join(tmpdir(), "review-photo-test-"));
+    try {
+      const storage = new FilesystemMediaStorage(directory);
+      const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAE0lEQVQImWP4z8DwnwGM/zMwAAAf7gP9qS/A4gAAAABJRU5ErkJggg==", "base64");
+      const uploadKey = uuid();
+      const photoForm = { kind: "UPLOAD", productId } as const;
+      await expect(uploadReviewImage(db, storage, unassigned, uuid(), photoForm, png)).rejects.toMatchObject({code: "NOT_FOUND"});
+      const uploaded = await uploadReviewImage(db, storage, principal, uploadKey, photoForm, png);
+      expect((await uploadReviewImage(db, storage, principal, uploadKey, photoForm, png)).body).toEqual(uploaded.body);
+      const request = await uploadReviewImage(db, storage, principal, uuid(), { kind: "REQUEST",
+        productId, basePhotoId: uploaded.body.photoId, mode: "INSET", detail: "ფრეზი" }, png);
+      const renderKey = uuid();
+      const layout = { requestId: request.body.id, productId, model: "local", placement: { x: 53, y: 30, size: 40 } } as const;
+      const preview = await renderReviewDraft(db, storage, principal, renderKey, layout);
+      expect((await renderReviewDraft(db, storage, principal, renderKey, layout)).body).toEqual(preview.body);
+      expect((await getReviewProduct(db, principal, productId)).photos).toHaveLength(2);
+      await acceptReviewDraft(db, principal, uuid(), { productId, previewId: preview.body.id });
+      await acceptReviewDraft(db, principal, uuid(), { productId, previewId: preview.body.id });
+      const after = await getReviewProduct(db, principal, productId);
+      expect(after.photos).toHaveLength(3);
+      expect(after.photoWork.map(row => row.event.kind).sort()).toEqual(["ACCEPT","PREVIEW","RENDER","REQUEST","UPLOAD"]);
+      await expect(getReviewPhoto(db, unassigned, productId, request.body.photoId)).rejects.toMatchObject({code: "NOT_FOUND"});
+    } finally { await rm(directory, { recursive: true, force: true }); }
     expect(await db.select().from(auditLogs).where(and(eq(auditLogs.entityId, accepted.body.id), eq(auditLogs.action, "CATALOG_REVIEW_DECIDED")))).toHaveLength(1);
     expect(await db.select().from(outboxEvents).where(eq(outboxEvents.aggregateId, nameProposal))).toHaveLength(4);
     await expect(db.update(catalogReviewDecisions).set({ note: "Overwrite" }).where(eq(catalogReviewDecisions.id, accepted.body.id))).rejects.toThrow();

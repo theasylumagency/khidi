@@ -62,6 +62,8 @@ export function CatalogReviewQueue({ products, initialFilters }: {
               {product.sourceStatus === "DRAFT" ? ` · ${t("review.DRAFT")}` : ""}</small>
           </span>
           <span className="review-list-status">
+            {Boolean(product.uploads) && <small>{t("review.work_uploads")} · {product.uploads}</small>}
+            {Boolean(product.detailRequests) && <small>{t("review.work_requests")} · {product.detailRequests}</small>}
             {product.recommendedOrder !== null && product.pending > 0 ? <small className="review-status" data-state="recommended">
               {t("review.recommended")}
             </small> : null}
