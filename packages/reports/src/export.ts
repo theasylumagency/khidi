@@ -41,12 +41,18 @@ function csvCell(v:string) {
 export async function exportReport(report:MovementReport,format:"CSV"|"XLSX"):Promise<Buffer> {
  const sheets=reportSheets(report);
  if(format==="CSV")return Buffer.from("\uFEFF"+sheets.flatMap(s=>[[s.name],s.headers,...s.rows,[]]).map(row=>row.map(csvCell).join(",")).join("\r\n"),"utf8");
- const book=new ExcelJS.Workbook();book.creator="Khidi";book.created=new Date(report.range.to+"T20:00:00Z");
+ return exportWorkbook(sheets,new Date(report.range.to+"T20:00:00Z"));
+}
+export async function exportWorkbook(sheets:{name:string;headers:string[];rows:string[][];widths?:number[]}[],created=new Date()):Promise<Buffer> {
+ const book=new ExcelJS.Workbook();book.creator="Khidi";book.created=created;
  for(const s of sheets) {
   const sheet=book.addWorksheet(s.name.slice(0,31));sheet.addRow(s.headers);sheet.addRows(s.rows);
   sheet.getRow(1).font={bold:true};sheet.views=[{state:"frozen",ySplit:1}];
   sheet.autoFilter={from:{row:1,column:1},to:{row:Math.max(1,s.rows.length+1),column:s.headers.length}};
-  sheet.columns.forEach(c=>{c.width=24;});
+  sheet.columns.forEach((c,i)=>{
+    c.width=s.widths?.[i] ?? 24;
+    if(s.widths) c.alignment={vertical:"top",wrapText:true};
+  });
  }
  return Buffer.from(await book.xlsx.writeBuffer());
 }

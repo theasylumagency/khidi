@@ -1,5 +1,5 @@
 import { getDb } from "@khidi/db";
-import { listPilot, listReviewCheckpoints, listReviewProducts, reviewRoles } from "@khidi/catalog-review";
+import { listPilot, roundDetails, listReviewCheckpoints, listReviewProducts, reviewRoles } from "@khidi/catalog-review";
 import { PilotQueue } from "../../components/catalog-feedback.tsx";
 import { t } from "@khidi/i18n";
 import { requirePageAuth } from "../../lib/session.ts";
@@ -15,7 +15,7 @@ export default async function ReviewPage({ searchParams }: {
   const [principal, params] = await Promise.all([requirePageAuth({ allowedRoles: [...reviewRoles] }), searchParams]);
   const db = getDb();
   const pilot = await listPilot(db, principal);
-  if (pilot.length) return <PilotQueue rows={pilot}/>;
+  if (pilot.length) return <PilotQueue rows={pilot} details={await roundDetails(db,pilot)}/>;
   const [products, reports] = await Promise.all([listReviewProducts(db, principal), listReviewCheckpoints(db, principal)]);
   const filters = readReviewFilters(params);
 

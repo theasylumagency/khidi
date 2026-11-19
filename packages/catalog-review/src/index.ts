@@ -14,7 +14,7 @@ export { getReviewCheckpoint, listReviewCheckpoints, markReviewCheckpointViewed 
 
 import { assigned, pilotBatch, requireReviewProduct } from "./access.ts";
 export * from "./pilot.ts";
-export { pilotRelation } from "./pilot-cards.ts";
+export * from "./rounds.ts";
 export { reviewRoles } from "./access.ts";
 export { uploadReviewImage, renderReviewDraft, acceptReviewDraft, photoForm, renderInput, acceptInput } from "./photo-work.ts";
 export const reviewId = z.string().uuid();

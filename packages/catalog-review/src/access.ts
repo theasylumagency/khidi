@@ -1,10 +1,10 @@
-import { and, eq, exists, inArray, not, or, sql } from "drizzle-orm";
+import { and, eq, exists, not, or, sql } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
 import { catalogLegacyProducts as products, catalogReviewAssignments as assignments, catalogReviewBatches as batches,
   catalogFeedbackEntries as feedback,
   catalogReviewProposals as proposals, type DbExecutor } from "@khidi/db";
 import { AppError } from "@khidi/shared";
-import { pilotBaseline, pilotCards } from "./pilot-cards.ts";
+export const pilotBaseline = "21d2a98e46685a297447ad31ed486de3971dcf4bb3337d96d8146e69c7d87c79";
 
 export const reviewRoles = ["ADMIN", "CATALOG_REVIEWER"] as const;
 
@@ -15,7 +15,7 @@ export function pilotBatch(db: DbExecutor) {
 
 // A re-import of the same archive cannot open another set of twenty products.
 function pilotCohort() {
-  return and(inArray(products.wordpressId, pilotCards.map(card => card.wp)), sql`${products.batchId} = (
+  return and(sql`EXISTS (SELECT 1 FROM catalog_feedback_round_cards c WHERE c.wordpress_id = ${products.wordpressId})`, sql`${products.batchId} = (
     SELECT b.id FROM catalog_review_batches b WHERE b.sources->>'baseline' = ${pilotBaseline}
       AND EXISTS (SELECT 1 FROM catalog_legacy_products p WHERE p.batch_id = b.id AND p.recommended_order IS NOT NULL)
     ORDER BY b.created_at, b.id LIMIT 1)`);

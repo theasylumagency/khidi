@@ -39,7 +39,7 @@ export default async function ReviewProductPage({ params, searchParams }: {
       if (error instanceof AppError && error.code === "NOT_FOUND") notFound();
       throw error;
     }),
-    listPilot(db, principal)
+    listPilot(db, principal, productId)
   ]);
   const card = pilot.find(row => row.id === productId);
   if (card) return <PilotProduct row={card} rows={pilot} result={result}/>;

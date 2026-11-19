@@ -1,5 +1,18 @@
 import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
+export const catalogFeedbackCards = pgTable("catalog_feedback_round_cards", {
+  round: integer("round_no").notNull(), position: integer("position").notNull(), wp: integer("wordpress_id").notNull(),
+  definition: jsonb("definition").notNull(), schemaVersion: integer("schema_version").notNull().default(2)
+});
+export const catalogFeedbackSurveys = pgTable("catalog_feedback_round_surveys", {
+  round: integer("round_no").primaryKey(), batchId: uuid("batch_id").notNull(), actor: uuid("actor_id").notNull(),
+  answers: jsonb("answers").$type<string[]>().notNull(), createdAt: timestamp("created_at", { withTimezone:true }).defaultNow().notNull()
+});
+export const catalogFeedbackDecisions = pgTable("catalog_feedback_round_decisions", {
+  round: integer("round_no").primaryKey(), actor: uuid("actor_id").notNull(), choice:text("choice").notNull(), note:text("note").notNull(),
+  createdAt: timestamp("created_at", { withTimezone:true }).defaultNow().notNull()
+});
+
 export const catalogFeedbackEntries = pgTable("catalog_feedback_entries", {
   id: uuid("id").primaryKey(), productId: uuid("product_id").notNull(), actorId: uuid("actor_id").notNull(),
   revision: integer("revision").notNull(), submitted: boolean("submitted").notNull(),

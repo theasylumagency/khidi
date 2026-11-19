@@ -345,3 +345,21 @@
 .pilot table { border-collapse: collapse; width: 100%; text-align: left; }
 .pilot th, .pilot td { padding: .4rem; border-bottom: 1px solid #d7dfd6; overflow-wrap: anywhere; }
 .pilot-answers > div { padding-block: .5rem; }
+
+.field-editor {min-width:0;margin:1rem 0;padding:1rem;border:1px solid #bbc6c1;border-radius:.65rem}
+.field-editor[aria-invalid=true] {border-color:#a43c28}
+.field-editor legend {font-weight:700;padding:0 .35rem}
+.field-editor textarea,.field-editor input:not([type=checkbox]):not([type=radio]) {width:100%;box-sizing:border-box}
+.field-rows {padding-inline-start:1.6rem}
+.field-rows li {padding:.35rem 0;overflow-wrap:anywhere}
+.field-tools {display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;margin:.3rem 0}
+.field-tools input {flex:1;min-width:7rem}
+.field-tools select {max-width:100%}
+.field-tools button,.field-editor details button {min-height:2.3rem}
+.field-editor details p,.field-values {white-space:pre-wrap;overflow-wrap:anywhere}
+.field-table {overflow-x:auto;margin:1rem 0}
+.field-table th,.field-table td {padding:.4rem;text-align:start}
+.field-history {border-top:1px solid #c8d2cd;margin-top:1rem}
+.field-history dt {font-weight:600}
+.field-history dd {margin:0 0 .65rem}
+.pilot .review-actions [aria-current=page] {font-weight:700}

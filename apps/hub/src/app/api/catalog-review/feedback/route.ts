@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     const principal = await getCurrentPrincipal({ allowCatalogReviewer: true });
     if (!principal) throw new AppError("UNAUTHORIZED", "Authentication required.");
     assertRoleAllowed(principal, [...reviewRoles]);
-    const input = feedbackInput.safeParse(await readBoundedJson(request, 64 * 1024));
+    const input = feedbackInput.safeParse(await readBoundedJson(request, 128 * 1024));
     const key = reviewId.safeParse(request.headers.get("idempotency-key"));
     if (!key.success || !input.success) throw new AppError("VALIDATION_ERROR", "Invalid feedback.");
     const result = await savePilot(getDb(), principal, key.data, input.data);

@@ -1,12 +1,14 @@
 import { expect, it } from "vitest";
-import { sql } from "drizzle-orm";
+import { asc,sql } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
-import { catalogLegacyProducts, catalogReviewAssignments, catalogReviewBatches, catalogReviewProposals, catalogReviewPhotos, catalogReviewPhotoLinks,
+import { catalogFeedbackCards, catalogLegacyProducts, catalogReviewAssignments, catalogReviewBatches, catalogReviewProposals, catalogReviewPhotos, catalogReviewPhotoLinks,
   connectMigratorDatabase, users, type AppDatabase } from "@khidi/db";
 import { createUuidV7 as uuid } from "@khidi/shared";
 import { getReviewProduct, listReviewProducts, recordReviewDecision, createReviewText } from "./index.ts";
 import { listPilot, savePilot, type FeedbackResponse } from "./pilot.ts";
-import { pilotBaseline, pilotCards } from "./pilot-cards.ts";
+import { pilotBaseline } from "./access.ts";
+import { cardDefinition, fieldKeys, startReview, changes, fieldProblem } from "./fields.ts";
+import { saveRound,roundDetails } from "./rounds.ts";
 import { lockPilotPhotoWork } from "./access.ts";
 
 it("keeps all twenty responses, rejects the twenty-first and never releases on report view", async () => {
@@ -16,9 +18,10 @@ it("keeps all twenty responses, rejects the twenty-first and never releases on r
   const admin = { ...person, role: "ADMIN" as const, userId: uuid() };
   const outsider = { ...person, userId: uuid() };
   const batch = uuid();
-  const items = [...pilotCards.map(card => card.wp), 987654].map(wp => ({ wp, id: uuid(), proposal: uuid() }));
   try {
     await expect(migrator.db.transaction(async tx => {
+      const pilotCards=(await tx.select().from(catalogFeedbackCards).orderBy(asc(catalogFeedbackCards.position))).map(r=>cardDefinition.parse(r.definition));
+      const items=[...pilotCards.map(card=>card.wp),...Array.from({length:20},(_,i)=>987654+i)].map(wp=>({wp,id:uuid(),proposal:uuid()}));
       await tx.insert(users).values([person, admin, outsider].map(p => ({
         id: p.userId, fullName: p.fullName, email: p.userId + "@example.test", role: p.role
       })));
@@ -42,8 +45,17 @@ it("keeps all twenty responses, rejects the twenty-first and never releases on r
       await tx.execute(sql`SET LOCAL ROLE hub_app`);
       const db = tx as unknown as AppDatabase;
       const first = items[0]!, extra = items[20]!;
-      const response: FeedbackResponse = { outcome: "OK", correction: "", targets: [], answers: [], fieldChange: "", fieldNote: "",
-        photoId: null, photoNote: "" };
+      const rows=await listPilot(db,person);
+      function accepted(i:number):FeedbackResponse {
+        const row=rows[i]!, fields=startReview(row.original);for(const k of fieldKeys) fields[k].verdict="OK";
+        return { fields,answers:row.card.questions.map(()=>({state:"UNKNOWN",text:"",source:""})) };
+      }
+      const response=accepted(0);
+      const release={action:"OPEN" as const,round:1,choice:"KEEP" as const,note:"Keep the tested fields",
+        cards:items.slice(20).map(p=>({...pilotCards[0]!,wp:p.wp,links:[]}))};
+      const survey={action:"SURVEY" as const,round:1,answers:["First","Second","Third"]};
+      await expect(saveRound(db,admin,uuid(),release)).rejects.toMatchObject({code:"CONFLICT"});
+      await expect(saveRound(db,person,uuid(),survey)).rejects.toMatchObject({code:"CONFLICT"});
       expect(await listPilot(db, outsider)).toEqual([]);
       expect(await listPilot(db, admin)).toHaveLength(20);
       expect((await listReviewProducts(db, person)).map(r => r.id)).not.toContain(extra.id);
@@ -62,22 +74,42 @@ it("keeps all twenty responses, rejects the twenty-first and never releases on r
       const key = uuid(), initial = await savePilot(db, person, key, draft);
       expect((await savePilot(db, person, key, draft)).body).toEqual(initial.body);
       await expect(savePilot(db, person, uuid(), draft)).rejects.toMatchObject({ code: "CONFLICT" });
-      await expect(savePilot(db, person, uuid(), { ...draft, revision: 1, response: { ...draft.response, photoId: uuid() } }))
+      await expect(savePilot(db, person, uuid(), { ...draft, revision: 1, response: { ...draft.response, fields:{...response.fields,photos:{...response.fields.photos,value:[uuid()]}} } }))
         .rejects.toMatchObject({ code: "VALIDATION_ERROR" });
       await expect(savePilot(db, person, uuid(), { ...draft, revision: 1, submit: true, response: { ...draft.response,
         answers: answered.map(a => ({ ...a, source: "" })) } })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
       for (const [i, card] of pilotCards.entries()) {
         await savePilot(db, person, uuid(), { productId: items[i]!.id, revision: i === 0 ? 1 : 0, submit: true,
-          response: { ...response, photoId: i === 0 ? photoId : null, answers: i === 0 ? answered : card.questions.map(() => ({ state: "UNKNOWN", text: "", source: "" })) } });
+          response: { ...accepted(i), answers: i === 0 ? answered : card.questions.map(() => ({ state: "UNKNOWN", text: "", source: "" })) } });
       }
       const observed = await listPilot(db, admin);
       expect(observed.filter(r => r.submitted)).toHaveLength(20);
       expect(observed[0]?.response?.answers[0]?.source).toBe("plate");
-      expect(observed[0]?.response?.photoId).toBe(photoId);
+      expect(observed[0]?.response?.fields.photos.value[0]).toBe(photoId);
       await expect(lockPilotPhotoWork(db, person, first.id)).rejects.toMatchObject({ code: "CONFLICT" });
       await expect(savePilot(db, person, uuid(), { ...draft, revision: 2 })).rejects.toMatchObject({ code: "CONFLICT" });
       await expect(getReviewProduct(db, admin, extra.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await expect(saveRound(db,admin,uuid(),release)).rejects.toMatchObject({code:"CONFLICT"});
+      await expect(saveRound(db,admin,uuid(),survey)).rejects.toMatchObject({code:"FORBIDDEN"});
+      await saveRound(db,person,uuid(),survey);
+      expect((await roundDetails(db,observed)).survey?.answers).toEqual(survey.answers);
+      await expect(getReviewProduct(db,person,extra.id)).rejects.toMatchObject({code:"NOT_FOUND"});
+      await expect(saveRound(db,person,uuid(),release)).rejects.toMatchObject({code:"FORBIDDEN"});
+      await expect(saveRound(db,admin,uuid(),{...release,cards:Array(20).fill(release.cards[0])})).rejects.toMatchObject({code:"VALIDATION_ERROR"});
+      const releaseKey=uuid();await saveRound(db,admin,releaseKey,release);await saveRound(db,admin,releaseKey,release);
+      expect(await listPilot(db,person)).toHaveLength(20);
+      expect((await listPilot(db,person))[0]?.round).toBe(2);
+      expect((await listPilot(db,admin,1)).map(r=>r.response)).toEqual(observed.map(r=>r.response));
+      expect((await getReviewProduct(db,person,extra.id)).product.id).toBe(extra.id);
       throw rollback;
     })).rejects.toBe(rollback);
   } finally { await migrator.close(); }
+},30000);
+
+it("counts a reordering separately from insertions and rejects reverted edits",()=>{
+  expect(changes("facts",["A","B","C"],["new","C","A","B"])).toEqual({added:["new"],removed:[],moved:["C (3 → 2)"]});
+  expect(changes("description",["ერთი ორი სამი"],["ორი სამი ოთხი"])).toEqual({removed:["ერთი"],added:["ოთხი"],moved:[]});
+  expect(fieldProblem("kit",{value:[],verdict:"EDIT",reason:"why",unknown:false},[],true)).toBe(true);
+  expect(fieldProblem("kit",{value:[],verdict:"OK",reason:"",unknown:true},[],true)).toBe(false);
+  expect(fieldProblem("kit",{value:[],verdict:"UNNEEDED",reason:"why",unknown:true},[],true)).toBe(true);
 });

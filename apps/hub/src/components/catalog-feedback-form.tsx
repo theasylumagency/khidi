@@ -1,18 +1,27 @@
 "use client";
 
+import { FieldEditor } from "./catalog-field-editor.tsx";
+import { fieldKeys, fieldProblem, startReview, type FieldKey } from "@khidi/catalog-review/fields";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { FeedbackResponse, PilotRow } from "@khidi/catalog-review";
 import { t, type TranslationKey } from "@khidi/i18n";
 
-export function CatalogFeedbackForm({ row, photos, next }: {
-  row: PilotRow; photos: { id: string; url: string; position: number }[]; next: string | null;
+export function CatalogFeedbackForm({ row, photos, next, peers }: {
+  row: PilotRow; peers: {wp:number;name:string}[]; photos: { id: string; url: string; position: number }[]; next: string | null;
 }) {
   const router = useRouter();
   const [response, setResponse] = useState<FeedbackResponse>(() => row.response ?? {
-    outcome: "", correction: "", targets: [], fieldChange: "", fieldNote: "", photoId: null, photoNote: "",
-    answers: row.card.questions.map(() => ({ state: "", text: "", source: "" }))
+    fields: startReview(row.original),
+    suggestion: typeof row.legacy?.fieldNote === "string" ? row.legacy.fieldNote : "",
+    photoNote: typeof row.legacy?.photoNote === "string" ? row.legacy.photoNote : "",
+    answers: row.card.questions.map((_,i) => {
+      const a=Array.isArray(row.legacy?.answers)?row.legacy.answers[i]:undefined;
+      return a && (a.state==="KNOWN" || a.state==="UNKNOWN") && typeof a.text==="string" && typeof a.source==="string"
+        ? {state:a.state as "KNOWN"|"UNKNOWN",text:a.text,source:a.source} : {state:"",text:"",source:""};
+    })
   });
+  const [invalid,setInvalid]=useState<FieldKey[]>([]);
   const [revision, setRevision] = useState(row.revision);
   const [dirty, setDirty] = useState(false);
   const [message, setMessage] = useState<TranslationKey>();
@@ -26,16 +35,16 @@ export function CatalogFeedbackForm({ row, photos, next }: {
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
   function update(patch: Partial<FeedbackResponse>) {
-    setDirty(true); setMessage(undefined); setResponse(current => ({ ...current, ...patch }));
+    setInvalid([]); setDirty(true); setMessage(undefined); setResponse(current => ({ ...current, ...patch }));
   }
   function answer(index: number, patch: Partial<FeedbackResponse["answers"][number]>) {
     update({ answers: response.answers.map((a, i) => i === index ? { ...a, ...patch } : a) });
   }
   async function save(submit: boolean) {
     if (saving.current) return;
-    if (submit && (!response.outcome || (response.outcome === "CORRECT" && !response.correction.trim()) ||
-      (response.fieldChange && !response.fieldNote.trim()) || response.answers.some(a => !a.state ||
-        (a.state === "KNOWN" && (!a.text.trim() || !a.source.trim()))))) { setMessage("pilot.invalid"); return; }
+    const errors=fieldKeys.filter(k=>fieldProblem(k,response.fields[k],row.original[k],submit));
+    if (errors.length) { setInvalid(errors); setMessage("fields.required"); document.getElementById("field-"+errors[0])?.scrollIntoView({block:"center"}); return; }
+    if (submit && response.answers.some(a=>!a.state || a.state==="KNOWN" && (!a.text.trim() || !a.source.trim()))) {setMessage("pilot.invalid");return;}
     saving.current = true; setBusy(true);
     const payload = JSON.stringify({ productId: row.id, revision, submit, response });
     if (retry.current.payload !== payload) retry.current = { payload, key: crypto.randomUUID() };
@@ -52,7 +61,11 @@ export function CatalogFeedbackForm({ row, photos, next }: {
   }
   return <form className="pilot-form" onSubmit={e => { e.preventDefault(); void save(true); }}>
     <fieldset disabled={busy}>
-      <legend>{t("pilot.questions")}</legend>
+      <legend>{t("pilot.fields")}</legend><p>{t("fields.guide")}</p>
+      {!!response.fields.facts.value.length && <p className="review-quiet"><strong>{t("fields.shortLine")}</strong><br/>{response.fields.facts.value.slice(0,2).join(" · ")}</p>}
+      {fieldKeys.map(field=><FieldEditor key={field} field={field} entry={response.fields[field]} original={row.original[field]} photos={photos} peers={peers}
+        invalid={invalid.includes(field)} onChange={entry=>update({fields:{...response.fields,[field]:entry}})}/>)}
+      {!!row.card.questions.length && <h2>{t("pilot.questions")}</h2>}
       {row.card.questions.map((question, i) => {
         const a = response.answers[i]!;
         return <section key={question.field} className="pilot-question">
@@ -70,26 +83,9 @@ export function CatalogFeedbackForm({ row, photos, next }: {
       })}
       <datalist id="pilot-sources">{(["plate","manual","box","experience"] as const).map(key =>
         <option key={key} value={t(`pilot.${key}`)}/>)}</datalist>
-      <label>{t("pilot.outcome")}<select value={response.outcome} onChange={e => update({ outcome: e.target.value as FeedbackResponse["outcome"],
-        ...(e.target.value === "OK" ? { correction: "", targets: [] } : {}) })}>
-        <option value="">{t("pilot.choice")}</option>{(["OK","CORRECT","UNKNOWN"] as const).map(op =>
-          <option key={op} value={op}>{t(`pilot.${op}`)}</option>)}</select></label>
-      {response.outcome === "CORRECT" && <div className="pilot-choices">{(["name","facts","description","kit","links","photos"] as const).map(field =>
-        <label key={field}><input type="checkbox" checked={response.targets.includes(field)} onChange={e => update({
-          targets: e.target.checked ? [...response.targets,field] : response.targets.filter(f => f !== field) })}/>{t(`pilot.target.${field}`)}</label>)}</div>}
-      {response.outcome && response.outcome !== "OK" && <label>{t("pilot.correction")}<textarea maxLength={1600}
-        value={response.correction} onChange={e => update({ correction: e.target.value })}/></label>}
-      {!!photos.length && <div><strong>{t("pilot.main")}</strong><div className="pilot-gallery">{photos.map(photo =>
-        <label key={photo.id}><img loading="lazy" src={photo.url} alt={t("review.photo") + " " + photo.position}/>
-          <span><input type="radio" name="photo" checked={response.photoId === photo.id} onChange={() => update({ photoId: photo.id })}/>
-            {t("review.photo")} {photo.position}</span></label>)}</div></div>}
-      <label>{t("pilot.photoNote")}<input maxLength={1600} value={response.photoNote} onChange={e => update({ photoNote: e.target.value })}/></label>
-      <label>{t("pilot.fieldPrompt")}<select value={response.fieldChange} onChange={e => update({ fieldChange: e.target.value as FeedbackResponse["fieldChange"],
-        ...(!e.target.value ? { fieldNote: "" } : {}) })}>
-        <option value="">{t("pilot.noField")}</option>{(["ADD","CHANGE","REMOVE"] as const).map(op =>
-          <option value={op} key={op}>{t(`pilot.${op}`)}</option>)}</select></label>
-      {response.fieldChange && <label>{t("pilot.fieldNote")}<textarea maxLength={1600} value={response.fieldNote}
-        onChange={e => update({ fieldNote: e.target.value })}/></label>}
+      <details className="review-source-notes"><summary>{t("pilot.suggestions")}</summary>
+        <label>{t("pilot.fieldPrompt")}<textarea maxLength={1600} value={response.suggestion ?? ""} onChange={e=>update({suggestion:e.target.value})}/></label>
+        <label>{t("pilot.photoNote")}<input maxLength={1600} value={response.photoNote ?? ""} onChange={e=>update({photoNote:e.target.value})}/></label></details>
       <p className="review-quiet">{t("pilot.finishHelp")}</p>
       <div className="review-actions"><button className="review-button" type="button" onClick={() => void save(false)}>{t("pilot.draftSave")}</button>
         <button className="review-button pilot-primary" type="submit">{t("pilot.finish")}</button></div>
