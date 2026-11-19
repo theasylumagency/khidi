@@ -1,5 +1,17 @@
 # Catalog Review pilot
 
+## November 19 feedback round
+
+The owner approved a closed round of twenty products before deciding whether to keep or revise product fields. For the legacy baseline identified in `pilot-cards.ts`, this section supersedes the recommended order and continuing queue described below. Other imports retain the earlier workflow.
+
+The curator selected comparable machines, consumables, parts, conflicting listings and one unidentified item from the v2 workbook. The private proposals carry their WordPress IDs. The old product, photo and text records remain available as evidence. A suggestion in this workflow supplies no public compatibility or verified technical claim.
+
+Apply additive migration 0061 together with the new Hub. It uses the existing version 2 import and reviewer assignment. No re-import is needed. The oldest ranked batch of this baseline owns the cohort. The twenty WordPress IDs gate list, direct product and photo access and mutations on the server. A participant assigned to another batch cannot use it to continue. Administrators can read results; only an assigned participant can submit pilot feedback. Both roles use office authentication.
+
+At `/review`, reviewers can resume a server-saved draft, inspect archive material and related cards, choose or upload a photo, suggest field changes, record a sourced answer, or explicitly mark a question unknown. Completing a card records a versioned snapshot of its questions, proposals and response. An unknown is evidence of an unresolved question. It is not a factual approval. Concurrent revisions conflict; identical retries replay. Submitted cards are read-only.
+
+At `/review/results`, the team can inspect known and unknown answers by field, proposed additions/removals/changes, per-product corrections, photo notes, author and source. The last submission and opening the report never release more products. A subsequent owner decision can retain the fields or revise them. Implement that decision and the next authorized cohort in a separate release. Historical first-pass reports and canonical product fields retain their previous contracts.
+
 The pilot adds an editorial queue to the existing Hub. It uses the same sessions, invitation and office sign-in flow, PostgreSQL, audit/outbox transaction and private media storage. A reviewer account opens at `/review`. The reviewer can see only assigned batches and can review the products that have proposals. Admins can inspect the pilot. A reviewer has no operational entity memberships or permissions.
 
 ## Migration and data flow

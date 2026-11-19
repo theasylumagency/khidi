@@ -1,4 +1,11 @@
-import { integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+
+export const catalogFeedbackEntries = pgTable("catalog_feedback_entries", {
+  id: uuid("id").primaryKey(), productId: uuid("product_id").notNull(), actorId: uuid("actor_id").notNull(),
+  revision: integer("revision").notNull(), submitted: boolean("submitted").notNull(),
+  response: jsonb("response").notNull(), card: jsonb("card").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+});
 
 export const catalogReviewBatches = pgTable("catalog_review_batches", {
   id: uuid("id").primaryKey(),
