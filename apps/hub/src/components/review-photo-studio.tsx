@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { getReviewProduct } from "@khidi/catalog-review";
 import type { ReviewAdjustment, ReviewImageModel, ReviewPhotoMode, ReviewPlacement } from "@khidi/db";
 import { t, type TranslationKey } from "@khidi/i18n";
+import { useLightbox, type LightboxImage } from "./photo-lightbox.tsx";
 
 type Activity = Awaited<ReturnType<typeof getReviewProduct>>["photoWork"];
 type Row = Activity[number]["event"];
@@ -91,8 +92,8 @@ function AreaPicker({ productId, request, value, onChange, disabled }: {
   </>;
 }
 
-function Preview({ productId, mode, preview, render, accepted, rejected, onDone, sending }: {
-  productId: string; mode: ReviewPhotoMode; preview: Row; render: Row; accepted?: Row; rejected?: Row; onDone: boolean;
+function Preview({ productId, mode, preview, render, accepted, rejected, onDone, sending, onOpen }: {
+  productId: string; mode: ReviewPhotoMode; preview: Row; render: Row; accepted?: Row; rejected?: Row; onDone: boolean; onOpen: () => void;
   sending: ReturnType<typeof usePhotoAction>;
 }) {
   const [reason, setReason] = useState(""), [asking, setAsking] = useState(false);
@@ -100,7 +101,7 @@ function Preview({ productId, mode, preview, render, accepted, rejected, onDone,
   const label = mode === "ADJUST" ? null : mode === "CLEAN" || mode === "BACKGROUND" ? "store.kind.AI_EDIT" as const : "studio.illustration" as const;
   const mine = accepted?.photoId === preview.photoId;
   return <figure data-state={mine ? "accepted" : rejected ? "rejected" : "open"}>
-    <a href={url(productId, preview.photoId!)} target="_blank" rel="noreferrer"><img src={url(productId, preview.photoId!)} alt=""/></a>
+    <button type="button" className="studio-open" aria-label={t("lightbox.zoom")} onClick={onOpen}><img src={url(productId, preview.photoId!)} alt=""/></button>
     <figcaption>{t(`studio.model.${render.model!}`)}{label && <em> · {t(label)}</em>}</figcaption>
     {mine && <strong>{t("review.approved_photo")}</strong>}
     {rejected && <p className="studio-rejected">{t("studio.rejected")} · {rejected.note}</p>}
@@ -131,6 +132,10 @@ function EditRequest({ productId, request, events, ready }: { productId: string;
   });
   const sending = usePhotoAction();
   const ai = methods.some(m => m !== "local");
+  // The viewer starts with the original so every version can be compared with what was photographed.
+  const viewer = useLightbox(), shown = previews.slice().reverse();
+  const gallery: LightboxImage[] = [{ url: url(productId, request.basePhotoId!), caption: t("lightbox.original") },
+    ...shown.map(e => ({ url: url(productId, e.photoId!), caption: t(`studio.model.${renders.find(r => r.id === e.parentId)!.model!}`) }))];
   function make() {
     for (const model of chosen) void sending.submit({ productId, requestId: request.id, model,
       ...(boxed(mode) ? { placement: p } : {}), ...(mode === "ADJUST" ? { settings } : {}) });
@@ -140,7 +145,8 @@ function EditRequest({ productId, request, events, ready }: { productId: string;
     <h3>{t(`review.${mode}`)}{request.detail ? " · " + request.detail : ""}</h3>
     {!accepted && <fieldset disabled={sending.busy}>
       {boxed(mode) && p && <AreaPicker productId={productId} request={request} value={p} onChange={place} disabled={sending.busy}/>}
-      {!boxed(mode) && <img className="review-base-thumb" src={url(productId, request.basePhotoId!)} alt={t("review.base")}/>}
+      {!boxed(mode) && <button type="button" className="studio-open studio-base-open" aria-label={t("lightbox.zoom") + ": " + t("lightbox.original")}
+        onClick={() => viewer.open(gallery, 0)}><img className="review-base-thumb" src={url(productId, request.basePhotoId!)} alt={t("review.base")}/></button>}
       {mode === "ADJUST" && <div className="studio-adjust">
         <button type="button" onClick={() => setSettings(s => ({ ...s, rotate: (s.rotate + 90) % 360 as ReviewAdjustment["rotate"] }))}>
           {t("studio.rotate")} · {settings.rotate}°</button>
@@ -157,10 +163,11 @@ function EditRequest({ productId, request, events, ready }: { productId: string;
     </fieldset>}
     {failed > 0 && <small>{t("review.render_failed")} ({failed})</small>}
     {previews.length > 0 && <div className="review-edit-previews"><h4>{t("review.previews")}</h4>
-      {previews.slice().reverse().map(e => <Preview key={e.id} productId={productId} mode={mode} preview={e} sending={sending} onDone={Boolean(accepted)}
+      {shown.map((e, i) => <Preview key={e.id} productId={productId} mode={mode} preview={e} sending={sending} onDone={Boolean(accepted)}
+        onOpen={() => viewer.open(gallery, i + 1)}
         render={renders.find(r => r.id === e.parentId)!} accepted={accepted}
         rejected={events.find(x => x.kind === "REJECT" && x.parentId === e.id)}/>)}</div>}
-    {sending.feedback}
+    {sending.feedback}{viewer.node}
   </section>;
 }
 
@@ -171,7 +178,7 @@ export function ReviewPhotoStudio({ productId, photos, activity, ready }: {
   const [base, setBase] = useState(photos[0]?.id ?? "");
   const [file, setFile] = useState<File | null>(null);
   const [note, setNote] = useState("");
-  const sending = usePhotoAction();
+  const sending = usePhotoAction(), viewer = useLightbox();
   const events = activity.map(row => row.event);
   const needsBase = action !== "UPLOAD", basePhoto = base || photos[0]?.id;
   const aiOnly = action === "CLEAN" || action === "BACKGROUND" || action === "SCENE";
@@ -195,12 +202,16 @@ export function ReviewPhotoStudio({ productId, photos, activity, ready }: {
   const done = requests.filter(r => !open.includes(r));
   return <section className="review-photo-studio"><h2>{t("studio.title")}</h2>
     <div className="studio-actions" role="tablist">{actions.map(a => <button type="button" role="tab" aria-selected={a === action} key={a}
-      onClick={() => { setAction(a); setNote(""); }}>{t(`studio.action.${a}`)}</button>)}</div>
+      onClick={() => { setAction(a); setNote(""); }}>{t(`studio.action.${a}`)}
+      {a !== "UPLOAD" && <small data-tag={a === "ADJUST" ? "free" : "ai"}>{t(a === "ADJUST" ? "studio.tag.free" : "studio.tag.ai")}</small>}</button>)}</div>
     <form onSubmit={submit}><fieldset disabled={sending.busy}>
       <p className="studio-help">{t(`studio.help.${action}`)}</p>
       {needsBase && (photos.length ? <div className="studio-bases" role="radiogroup" aria-label={t("studio.base")}><span>{t("studio.base")}</span>
-        {photos.map(photo => <button type="button" role="radio" aria-checked={photo.id === basePhoto} key={photo.id} onClick={() => setBase(photo.id)}>
-          <img src={photo.url} alt={t("review.photo") + " " + photo.position} width={72} height={72}/></button>)}
+        {photos.map((photo, i) => <span className="studio-base" key={photo.id}>
+          <button type="button" role="radio" aria-checked={photo.id === basePhoto} onClick={() => setBase(photo.id)}>
+            <img src={photo.url} alt={t("review.photo") + " " + photo.position} width={96} height={96}/></button>
+          <button type="button" className="studio-zoom" aria-label={t("lightbox.zoom") + ": " + t("review.photo") + " " + photo.position}
+            onClick={() => viewer.open(photos.map(p => ({ url: p.url, caption: t("review.photo") + " " + p.position })), i)}>🔍</button></span>)}
         <input type="hidden" name="basePhotoId" value={basePhoto ?? ""}/></div> : <p>{t("review.add_base_first")}</p>)}
       {action === "DETAIL" && <>
         <label>{t("review.detail")}<input name="detail" maxLength={240} required placeholder={t("review.detail_hint")}/></label>
@@ -221,6 +232,6 @@ export function ReviewPhotoStudio({ productId, photos, activity, ready }: {
     {open.map(r => <EditRequest key={r.id} productId={productId} request={r} events={events} ready={ready}/>)}
     {done.length > 0 && <details><summary>{t("studio.done")} ({done.length})</summary>
       {done.map(r => <EditRequest key={r.id} productId={productId} request={r} events={events} ready={ready}/>)}</details>}
-    <ReviewPhotoHistory activity={activity}/>
+    <ReviewPhotoHistory activity={activity}/>{viewer.node}
   </section>;
 }

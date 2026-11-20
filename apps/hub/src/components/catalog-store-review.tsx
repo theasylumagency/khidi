@@ -6,6 +6,7 @@ import type { FeedbackResponse, PilotRow } from "@khidi/catalog-review";
 import { fieldKeys, fieldProblem, mainPhotoProblem, relationKinds, sameValues, shortLine, splitFact, startReview, storeSections,
   type Assessments, type FieldKey, type MainPhotoNote, type PhotoKind, type StoreLayout } from "@khidi/catalog-review/fields";
 import { t, type TranslationKey } from "@khidi/i18n";
+import { useLightbox } from "./photo-lightbox.tsx";
 
 type Photo = { id: string; url: string; position: number; kind: PhotoKind };
 type Peer = { wp: number; name: string; id: string };
@@ -32,6 +33,13 @@ function StoreFrame({ row, values, layout, photos, peers, phone, slot, editor, r
   const brand = facts.find(([k]) => k === "ბრენდი")?.[1] ?? "";
   const code = facts.find(([k]) => k === "კოდი" || k === "მოდელი")?.[1] ?? "";
   const gallery = values.photos.map(id => photos.find(p => p.id === id)).filter((p): p is Photo => Boolean(p));
+  // Like a store gallery: thumbnails switch the large view, the large view opens the viewer. Order is not changed here.
+  const [shownId, show] = useState<string>();
+  const shownIndex = Math.max(0, gallery.findIndex(p => p.id === shownId)), shown = gallery[shownIndex];
+  const viewer = useLightbox();
+  const zoom = (i: number) => viewer.open(gallery.map((p, n) => ({ url: p.url,
+    caption: (values.name[0] ?? "") + " · " + t("review.photo") + " " + p.position + (n ? "" : " · " + t("store.main"))
+      + (p.kind === "PHOTO" ? "" : " · " + t(`store.kind.${p.kind}`)) })), i);
   const block = (field: FieldKey, body: React.ReactNode) => <div className="store-block" data-field={field}>
     {editor(field) ?? body}{slot(field)}</div>;
   const sections: Record<Section, React.ReactNode> = {
@@ -54,12 +62,15 @@ function StoreFrame({ row, values, layout, photos, peers, phone, slot, editor, r
     <p className="store-crumbs">{t("store.home")} › {row.card.type}</p>
     <div className="store-page">
       <div className="store-hero">
-        {block("photos", gallery.length ? <div className="store-gallery">
-          <div className="store-main-wrap"><img className="store-main" src={gallery[0]!.url} alt={values.name[0] ?? ""}/>
-            {gallery[0]!.kind === "ILLUSTRATION" && <em className="store-main-badge">{t("store.illustration")}</em>}</div>
-          <div className="store-thumbs">{gallery.map((p, i) => <span key={p.id} className={i ? "" : "is-main"}>
-            <img src={p.url} alt={t("review.photo") + " " + p.position} loading="lazy"/>
-            {p.kind === "ILLUSTRATION" ? <em>{t("store.illustration")}</em> : p.kind === "AI_EDIT" && reviewing ? <em data-kind="AI_EDIT">{t("store.kind.AI_EDIT")}</em> : null}</span>)}</div>
+        {block("photos", shown ? <div className="store-gallery">
+          <button type="button" className="store-main-wrap" aria-label={t("lightbox.zoom")} onClick={() => zoom(shownIndex)}>
+            <img className="store-main" src={shown.url} alt={values.name[0] ?? ""}/>
+            {shown.kind === "ILLUSTRATION" && <em className="store-main-badge">{t("store.illustration")}</em>}</button>
+          <div className="store-thumbs">{gallery.map((p, i) => <button type="button" key={p.id} aria-current={i === shownIndex}
+            className={i ? "" : "is-main"} aria-label={t("review.photo") + " " + p.position} onClick={() => show(p.id)}>
+            <img src={p.url} alt="" loading="lazy"/>
+            {p.kind === "ILLUSTRATION" ? <em>{t("store.illustration")}</em> : p.kind === "AI_EDIT" && reviewing ? <em data-kind="AI_EDIT">{t("store.kind.AI_EDIT")}</em> : null}</button>)}</div>
+          {viewer.node}
         </div> : <div className="store-main store-nophoto">{t("store.noPhoto")}</div>)}
         <div className="store-buy">
           {block("name", <h2>{values.name[0] ?? ""}</h2>)}
