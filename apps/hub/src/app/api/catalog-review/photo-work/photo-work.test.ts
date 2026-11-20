@@ -1,11 +1,12 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { AppError, createUuidV7 } from "@khidi/shared";
 
-const mock = vi.hoisted(() => ({ principal: vi.fn(), upload: vi.fn(), render: vi.fn(), accept: vi.fn() }));
+const mock = vi.hoisted(() => ({ principal: vi.fn(), upload: vi.fn(), render: vi.fn(), accept: vi.fn(), edit: vi.fn(), reject: vi.fn() }));
 vi.mock("../../../../lib/session.ts", () => ({ getCurrentPrincipal: mock.principal }));
 vi.mock("@khidi/catalog-review", async (actual) => ({
   ...await actual<typeof import("@khidi/catalog-review")>(),
-  uploadReviewImage: mock.upload, renderReviewDraft: mock.render, acceptReviewDraft: mock.accept
+  uploadReviewImage: mock.upload, renderReviewDraft: mock.render, acceptReviewDraft: mock.accept,
+  requestReviewEdit: mock.edit, rejectReviewDraft: mock.reject
 }));
 import { POST } from "./route.ts";
 
@@ -52,4 +53,16 @@ it("requires a signed-in reviewer or admin to accept a preview", async () => {
   mock.principal.mockResolvedValueOnce({ userId: createUuidV7(), role: "OPERATOR" });
   expect((await POST(request(body))).status).toBe(403);
   expect(mock.accept).not.toHaveBeenCalled();
+});
+
+it("routes an edit request, a rejection with its reason and an accept to their own operations", async () => {
+  const basePhotoId = createUuidV7(), previewId = createUuidV7();
+  for (const fn of [mock.edit, mock.reject, mock.accept]) fn.mockResolvedValue({ status: 200, body: { id: previewId } });
+  expect((await POST(request({ productId, basePhotoId, mode: "BACKGROUND" }))).status).toBe(200);
+  expect((await POST(request({ productId, basePhotoId, mode: "SCENE" }))).status).toBe(400);
+  expect((await POST(request({ productId, previewId, note: "ფრეზი არასწორად დგას" }))).status).toBe(200);
+  expect((await POST(request({ productId, previewId }))).status).toBe(200);
+  expect(mock.edit.mock.calls.map(call => call[4])).toEqual([{ productId, basePhotoId, mode: "BACKGROUND" }]);
+  expect(mock.reject.mock.calls[0]?.[3]).toEqual({ productId, previewId, note: "ფრეზი არასწორად დგას" });
+  expect(mock.accept).toHaveBeenCalledTimes(1);
 });

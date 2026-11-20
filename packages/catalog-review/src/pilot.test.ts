@@ -7,7 +7,7 @@ import { createUuidV7 as uuid } from "@khidi/shared";
 import { getReviewProduct, listReviewProducts, recordReviewDecision, createReviewText } from "./index.ts";
 import { listPilot, savePilot, type FeedbackResponse } from "./pilot.ts";
 import { pilotBaseline } from "./access.ts";
-import { cardDefinition, fieldKeys, startReview, changes, fieldProblem, shortLine, storeLayout } from "./fields.ts";
+import { cardDefinition, fieldKeys, startReview, changes, fieldProblem, mainPhotoProblem, photoKind, shortLine, storeLayout } from "./fields.ts";
 import { saveRound,roundDetails } from "./rounds.ts";
 import { lockPilotPhotoWork } from "./access.ts";
 
@@ -61,7 +61,7 @@ it("keeps all twenty responses, rejects the twenty-first and never releases on r
       expect(rows.map(r=>r.cardRevision)).toEqual(Array(20).fill(2));
       expect(rows[0]!.card.facts).toHaveLength(15);
       expect(rows.flatMap(r=>r.card.links).some(l=>l.kind==="compare")).toBe(false);
-      expect(rows[0]!.illustrations).toEqual([composition]);
+      expect(rows[0]!.photoKinds).toEqual({ [photoId]: "PHOTO", [composition]: "ILLUSTRATION" });
       const release={action:"OPEN" as const,round:1,choice:"KEEP" as const,note:"Keep the tested fields",
         cards:items.slice(20).map(p=>({...pilotCards[0]!,wp:p.wp,links:[]}))};
       const survey={action:"SURVEY" as const,round:1,answers:["First","Second","Third"]};
@@ -90,21 +90,27 @@ it("keeps all twenty responses, rejects the twenty-first and never releases on r
       await expect(savePilot(db, person, uuid(), { ...draft, revision: 1, submit: true, response: { ...draft.response,
         answers: answered.map(a => ({ ...a, source: "" })) } })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
       const photosField = response.fields.photos;
-      await expect(savePilot(db, person, uuid(), { ...draft, revision: 1, response: { ...draft.response, fields: { ...response.fields,
-        photos: { ...photosField, value: [composition, photoId], verdict: "EDIT", reason: "illustration first" } } } }))
-        .rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+      // An illustration may lead only with an acknowledgement and a reason; neither alone is enough to finish.
+      const illustrationFirst = { ...response.fields, photos: { ...photosField, value: [composition, photoId], verdict: "EDIT" as const, reason: "shows the blades" } };
+      const mainNote = { photoId: composition, checked: true, reason: "buyers ask how the blades sit" };
+      for (const mainPhoto of [undefined, { ...mainNote, reason: "" }, { ...mainNote, checked: false }, { ...mainNote, photoId }]) {
+        await expect(savePilot(db, person, uuid(), { ...draft, revision: 1, submit: true, response: { ...draft.response,
+          fields: illustrationFirst, ...(mainPhoto ? { mainPhoto } : {}) } })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+      }
       await expect(savePilot(db, person, uuid(), { ...draft, revision: 1, response: { ...draft.response,
         layout: { order: ["facts","facts","kit","links"], missing: "" } } as unknown as FeedbackResponse }))
         .rejects.toMatchObject({ code: "VALIDATION_ERROR" });
       for (const [i, row] of rows.entries()) {
         await savePilot(db, person, uuid(), { productId: items[i]!.id, revision: i === 0 ? 1 : 0, submit: true,
           response: { ...accepted(i), answers: i === 0 ? answered : row.card.questions.map(() => ({ state: "UNKNOWN", text: "", source: "" })),
-            ...(i === 0 ? { layout: { order: ["facts","description","kit","links"], missing: "price per hectare" }, activeSeconds: 95 } : {}) } });
+            ...(i === 0 ? { fields: illustrationFirst, mainPhoto: mainNote,
+              layout: { order: ["facts","description","kit","links"], missing: "price per hectare" }, activeSeconds: 95 } : {}) } });
       }
       const observed = await listPilot(db, admin);
       expect(observed.filter(r => r.submitted)).toHaveLength(20);
       expect(observed[0]?.response?.answers[0]?.source).toBe("plate");
-      expect(observed[0]?.response?.fields.photos.value[0]).toBe(photoId);
+      expect(observed[0]?.response?.fields.photos.value[0]).toBe(composition);
+      expect(observed[0]?.response?.mainPhoto).toEqual(mainNote);
       expect(observed[0]?.response?.layout?.order[0]).toBe("facts");
       expect(observed[0]?.response?.activeSeconds).toBe(95);
       await expect(lockPilotPhotoWork(db, person, first.id)).rejects.toMatchObject({ code: "CONFLICT" });
@@ -136,4 +142,11 @@ it("counts a reordering separately from insertions and rejects reverted edits",(
   expect(shortLine("მოტობლოკი",["ბრენდი: ჰირომიკი","სიმძლავრე: 7 ცხ.ძ., 3600 ბრ/წთ","ღერძი: მსხვილი"])).toEqual(["მოტობლოკი","7 ცხ.ძ.","მსხვილი"]);
   expect(storeLayout.safeParse({order:["kit","facts","links","description"],missing:""}).success).toBe(true);
   expect(storeLayout.safeParse({order:["kit","kit","links","description"],missing:""}).success).toBe(false);
+  const id="018f0000-0000-7000-8000-000000000001";
+  expect([photoKind("UPLOAD"),photoKind("ADJUSTED"),photoKind(undefined),photoKind("AI_EDIT"),photoKind("COMPOSITION")])
+    .toEqual(["PHOTO","PHOTO","PHOTO","AI_EDIT","ILLUSTRATION"]);
+  expect(mainPhotoProblem("PHOTO",id,undefined)).toBe(false);
+  expect(mainPhotoProblem("AI_EDIT",id,undefined)).toBe(true);
+  expect(mainPhotoProblem("AI_EDIT",id,{photoId:id,checked:true,reason:""})).toBe(false);
+  expect(mainPhotoProblem("ILLUSTRATION",id,{photoId:id,checked:true,reason:" "})).toBe(true);
 });

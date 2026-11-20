@@ -11,6 +11,7 @@ import { CatalogDecisionForm } from "../../../components/catalog-decision-form.t
 import { CatalogReviewTextPanel } from "../../../components/catalog-review-text-panel.tsx";
 import { CatalogReviewCheckpoint } from "../../../components/catalog-review-checkpoint.tsx";
 import { ReviewPhotoStudio, ReviewPhotoHistory } from "../../../components/review-photo-studio.tsx";
+import { readyImageModels } from "../../../lib/review-image-methods.ts";
 
 const fields = [
   { field: "NAME", view: "name", source: "არსებული სახელი" },
@@ -158,7 +159,7 @@ export default async function ReviewProductPage({ params, searchParams }: {
           <img src={photo.url} alt={`${t("review.photo")} ${photo.position}`} loading="lazy" />
           <figcaption>{t("review.photo")} {photo.position}</figcaption></figure>)}</div>}
       {active.field === "PHOTO" && <ReviewPhotoStudio key={productId} productId={productId} photos={options} activity={photoWork}
-        paid={Boolean(process.env.REVIEW_GEMINI_API_KEY)} />}
+        ready={readyImageModels()} />}
     </section> : <section className="review-history">
       <h2>{t("review.history")}</h2>
       <ReviewPhotoHistory activity={photoWork} />

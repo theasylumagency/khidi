@@ -2,9 +2,9 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
 import { catalogReviewPhotoWork as work, catalogReviewPhotoLinks as links, catalogReviewPhotos as photos,
-  type AppDatabase, type DbExecutor } from "@khidi/db";
+  reviewImageModels, type AppDatabase, type DbExecutor } from "@khidi/db";
 import { executeIdempotent, withDomainTransaction, type DomainTransactionContext } from "@khidi/domain";
-import { renderReviewComposition, storeLegacyReviewPhoto, suggestReviewPlacement } from "@khidi/media";
+import { boxedModes, modelsFor, providerConfigured, renderReviewEdit, storeLegacyReviewPhoto, suggestReviewPlacement } from "@khidi/media";
 import { digest, type MediaStorage } from "@khidi/media/storage";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import { lockPilotPhotoWork, requireReviewProduct } from "./access.ts";
@@ -15,10 +15,20 @@ export const photoForm = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("REQUEST"), productId: uid, basePhotoId: uid,
     mode: z.enum(["INSET","MOUNT"]), detail: z.string().trim().min(1).max(240) }).strict()
 ]);
-export const renderInput = z.object({ productId: uid, requestId: uid,
-  placement: z.object({ x: z.number().int().min(0).max(100), y: z.number().int().min(0).max(100),
-    size: z.number().int().min(10).max(70) }).strict(),
-  model: z.enum(["local","gemini-3.1-flash-image","gemini-3-pro-image"]) }).strict();
+const placement = z.object({ x: z.number().int().min(0).max(100), y: z.number().int().min(0).max(100),
+  size: z.number().int().min(10).max(70) }).strict();
+/** Edit of a gallery photo without a second image. CLEAN and SCENE need a short note: what to remove, where to show it. */
+export const editInput = z.object({ productId: uid, basePhotoId: uid, mode: z.enum(["ADJUST","CLEAN","BACKGROUND","SCENE"]),
+  detail: z.string().trim().min(1).max(240).optional() }).strict()
+  .refine(v => v.mode !== "CLEAN" && v.mode !== "SCENE" || Boolean(v.detail), { path: ["detail"] });
+export const renderInput = z.object({ productId: uid, requestId: uid, placement: placement.optional(),
+  settings: z.object({ rotate: z.union([z.literal(0),z.literal(90),z.literal(180),z.literal(270)]),
+    tone: z.boolean(), trim: z.boolean() }).strict().optional(),
+  model: z.enum(reviewImageModels) }).strict();
+export const rejectInput = z.object({ productId: uid, previewId: uid, note: z.string().trim().min(1).max(600) }).strict();
+/** Paid provider calls: the whole pilot and one product. Each call is recorded before the provider is contacted. */
+const paidLimit = () => Number(process.env.REVIEW_AI_RENDER_LIMIT) > 0 ? Number(process.env.REVIEW_AI_RENDER_LIMIT) : 160;
+export const paidPerProduct = 16;
 export const acceptInput = z.object({ productId: uid, previewId: uid }).strict();
 
 async function append(ctx: DomainTransactionContext, data: typeof work.$inferInsert) {
@@ -36,7 +46,7 @@ async function addToGallery(tx: DbExecutor, batchId: string, productId: string, 
 }
 
 async function saveAsset(tx: DbExecutor, storage: MediaStorage, batchId: string, bytes: Uint8Array,
-  origin: "UPLOAD" | "REFERENCE" | "COMPOSITION") {
+  origin: "UPLOAD" | "REFERENCE" | "COMPOSITION" | "ADJUSTED" | "AI_EDIT") {
   const id = createUuidV7();
   const saved = await storeLegacyReviewPhoto(storage, id, bytes);
   await tx.insert(photos).values({ id, batchId, assetKey: "review-" + id, sourceUrl: "review:" + id, audit: { origin },
@@ -79,12 +89,32 @@ export async function uploadReviewImage(db: AppDatabase, storage: MediaStorage, 
     }));
 }
 
+export async function requestReviewEdit(db: AppDatabase, storage: MediaStorage, principal: AuthenticatedPrincipal,
+  key: string, input: z.infer<typeof editInput>) {
+  await requireReviewProduct(db, principal, input.productId);
+  return executeIdempotent(db, { scope: "review-edit:" + principal.userId, idempotencyKey: key, payload: input },
+    tx => withDomainTransaction(tx, { userId: principal.userId }, async ctx => {
+      const { id: productId, batchId } = await requireReviewProduct(ctx.tx, principal, input.productId);
+      await lockPilotPhotoWork(ctx.tx, principal, productId);
+      const [base] = await ctx.tx.select().from(links).where(and(eq(links.productId,productId), eq(links.photoId,input.basePhotoId)));
+      if (!base) throw new AppError("VALIDATION_ERROR","Select a gallery image from this product.");
+      const placement = input.mode === "CLEAN"
+        ? await suggestReviewPlacement(await readAsset(ctx.tx, storage, batchId, base.photoId), "CLEAN") : undefined;
+      const id = createUuidV7();
+      await append(ctx, { id, kind: "REQUEST", productId, batchId, actorId: principal.userId, basePhotoId: base.photoId,
+        mode: input.mode, detail: input.detail ?? null, placement });
+      return { status: 201, body: { id } };
+    }));
+}
+
 export async function renderReviewDraft(db: AppDatabase, storage: MediaStorage, principal: AuthenticatedPrincipal,
   key: string, input: z.infer<typeof renderInput>) {
   const product = await requireReviewProduct(db, principal, input.productId);
   const request = await event(db, product.id, input.requestId, "REQUEST");
-  if (input.model !== "local" && (request.mode !== "MOUNT" || !process.env.REVIEW_GEMINI_API_KEY)) {
-    throw new AppError("VALIDATION_ERROR","AI mounting is unavailable.");
+  const mode = request.mode!, boxed = boxedModes.includes(mode);
+  if (!modelsFor(mode).includes(input.model) || !providerConfigured(input.model)
+    || boxed !== Boolean(input.placement) || (mode === "ADJUST") !== Boolean(input.settings)) {
+    throw new AppError("VALIDATION_ERROR","This method is unavailable for the request.");
   }
   // Commit the attempt before calling the provider. An uncertain or interrupted call may already have been billed.
   const attempt = await executeIdempotent(db, { scope: "review-render:" + principal.userId, idempotencyKey: key, payload: input },
@@ -96,13 +126,16 @@ export async function renderReviewDraft(db: AppDatabase, storage: MediaStorage, 
       if (accepted) throw new AppError("CONFLICT","A version of this request is already accepted.");
       if (input.model !== "local") {
         await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended('review-photo-paid-pilot',0))`);
-        const [used] = await ctx.tx.select({ count: sql<number>`count(*)::int` }).from(work)
+        const [used] = await ctx.tx.select({ all: sql<number>`count(*)::int`,
+          product: sql<number>`count(*) FILTER (WHERE ${work.productId}=${product.id})::int` }).from(work)
           .where(and(eq(work.kind,"RENDER"), sql`${work.model} <> 'local'`));
-        if (used!.count >= 40) throw new AppError("PRECONDITION_FAILED","Pilot image allowance exhausted.");
+        if (used!.all >= paidLimit() || used!.product >= paidPerProduct) {
+          throw new AppError("PRECONDITION_FAILED","Pilot image allowance exhausted.");
+        }
       }
       const id = createUuidV7();
       await append(ctx, { id, kind: "RENDER", productId: product.id, batchId: product.batchId, actorId: principal.userId,
-        parentId: request.id, placement: input.placement, model: input.model });
+        parentId: request.id, placement: input.placement ?? null, settings: input.settings ?? null, model: input.model });
       return { status: 200, body: { id } };
     }));
   const attemptId = attempt.body.id;
@@ -114,9 +147,10 @@ export async function renderReviewDraft(db: AppDatabase, storage: MediaStorage, 
   }
   let rendered: Uint8Array;
   try {
-    const [base, source] = await Promise.all([readAsset(db, storage, product.batchId, request.basePhotoId!),
-      readAsset(db, storage, product.batchId, request.photoId!)]);
-    rendered = await renderReviewComposition(base, source, request.detail!, request.mode!, input.placement, input.model);
+    const [base, detail] = await Promise.all([readAsset(db, storage, product.batchId, request.basePhotoId!),
+      request.photoId ? readAsset(db, storage, product.batchId, request.photoId) : undefined]);
+    rendered = await renderReviewEdit({ mode, model: input.model, base, detail, text: request.detail ?? undefined,
+      placement: input.placement, settings: input.settings, actor: principal.userId });
   } catch {
     await withDomainTransaction(db, { userId: principal.userId }, ctx => append(ctx, {
       id: createUuidV7(), productId: product.id, batchId: product.batchId, actorId: principal.userId,
@@ -124,7 +158,10 @@ export async function renderReviewDraft(db: AppDatabase, storage: MediaStorage, 
     throw new AppError("PRECONDITION_FAILED","Render failed.", { photoStatus: "failed" });
   }
   return withDomainTransaction(db, { userId: principal.userId }, async ctx => {
-    const photoId = await saveAsset(ctx.tx, storage, product.batchId, rendered, "COMPOSITION");
+    // An adjustment is a real photo. A clean-up or new background keeps the photographed product but contains generated
+    // pixels; a mounted detail, inset or scene shows something not photographed as such and stays an illustration.
+    const origin = mode === "ADJUST" ? "ADJUSTED" : mode === "CLEAN" || mode === "BACKGROUND" ? "AI_EDIT" : "COMPOSITION";
+    const photoId = await saveAsset(ctx.tx, storage, product.batchId, rendered, origin);
     const id = createUuidV7();
     await append(ctx, { id, productId: product.id, batchId: product.batchId, actorId: principal.userId,
       kind: "PREVIEW", parentId: attemptId, photoId });
@@ -149,6 +186,25 @@ export async function acceptReviewDraft(db: AppDatabase, principal: Authenticate
         await append(ctx, { id: createUuidV7(), kind: "ACCEPT", actorId: principal.userId, batchId, productId,
           parentId: requestId, photoId: preview.photoId });
       }
+      return { status: 200, body: { id: preview.id } };
+    }));
+}
+
+/** The reviewer's verdict on a preview she does not want, with the reason. Kept as pilot evidence per method. */
+export async function rejectReviewDraft(db: AppDatabase, principal: AuthenticatedPrincipal, key: string, input: z.infer<typeof rejectInput>) {
+  await requireReviewProduct(db, principal, input.productId);
+  return executeIdempotent(db, { scope: "review-reject:" + principal.userId, idempotencyKey: key, payload: input },
+    tx => withDomainTransaction(tx, { userId: principal.userId }, async ctx => {
+      const { id: productId, batchId } = await requireReviewProduct(ctx.tx, principal, input.productId);
+      await lockPilotPhotoWork(ctx.tx, principal, productId);
+      const preview = await event(ctx.tx, productId, input.previewId, "PREVIEW");
+      const render = await event(ctx.tx, productId, preview.parentId!, "RENDER");
+      await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${render.parentId!},0))`);
+      const [accepted] = await ctx.tx.select().from(work).where(and(eq(work.parentId, render.parentId!), eq(work.kind,"ACCEPT")));
+      if (accepted?.photoId === preview.photoId) throw new AppError("CONFLICT","This version is already accepted.");
+      const [rejected] = await ctx.tx.select().from(work).where(and(eq(work.parentId, preview.id), eq(work.kind,"REJECT")));
+      if (!rejected) await append(ctx, { id: createUuidV7(), kind: "REJECT", actorId: principal.userId, batchId, productId,
+        parentId: preview.id, note: input.note });
       return { status: 200, body: { id: preview.id } };
     }));
 }
