@@ -121,18 +121,27 @@ export const catalogReviewCheckpoints = pgTable("catalog_review_checkpoints", {
 });
 
 export type ReviewPlacement = { x: number; y: number; size: number };
+export const reviewPhotoModes = ["INSET","MOUNT","ADJUST","CLEAN","BACKGROUND","SCENE"] as const;
+export type ReviewPhotoMode = typeof reviewPhotoModes[number];
+export const reviewImageModels = ["local","gemini-3.1-flash-image","gemini-3-pro-image","gpt-image-2.6-sunburst","gpt-image-2.6-flare"] as const;
+export type ReviewImageModel = typeof reviewImageModels[number];
+/** Deterministic edit of a gallery photo: quarter turns, automatic tone, trimming of plain borders. */
+export type ReviewAdjustment = { rotate: 0 | 90 | 180 | 270; tone: boolean; trim: boolean };
+
 export const catalogReviewPhotoWork = pgTable("catalog_review_photo_work", {
   id: uuid("id").primaryKey(),
   batchId: uuid("batch_id").notNull(),
   productId: uuid("product_id").notNull(),
   actorId: uuid("actor_id").notNull(),
-  kind: text("kind").$type<"UPLOAD" | "REQUEST" | "RENDER" | "PREVIEW" | "ACCEPT" | "FAILED">().notNull(),
+  kind: text("kind").$type<"UPLOAD" | "REQUEST" | "RENDER" | "PREVIEW" | "ACCEPT" | "FAILED" | "REJECT">().notNull(),
   parentId: uuid("parent_id"),
   basePhotoId: uuid("base_photo_id"),
   photoId: uuid("photo_id"),
   detail: text("detail"),
-  mode: text("mode").$type<"INSET" | "MOUNT">(),
-  model: text("model").$type<"local" | "gemini-3.1-flash-image" | "gemini-3-pro-image">(),
+  mode: text("mode").$type<ReviewPhotoMode>(),
+  model: text("model").$type<ReviewImageModel>(),
   placement: jsonb("placement").$type<ReviewPlacement>(),
+  settings: jsonb("settings").$type<ReviewAdjustment>(),
+  note: text("note"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
 });

@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { afterEach, expect, it, vi } from "vitest";
-import { renderReviewComposition, suggestReviewPlacement } from "./review-composition.ts";
+import { modelsFor, providerConfigured, renderReviewComposition, renderReviewEdit, suggestReviewPlacement } from "./review-composition.ts";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
@@ -52,4 +52,59 @@ it("uses the photographed machine for the initial mounting position and makes no
   await expect(renderReviewComposition(base, base, "ფრეზი", "MOUNT", suggestion, "gemini-3.1-flash-image"))
     .rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   expect(provider).not.toHaveBeenCalled();
+});
+
+it("adjusts a real photo deterministically: quarter turn, trimmed plain border, square white canvas, no provider call", async () => {
+  const provider = vi.fn();
+  vi.stubGlobal("fetch", provider);
+  const tall = await sharp(await image(200, 100, "white")).composite([{ input: await image(100, 50, "red"), left: 50, top: 25 }]).png().toBuffer();
+  const result = await renderReviewEdit({ mode: "ADJUST", model: "local", base: tall, settings: { rotate: 90, tone: false, trim: true } });
+  const meta = await sharp(result).metadata();
+  expect([meta.width, meta.height]).toEqual([1024, 1024]);
+  // After trimming the 100 x 50 red block and turning it, it fills the canvas height: a 512-wide band in the middle.
+  expect(await rgb(result, 512, 512)).toEqual([255, 0, 0]);
+  expect(await rgb(result, 100, 512)).toEqual([255, 255, 255]);
+  expect(provider).not.toHaveBeenCalled();
+  await expect(renderReviewEdit({ mode: "ADJUST", model: "gpt-image-2.6-sunburst", base: tall,
+    settings: { rotate: 0, tone: true, trim: false } })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+});
+
+it("sends a clean-up to OpenAI with the photo and a red-square markup, and keeps every pixel outside the square", async () => {
+  vi.stubEnv("REVIEW_OPENAI_API_KEY", "test-only");
+  const green = await image(1024, 1024, "#00ff00");
+  let form: FormData | undefined, target = "";
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+    target = url; form = init.body as FormData;
+    return Response.json({ data: [{ b64_json: green.toString("base64") }] });
+  }));
+  const base = await image(64, 64, "#646464");
+  const result = await renderReviewEdit({ mode: "CLEAN", model: "gpt-image-2.6-sunburst", base, text: "მუყაოს ყუთი",
+    placement: { x: 0, y: 0, size: 25 }, actor: "user-1" });
+  expect(target).toBe("https://api.openai.com/v1/images/edits");
+  expect(form!.get("model")).toBe("gpt-image-2.6-sunburst");
+  expect(form!.getAll("image[]")).toHaveLength(1);
+  expect(String(form!.get("prompt"))).toContain("მუყაოს ყუთი");
+  expect(form!.get("safety_identifier")).not.toContain("user-1");
+  const markup = Buffer.from(await (form!.get("markup") as Blob).arrayBuffer());
+  expect((await sharp(markup).metadata()).hasAlpha).toBe(true);
+  expect(await rgb(result, 100, 100)).toEqual([0, 255, 0]);
+  expect(await rgb(result, 300, 300)).toEqual([100, 100, 100]);
+});
+
+it("replaces the whole background through Gemini and offers only configured AI methods for generated edits", async () => {
+  vi.stubEnv("REVIEW_GEMINI_API_KEY", "test-only");
+  vi.stubEnv("REVIEW_OPENAI_API_KEY", "");
+  const blue = await image(512, 512, "blue");
+  const call = vi.fn(async () => Response.json({ candidates: [{ content: { parts: [
+    { inlineData: { mimeType: "image/png", data: blue.toString("base64") } }] } }] }));
+  vi.stubGlobal("fetch", call);
+  const result = await renderReviewEdit({ mode: "BACKGROUND", model: "gemini-3-pro-image", base: await image(32, 32, "gray") });
+  expect(call).toHaveBeenCalledTimes(1);
+  expect(await rgb(result, 5, 5)).toEqual([0, 0, 255]);
+  await expect(renderReviewEdit({ mode: "SCENE", model: "gpt-image-2.6-flare", base: blue, text: "ვენახში" }))
+    .rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  expect(modelsFor("BACKGROUND")).not.toContain("local");
+  expect(modelsFor("INSET")).toEqual(["local"]);
+  expect(providerConfigured("gemini-3-pro-image")).toBe(true);
+  expect(providerConfigured("gpt-image-2.6-sunburst")).toBe(false);
 });

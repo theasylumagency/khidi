@@ -14,4 +14,5 @@ export * from "./evidence-capture.ts";
 export { assertProcessedAiImage } from "./processing.ts";
 export { queueMediaJob } from "./transactions.ts";
 export { storeLegacyReviewPhoto } from "./legacy-review.ts";
-export { renderReviewComposition, suggestReviewPlacement, type RenderModel } from "./review-composition.ts";
+export { renderReviewComposition, renderReviewEdit, suggestReviewPlacement, modelsFor, providerConfigured, boxedModes,
+  type RenderModel } from "./review-composition.ts";
