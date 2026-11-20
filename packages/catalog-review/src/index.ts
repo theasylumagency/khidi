@@ -16,7 +16,8 @@ import { assigned, pilotBatch, requireReviewProduct } from "./access.ts";
 export * from "./pilot.ts";
 export * from "./rounds.ts";
 export { reviewRoles } from "./access.ts";
-export { uploadReviewImage, renderReviewDraft, acceptReviewDraft, photoForm, renderInput, acceptInput } from "./photo-work.ts";
+export { uploadReviewImage, requestReviewEdit, renderReviewDraft, acceptReviewDraft, rejectReviewDraft, photoForm, editInput,
+  renderInput, acceptInput, rejectInput, paidPerProduct } from "./photo-work.ts";
 export const reviewId = z.string().uuid();
 const reviewText = z.string().min(1).max(20000).refine((value) => value.trim().length > 0);
 export const textField = z.enum(["NAME", "SHORT", "FULL"]);

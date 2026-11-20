@@ -1,9 +1,9 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FilesystemMediaStorage } from "@khidi/media/storage";
-import { acceptReviewDraft, renderReviewDraft, uploadReviewImage } from "./photo-work.ts";
+import { acceptReviewDraft, rejectReviewDraft, renderReviewDraft, requestReviewEdit, uploadReviewImage } from "./photo-work.ts";
 import { and, eq, sql } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
 import {
@@ -121,6 +121,44 @@ describe("catalog review", () => {
       expect(after.photos).toHaveLength(3);
       expect(after.photoWork.map(row => row.event.kind).sort()).toEqual(["ACCEPT","PREVIEW","RENDER","REQUEST","UPLOAD"]);
       await expect(getReviewPhoto(db, unassigned, productId, request.body.photoId)).rejects.toMatchObject({code: "NOT_FOUND"});
+
+      // Workbench: a deterministic adjustment becomes an ordinary photo; generated edits stay illustrations.
+      const adjust = await requestReviewEdit(db, storage, principal, uuid(), { productId, basePhotoId: uploaded.body.photoId, mode: "ADJUST" });
+      await expect(renderReviewDraft(db, storage, principal, uuid(), { productId, requestId: adjust.body.id, model: "local" }))
+        .rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+      const adjusted = await renderReviewDraft(db, storage, principal, uuid(), { productId, requestId: adjust.body.id, model: "local",
+        settings: { rotate: 90, tone: true, trim: false } });
+      await acceptReviewDraft(db, principal, uuid(), { productId, previewId: adjusted.body.id });
+      const origins = (await getReviewProduct(db, principal, productId)).photos.map(photo => photo.audit.origin);
+      expect(origins).toContain("ADJUSTED");
+      await expect(requestReviewEdit(db, storage, principal, uuid(), { productId, basePhotoId: uploaded.body.photoId, mode: "CLEAN" }))
+        .rejects.toThrow();
+      const clean = await requestReviewEdit(db, storage, principal, uuid(), { productId, basePhotoId: uploaded.body.photoId,
+        mode: "CLEAN", detail: "ყუთი" });
+      vi.stubEnv("REVIEW_OPENAI_API_KEY", "");
+      await expect(renderReviewDraft(db, storage, principal, uuid(), { productId, requestId: clean.body.id,
+        model: "gpt-image-2.6-sunburst", placement: { x: 10, y: 10, size: 30 } })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+      vi.stubEnv("REVIEW_OPENAI_API_KEY", "test-only");
+      const green = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNg+M8AAAICAQB7CYF4AAAAAElFTkSuQmCC";
+      vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [{ b64_json: green }] })));
+      try {
+        const cleaned = await renderReviewDraft(db, storage, principal, uuid(), { productId, requestId: clean.body.id,
+          model: "gpt-image-2.6-sunburst", placement: { x: 10, y: 10, size: 30 } });
+        const rejectKey = uuid(), rejection = { productId, previewId: cleaned.body.id, note: "პროდუქტი შეიცვალა" };
+        await rejectReviewDraft(db, principal, rejectKey, rejection);
+        await rejectReviewDraft(db, principal, rejectKey, rejection);
+        await rejectReviewDraft(db, principal, uuid(), rejection);
+        const work = (await getReviewProduct(db, principal, productId)).photoWork.map(row => row.event);
+        expect(work.filter(e => e.kind === "REJECT")).toEqual([expect.objectContaining({ parentId: cleaned.body.id, note: "პროდუქტი შეიცვალა" })]);
+        expect(work.find(e => e.kind === "RENDER" && e.parentId === clean.body.id)).toMatchObject({ model: "gpt-image-2.6-sunburst" });
+        await expect(rejectReviewDraft(db, principal, uuid(), { productId, previewId: adjusted.body.id, note: "x" }))
+          .rejects.toMatchObject({ code: "CONFLICT" });
+        // Sixteen paid calls per product at most; the attempt is recorded before the provider is contacted.
+        for (let i = 1; i < 16; i++) await renderReviewDraft(db, storage, principal, uuid(), { productId, requestId: clean.body.id,
+          model: "gpt-image-2.6-flare", placement: { x: 10, y: 10, size: 30 } });
+        await expect(renderReviewDraft(db, storage, principal, uuid(), { productId, requestId: clean.body.id,
+          model: "gpt-image-2.6-flare", placement: { x: 10, y: 10, size: 30 } })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+      } finally { vi.unstubAllGlobals(); vi.unstubAllEnvs(); }
     } finally { await rm(directory, { recursive: true, force: true }); }
     expect(await db.select().from(auditLogs).where(and(eq(auditLogs.entityId, accepted.body.id), eq(auditLogs.action, "CATALOG_REVIEW_DECIDED")))).toHaveLength(1);
     expect(await db.select().from(outboxEvents).where(eq(outboxEvents.aggregateId, nameProposal))).toHaveLength(4);
