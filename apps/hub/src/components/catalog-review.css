@@ -461,3 +461,12 @@
 .studio-rejected { color: #8a4b3a; margin: .3rem 0 0; }
 .review-detail-request { display: grid; gap: .6rem; margin-top: 1rem; padding-top: .8rem; border-top: 1px solid #d9d5cc; }
 .review-detail-request h3 { margin: 0; }
+.store-main-wrap { position: relative; }
+.store-main-badge { position: absolute; left: .6rem; top: .6rem; background: #b9473a; color: white; font-style: normal; font-size: .8rem; padding: .1rem .55rem; border-radius: 1rem; }
+.store-thumbs em[data-kind=AI_EDIT] { background: #2f6f8acc; }
+.store-mainphoto { flex: 1 1 100%; display: grid; gap: .45rem; padding: .6rem .75rem; border-radius: .5rem; background: #fdf3e6; border-left: 4px solid #d79a2b; }
+.store-mainphoto[data-kind=AI_EDIT] { background: #eaf3f7; border-left-color: #2f6f8a; }
+.store-mainphoto p { margin: 0; }
+.store-mainphoto button { justify-self: start; }
+.store-check { display: inline-flex; align-items: center; gap: .45rem; font-weight: 600; }
+.store-check input { width: 1.15rem; height: 1.15rem; }

@@ -3,11 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { FeedbackResponse, PilotRow } from "@khidi/catalog-review";
-import { fieldKeys, fieldProblem, relationKinds, sameValues, shortLine, splitFact, startReview, storeSections,
-  type Assessments, type FieldKey, type StoreLayout } from "@khidi/catalog-review/fields";
+import { fieldKeys, fieldProblem, mainPhotoProblem, relationKinds, sameValues, shortLine, splitFact, startReview, storeSections,
+  type Assessments, type FieldKey, type MainPhotoNote, type PhotoKind, type StoreLayout } from "@khidi/catalog-review/fields";
 import { t, type TranslationKey } from "@khidi/i18n";
 
-type Photo = { id: string; url: string; position: number; illustration: boolean };
+type Photo = { id: string; url: string; position: number; kind: PhotoKind };
 type Peer = { wp: number; name: string; id: string };
 type Section = (typeof storeSections)[number];
 type Kind = (typeof relationKinds)[number];
@@ -55,9 +55,11 @@ function StoreFrame({ row, values, layout, photos, peers, phone, slot, editor, r
     <div className="store-page">
       <div className="store-hero">
         {block("photos", gallery.length ? <div className="store-gallery">
-          <img className="store-main" src={gallery[0]!.url} alt={values.name[0] ?? ""}/>
+          <div className="store-main-wrap"><img className="store-main" src={gallery[0]!.url} alt={values.name[0] ?? ""}/>
+            {gallery[0]!.kind === "ILLUSTRATION" && <em className="store-main-badge">{t("store.illustration")}</em>}</div>
           <div className="store-thumbs">{gallery.map((p, i) => <span key={p.id} className={i ? "" : "is-main"}>
-            <img src={p.url} alt={t("review.photo") + " " + p.position} loading="lazy"/>{p.illustration && <em>{t("store.illustration")}</em>}</span>)}</div>
+            <img src={p.url} alt={t("review.photo") + " " + p.position} loading="lazy"/>
+            {p.kind === "ILLUSTRATION" ? <em>{t("store.illustration")}</em> : p.kind === "AI_EDIT" && reviewing ? <em data-kind="AI_EDIT">{t("store.kind.AI_EDIT")}</em> : null}</span>)}</div>
         </div> : <div className="store-main store-nophoto">{t("store.noPhoto")}</div>)}
         <div className="store-buy">
           {block("name", <h2>{values.name[0] ?? ""}</h2>)}
@@ -74,8 +76,8 @@ function StoreFrame({ row, values, layout, photos, peers, phone, slot, editor, r
   </div>;
 }
 
-function ValueEditor({ field, values, original, photos, peers, onChange }: {
-  field: FieldKey; values: string[]; original: string[]; photos: Photo[]; peers: Peer[]; onChange: (v: string[]) => void;
+function ValueEditor({ field, values, photos, peers, onChange }: {
+  field: FieldKey; values: string[]; photos: Photo[]; peers: Peer[]; onChange: (v: string[]) => void;
 }) {
   const [kind, setKind] = useState<Kind>("alternative");
   const move = (i: number, by: number) => { const next = [...values]; next.splice(i + by, 0, ...next.splice(i, 1)); onChange(next); };
@@ -105,10 +107,10 @@ function ValueEditor({ field, values, original, photos, peers, onChange }: {
           .map(p => <option key={p.wp} value={p.wp}>{p.name} · #{p.wp}</option>)}</select></div></div>;
   return <div className="store-rows">{values.map((id, i) => { const p = photos.find(x => x.id === id);
     return <div key={id} className="store-row"><img src={p?.url} alt="" width={64} height={64}/>
-      <span>{t("review.photo")} {p?.position}{i ? "" : " · " + t("store.main")}{p?.illustration ? " · " + t("store.illustration") : ""}</span>{tools(i)}</div>; })}
+      <span>{t("review.photo")} {p?.position}{i ? "" : " · " + t("store.main")}{p && p.kind !== "PHOTO" ? " · " + t(`store.kind.${p.kind}`) : ""}</span>{tools(i)}</div>; })}
     <div className="store-row">{photos.filter(p => !values.includes(p.id)).map(p => <button type="button" key={p.id} onClick={() => onChange([...values, p.id])}>
       <img src={p.url} alt="" width={48} height={48}/> {t("fields.photoAdd")} {p.position}</button>)}</div>
-    {!sameValues(values, original) && photos.find(p => p.id === values[0])?.illustration && <small role="alert">{t("store.illustrationMain")}</small>}</div>;
+  </div>;
 }
 
 export function CatalogStoreReview({ row, photos, peers, next, old, studio }: {
@@ -153,6 +155,15 @@ export function CatalogStoreReview({ row, photos, peers, next, old, studio }: {
     if (!f.verdict) problems.push("store.rate"); else if (f.verdict !== "OK" && !f.reason.trim()) problems.push("store.needReason");
   }
   if (response.answers.some(a => !a.state || a.state === "KNOWN" && (!a.text.trim() || !a.source.trim()))) problems.push("store.answer");
+  const mainId = fields.photos.value[0], mainKind = photos.find(p => p.id === mainId)?.kind ?? "PHOTO";
+  const mainNote = response.mainPhoto?.photoId === mainId ? response.mainPhoto : undefined;
+  if (mainPhotoProblem(mainKind, mainId, mainNote)) problems.push("store.mainConfirm");
+  const setMainNote = (patch: Partial<MainPhotoNote>) =>
+    update({ mainPhoto: { photoId: mainId!, checked: false, reason: "", ...mainNote, ...patch } });
+  const restoreReal = () => {
+    const real = fields.photos.value.find(id => photos.find(p => p.id === id)?.kind === "PHOTO");
+    if (real) setValues("photos", [real, ...fields.photos.value.filter(id => id !== real)]);
+  };
   const firstProblem = fieldKeys.find(k => !fields[k].verdict || fields[k].verdict !== "OK" && !fields[k].reason.trim());
 
   function moveSection(s: Section, by: number) {
@@ -205,13 +216,22 @@ export function CatalogStoreReview({ row, photos, peers, next, old, studio }: {
       {(f.verdict === "EDIT" || f.verdict === "UNNEEDED") && <input className="store-reason" maxLength={600} aria-invalid={!f.reason.trim()}
         aria-label={t(`pilot.target.${field}`) + ": " + t("fields.reason")} placeholder={t("store.reason")} value={f.reason}
         onChange={e => setField(field, { ...f, reason: e.target.value })}/>}
+      {field === "photos" && mainId && mainKind !== "PHOTO" && <div className="store-mainphoto" data-kind={mainKind} role="note">
+        <p>{t(mainKind === "AI_EDIT" ? "store.main.aiEdit" : "store.main.illustration")}</p>
+        {mainKind === "ILLUSTRATION" && fields.photos.value.some(id => photos.find(p => p.id === id)?.kind === "PHOTO")
+          && <button type="button" onClick={restoreReal}>{t("store.main.restore")}</button>}
+        <label className="store-check"><input type="checkbox" checked={Boolean(mainNote?.checked)}
+          onChange={e => setMainNote({ checked: e.target.checked })}/>{t(mainKind === "AI_EDIT" ? "store.main.checked" : "store.main.anyway")}</label>
+        {mainKind === "ILLUSTRATION" && mainNote?.checked && <input className="store-reason" maxLength={600} aria-invalid={!mainNote.reason.trim()}
+          aria-label={t("store.main.why")} placeholder={t("store.main.why")} value={mainNote.reason} onChange={e => setMainNote({ reason: e.target.value })}/>}
+      </div>}
       {changed && f.verdict !== "UNNEEDED" && <details className="store-was"><summary>{t("fields.oldPrompt")}</summary>
         <p>{field === "photos" || field === "links" ? row.original[field].length : row.original[field].join("\n") || "—"}</p>
         <button type="button" onClick={() => setField(field, { value: row.original[field], verdict: "", reason: "", unknown: false })}>{t("fields.reset")}</button></details>}
     </div>;
   };
   const editor = (field: FieldKey) => !buyer && editing === field
-    ? <ValueEditor field={field} values={fields[field].value} original={row.original[field]} photos={photos} peers={peers}
+    ? <ValueEditor field={field} values={fields[field].value} photos={photos} peers={peers}
       onChange={v => setValues(field, v)}/> : null;
 
   return <div className={"store-review" + (buyer ? " is-buyer" : "")}>

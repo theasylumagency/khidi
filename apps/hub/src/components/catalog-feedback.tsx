@@ -42,7 +42,7 @@ function RecordedFeedback({row}:{row:PilotRow}) {
         {" · "}{r.answers[i]?.state==="KNOWN"?r.answers[i]?.source:r.answers[i]?.text}</p>)}</>}</>;
 }
 export function PilotProduct({row,rows,result}:{row:PilotRow;rows:PilotRow[];result:Awaited<ReturnType<typeof getReviewProduct>>}) {
-  const photos=result.photos.map(p=>({id:p.id,position:p.position,url:`/api/catalog-review/photo/${row.id}/${p.id}`,illustration:row.illustrations.includes(p.id)}));
+  const photos=result.photos.map(p=>({id:p.id,position:p.position,url:`/api/catalog-review/photo/${row.id}/${p.id}`,kind:row.photoKinds[p.id] ?? "PHOTO" as const}));
   const canWrite=row.canWrite && !row.submitted, old=result.product.baseline, text=(k:string)=>String(old[k] ?? "");
   const peers=rows.filter(r=>r.id!==row.id).map(r=>({wp:r.card.wp,name:r.card.name,id:r.id}));
   const values=Object.fromEntries(fieldKeys.map(k=>[k,row.response?.fields[k].value ?? row.original[k]])) as Record<FieldKey,string[]>;

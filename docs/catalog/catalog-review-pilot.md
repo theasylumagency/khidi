@@ -96,9 +96,20 @@ store-preview card. Besides uploads and accessory details it offers:
   taken from the model, every other pixel stays the original.
 - **White background** and **in-use scene** (AI): the whole image is generated.
 
-Every result that contains composed or generated pixels is stored with origin `COMPOSITION`,
-shown as an illustration and refused as the main photo. The reviewer can accept a preview into
-the gallery or reject it with a reason. Rejections are kept as pilot evidence per method.
+Results are stored by kind, and the kind decides what the reviewer must confirm before the
+photo can lead the card (owner decision, 2026-11-20):
+
+- **Photo** (upload, adjustment): no confirmation.
+- **AI edit** (clean-up, white background; origin `AI_EDIT`): may be the main photo once she
+  confirms she compared it with the original and the product itself is unchanged. Buyers see it as
+  an ordinary photo; the review view marks it.
+- **Illustration** (mounted or inset detail, scene; origin `COMPOSITION`): the card advises against
+  using it as the main photo and offers to restore a real one. She may still choose it, with an
+  acknowledgement and a reason. It keeps an illustration badge in the store view, buyer view included.
+
+The server enforces these confirmations when a card is finished. The export's "main photo" column
+records the kind and her reason. The reviewer can accept a preview into the gallery or reject it
+with a reason; rejections are kept as pilot evidence per method.
 
 Providers are optional and server-only. `REVIEW_OPENAI_API_KEY` enables GPT-Image-2.6 Sunburst
 (quality `high`) and Flare (`medium`) through `POST /v1/images/edits`. The square is sent as a

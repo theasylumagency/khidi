@@ -46,7 +46,7 @@ async function addToGallery(tx: DbExecutor, batchId: string, productId: string, 
 }
 
 async function saveAsset(tx: DbExecutor, storage: MediaStorage, batchId: string, bytes: Uint8Array,
-  origin: "UPLOAD" | "REFERENCE" | "COMPOSITION" | "ADJUSTED") {
+  origin: "UPLOAD" | "REFERENCE" | "COMPOSITION" | "ADJUSTED" | "AI_EDIT") {
   const id = createUuidV7();
   const saved = await storeLegacyReviewPhoto(storage, id, bytes);
   await tx.insert(photos).values({ id, batchId, assetKey: "review-" + id, sourceUrl: "review:" + id, audit: { origin },
@@ -158,8 +158,10 @@ export async function renderReviewDraft(db: AppDatabase, storage: MediaStorage, 
     throw new AppError("PRECONDITION_FAILED","Render failed.", { photoStatus: "failed" });
   }
   return withDomainTransaction(db, { userId: principal.userId }, async ctx => {
-    // Only a deterministic adjustment of a real photo may become a main image; generated pixels stay illustrations.
-    const photoId = await saveAsset(ctx.tx, storage, product.batchId, rendered, mode === "ADJUST" ? "ADJUSTED" : "COMPOSITION");
+    // An adjustment is a real photo. A clean-up or new background keeps the photographed product but contains generated
+    // pixels; a mounted detail, inset or scene shows something not photographed as such and stays an illustration.
+    const origin = mode === "ADJUST" ? "ADJUSTED" : mode === "CLEAN" || mode === "BACKGROUND" ? "AI_EDIT" : "COMPOSITION";
+    const photoId = await saveAsset(ctx.tx, storage, product.batchId, rendered, origin);
     const id = createUuidV7();
     await append(ctx, { id, productId: product.id, batchId: product.batchId, actorId: principal.userId,
       kind: "PREVIEW", parentId: attemptId, photoId });

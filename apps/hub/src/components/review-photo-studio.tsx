@@ -91,17 +91,17 @@ function AreaPicker({ productId, request, value, onChange, disabled }: {
   </>;
 }
 
-function Preview({ productId, preview, render, accepted, rejected, onDone, sending }: {
-  productId: string; preview: Row; render: Row; accepted?: Row; rejected?: Row; onDone: boolean;
+function Preview({ productId, mode, preview, render, accepted, rejected, onDone, sending }: {
+  productId: string; mode: ReviewPhotoMode; preview: Row; render: Row; accepted?: Row; rejected?: Row; onDone: boolean;
   sending: ReturnType<typeof usePhotoAction>;
 }) {
   const [reason, setReason] = useState(""), [asking, setAsking] = useState(false);
-  // Every result except a deterministic adjustment contains composed or generated pixels.
-  const illustration = !render.settings;
+  // Same rule as the stored origin: an adjustment is a photo, a clean-up or background an AI edit, the rest illustrations.
+  const label = mode === "ADJUST" ? null : mode === "CLEAN" || mode === "BACKGROUND" ? "store.kind.AI_EDIT" as const : "studio.illustration" as const;
   const mine = accepted?.photoId === preview.photoId;
   return <figure data-state={mine ? "accepted" : rejected ? "rejected" : "open"}>
     <a href={url(productId, preview.photoId!)} target="_blank" rel="noreferrer"><img src={url(productId, preview.photoId!)} alt=""/></a>
-    <figcaption>{t(`studio.model.${render.model!}`)}{illustration && <em> · {t("studio.illustration")}</em>}</figcaption>
+    <figcaption>{t(`studio.model.${render.model!}`)}{label && <em> · {t(label)}</em>}</figcaption>
     {mine && <strong>{t("review.approved_photo")}</strong>}
     {rejected && <p className="studio-rejected">{t("studio.rejected")} · {rejected.note}</p>}
     {!onDone && !rejected && <div className="studio-verdict">
@@ -150,14 +150,14 @@ function EditRequest({ productId, request, events, ready }: { productId: string;
       {methods.length > 1 && <div className="studio-methods" role="group" aria-label={t("studio.methods")}><span>{t("studio.methods")}</span>
         {methods.map(m => <label key={m} className="studio-check"><input type="checkbox" checked={chosen.includes(m)} onChange={() => toggle(m)}/>{t(`studio.model.${m}`)}</label>)}</div>}
       {!methods.length && <p>{t("studio.no_ai")}</p>}
-      {ai && <small>{t("studio.ai_note")}</small>}
+      {ai && <small>{t(mode === "CLEAN" || mode === "BACKGROUND" ? "studio.ai_note.edit" : "studio.ai_note.illustration")}</small>}
       <button type="button" className="studio-make" disabled={!chosen.length || !methods.length} onClick={make}>
         {t(chosen.length > 1 ? "studio.compare" : "studio.make")}</button>
       {sending.waiting && chosen.some(m => m !== "local") && <small>{t("studio.waiting")}</small>}
     </fieldset>}
     {failed > 0 && <small>{t("review.render_failed")} ({failed})</small>}
     {previews.length > 0 && <div className="review-edit-previews"><h4>{t("review.previews")}</h4>
-      {previews.slice().reverse().map(e => <Preview key={e.id} productId={productId} preview={e} sending={sending} onDone={Boolean(accepted)}
+      {previews.slice().reverse().map(e => <Preview key={e.id} productId={productId} mode={mode} preview={e} sending={sending} onDone={Boolean(accepted)}
         render={renders.find(r => r.id === e.parentId)!} accepted={accepted}
         rejected={events.find(x => x.kind === "REJECT" && x.parentId === e.id)}/>)}</div>}
     {sending.feedback}

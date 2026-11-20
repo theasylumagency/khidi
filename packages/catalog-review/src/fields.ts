@@ -32,6 +32,25 @@ export function shortLine(type: string, facts: string[]) {
   }
   return out.filter(Boolean);
 }
+/**
+ * What the reviewer must confirm before a photo can lead the card.
+ * PHOTO: an upload or deterministic adjustment. AI_EDIT: a real photo whose surroundings an AI model changed
+ * (clean-up, white background); it may lead after she confirms the product itself is unchanged.
+ * ILLUSTRATION: composed or generated content (mounted detail, inset, scene); not advised as the main photo,
+ * allowed in the pilot only with an acknowledgement and a reason so the choice can be studied.
+ */
+export type PhotoKind = "PHOTO" | "AI_EDIT" | "ILLUSTRATION";
+export const mainPhotoNote = z.object({ photoId: z.string().uuid(), checked: z.boolean(), reason: z.string().trim().max(600) }).strict();
+export type MainPhotoNote = z.infer<typeof mainPhotoNote>;
+export function photoKind(origin: unknown): PhotoKind {
+  return origin === "COMPOSITION" ? "ILLUSTRATION" : origin === "AI_EDIT" ? "AI_EDIT" : "PHOTO";
+}
+export function mainPhotoProblem(kind: PhotoKind, photoId: string | undefined, note: MainPhotoNote | undefined) {
+  if (!photoId || kind === "PHOTO") return false;
+  if (note?.photoId !== photoId || !note.checked) return true;
+  return kind === "ILLUSTRATION" && !note.reason.trim();
+}
+
 export const roundQuestions = ["რა აკლდა ყველა ბარათს?", "რომელ ველს არასდროს შეავსებდით მაღაზიაში?",
   "რას გეკითხებიან მყიდველები ყველაზე ხშირად, რაც ბარათზე არ ჩანს?"] as const;
 const fieldReview = z.object({ value: z.array(z.string().trim().max(4000)).max(32),

@@ -122,7 +122,7 @@ describe("catalog review", () => {
       expect(after.photoWork.map(row => row.event.kind).sort()).toEqual(["ACCEPT","PREVIEW","RENDER","REQUEST","UPLOAD"]);
       await expect(getReviewPhoto(db, unassigned, productId, request.body.photoId)).rejects.toMatchObject({code: "NOT_FOUND"});
 
-      // Workbench: a deterministic adjustment becomes an ordinary photo; generated edits stay illustrations.
+      // Workbench: a deterministic adjustment becomes an ordinary photo; a clean-up is stored as an AI edit.
       const adjust = await requestReviewEdit(db, storage, principal, uuid(), { productId, basePhotoId: uploaded.body.photoId, mode: "ADJUST" });
       await expect(renderReviewDraft(db, storage, principal, uuid(), { productId, requestId: adjust.body.id, model: "local" }))
         .rejects.toMatchObject({ code: "VALIDATION_ERROR" });
@@ -151,6 +151,9 @@ describe("catalog review", () => {
         const work = (await getReviewProduct(db, principal, productId)).photoWork.map(row => row.event);
         expect(work.filter(e => e.kind === "REJECT")).toEqual([expect.objectContaining({ parentId: cleaned.body.id, note: "პროდუქტი შეიცვალა" })]);
         expect(work.find(e => e.kind === "RENDER" && e.parentId === clean.body.id)).toMatchObject({ model: "gpt-image-2.6-sunburst" });
+        const cleanedPhoto = work.find(e => e.id === cleaned.body.id)!.photoId!;
+        const [cleanedAsset] = await db.select().from(catalogReviewPhotos).where(eq(catalogReviewPhotos.id, cleanedPhoto));
+        expect(cleanedAsset?.audit).toMatchObject({ origin: "AI_EDIT" });
         await expect(rejectReviewDraft(db, principal, uuid(), { productId, previewId: adjusted.body.id, note: "x" }))
           .rejects.toMatchObject({ code: "CONFLICT" });
         // Sixteen paid calls per product at most; the attempt is recorded before the provider is contacted.
