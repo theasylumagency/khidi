@@ -17,7 +17,7 @@ Use the exact production database name and event counts returned from a separate
 
 ```sh
 node --env-file=.env --env-file=/etc/khidi/hub.env --import tsx \
-  ops/reset-catalog-photo-tests.ts \
+  packages/catalog-review/src/reset-photo-tests.ts \
   --actor=george@theasylum.agency \
   --expect-database=agrotrade_hub \
   --expect-counts=7171:44,7393:2
