@@ -121,7 +121,7 @@ export const catalogReviewCheckpoints = pgTable("catalog_review_checkpoints", {
 });
 
 export type ReviewPlacement = { x: number; y: number; size: number };
-export const reviewPhotoModes = ["INSET","MOUNT","ADJUST","CLEAN","BACKGROUND","SCENE"] as const;
+export const reviewPhotoModes = ["INSET","MOUNT","ADJUST","CLEAN","BACKGROUND","SCENE","INSTRUCT"] as const;
 export type ReviewPhotoMode = typeof reviewPhotoModes[number];
 export const reviewImageModels = ["local","gemini-3.1-flash-image","gemini-3-pro-image","gpt-image-2.6-sunburst","gpt-image-2.6-flare"] as const;
 export type ReviewImageModel = typeof reviewImageModels[number];
