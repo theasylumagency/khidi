@@ -6,6 +6,7 @@ import { catalogFeedbackEntries as entries, catalogLegacyProducts as products, c
 import { executeIdempotent, withDomainTransaction } from "@khidi/domain";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import { assigned, lockPilotPhotoWork, pilotBatch, reviewerAssignment } from "./access.ts";
+import { visibleGalleryPhoto } from "./photo-visibility.ts";
 import { assessments, fieldKeys, fieldProblem, mainPhotoNote, mainPhotoProblem, originals, photoKind, relationKinds, storeLayout,
   type CardDefinition, type Originals, type PhotoKind } from "./fields.ts";
 
@@ -32,7 +33,7 @@ export async function listPilot(db: DbExecutor, principal: AuthenticatedPrincipa
     .leftJoin(users,eq(entries.actorId,users.id)).where(and(assigned(db,principal),pilotBatch(db),eq(cards.round,round)))
     .orderBy(asc(products.id),desc(entries.revision));
   const gallery=rows.length ? await db.select({product:links.productId,id:links.photoId,source:photos.sourceUrl,audit:photos.audit}).from(links)
-    .innerJoin(photos,eq(photos.id,links.photoId)).where(inArray(links.productId,rows.map(r=>r.id)))
+    .innerJoin(photos,eq(photos.id,links.photoId)).where(and(inArray(links.productId,rows.map(r=>r.id)),visibleGalleryPhoto))
     .orderBy(asc(links.position),asc(links.photoId)) : [];
   return rows.sort((a,b)=>a.position-b.position).map(row=>{
     const template=row.definition as CardDefinition;
