@@ -119,7 +119,11 @@ with a reason; rejections are kept as pilot evidence per method.
 Providers are optional and server-only. `REVIEW_OPENAI_API_KEY` enables GPT-Image-2.6 Sunburst
 (quality `high`) and Flare (`medium`) through `POST /v1/images/edits`. The square is sent as a
 transparent red-outline `markup` image. `REVIEW_GEMINI_API_KEY` enables Gemini 3 Pro Image and
-Gemini 3.1 Flash Image. The reviewer may request two methods at once to compare them. Each
+Gemini 3.1 Flash Image. GPT-Image-2.6 Sunburst is preselected as the only method (owner
+comparison, 2026-11-20: on a white background, a scene and a sharpening instruction both OpenAI
+models kept the product, while both Gemini models redrew parts in scenes, at about twice the cost).
+The reviewer may add a second method to compare. When the chosen photo's shorter edge is under
+800 px, AI actions warn that the model would have to invent fine detail and suggest a new photo. Each
 paid call is recorded before the provider is contacted and counts against two limits: 16 per
 product and `REVIEW_AI_RENDER_LIMIT` across the pilot (default 160). Failed or interrupted calls
 count too, and retries with the same key never call the provider again. Images sent to a

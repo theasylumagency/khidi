@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition, type FormEvent, type PointerEvent, type ReactNode } from "react";
+import { useRef, useState, useTransition, type FormEvent, type PointerEvent, type ReactNode, type SyntheticEvent } from "react";
 import { useRouter } from "next/navigation";
 import type { getReviewProduct } from "@khidi/catalog-review";
 import type { ReviewAdjustment, ReviewImageModel, ReviewPhotoMode, ReviewPlacement } from "@khidi/db";
@@ -12,7 +12,16 @@ type Row = Activity[number]["event"];
 type Photo = { id: string; position: number; url: string };
 type Action = "UPLOAD" | "ADJUST" | "INSTRUCT" | "CLEAN" | "BACKGROUND" | "DETAIL" | "SCENE";
 const actions: Action[] = ["UPLOAD", "ADJUST", "INSTRUCT", "CLEAN", "BACKGROUND", "DETAIL", "SCENE"];
-const aiModels: ReviewImageModel[] = ["gpt-image-2.6-sunburst", "gemini-3-pro-image", "gpt-image-2.6-flare", "gemini-3.1-flash-image"];
+// Pilot comparison (2026-11-20): OpenAI kept the product in every case, Gemini redrew parts in scenes. Sunburst is the
+// default; the others stay available for an explicit comparison.
+const aiModels: ReviewImageModel[] = ["gpt-image-2.6-sunburst", "gpt-image-2.6-flare", "gemini-3-pro-image", "gemini-3.1-flash-image"];
+/** Below this edge the model has to invent fine detail, labels included. Measured on the served preview (at most 960 px). */
+const smallEdge = 800;
+type Size = { width: number; height: number };
+function LowRes({ size }: { size?: Size }) {
+  if (!size || Math.min(size.width, size.height) >= smallEdge) return null;
+  return <p className="ps-warn" role="note">{t("studio.lowres").replace("{size}", size.width + "×" + size.height)}</p>;
+}
 const examples: TranslationKey[] = ["studio.example.rust", "studio.example.light", "studio.example.glare", "studio.example.box"];
 const date = new Intl.DateTimeFormat("ka-GE", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Tbilisi" });
 const url = (product: string, photo: string) => "/api/catalog-review/photo/" + product + "/" + photo;
@@ -82,8 +91,9 @@ export function ReviewPhotoHistory({ activity }: { activity: Activity }) {
     </li>)}</ol></details>;
 }
 
-function AreaPicker({ productId, request, value, onChange, disabled }: {
+function AreaPicker({ productId, request, value, onChange, disabled, onSize }: {
   productId: string; request: Row; value: ReviewPlacement; onChange: (p: ReviewPlacement) => void; disabled: boolean;
+  onSize: (e: SyntheticEvent<HTMLImageElement>) => void;
 }) {
   const left = (100 - value.size) * value.x / 100, top = (100 - value.size) * value.y / 100;
   function move(e: PointerEvent<HTMLDivElement>) {
@@ -98,7 +108,7 @@ function AreaPicker({ productId, request, value, onChange, disabled }: {
       if (disabled || e.button !== 0) return;
       e.currentTarget.setPointerCapture(e.pointerId); move(e);
     }} onPointerMove={e => { if (!disabled && e.currentTarget.hasPointerCapture(e.pointerId)) move(e); }}>
-      <img src={url(productId, request.basePhotoId!)} alt={t("review.base")}/>
+      <img src={url(productId, request.basePhotoId!)} alt={t("review.base")} onLoad={onSize}/>
       {request.photoId ? <img className="review-detail-layer" data-mode={request.mode} src={url(productId, request.photoId)}
         alt={request.detail ?? ""} style={style}/> : <span className="studio-area" style={style}/>}
     </div>
@@ -148,9 +158,11 @@ function EditRequest({ productId, request, events, ready }: { productId: string;
   const [settings, setSettings] = useState<ReviewAdjustment>(latest?.settings ?? { rotate: 0, tone: true, trim: true });
   const [chosen, choose] = useState<ReviewImageModel[]>(() => {
     const ai = methods.filter(m => m !== "local");
-    return ai.length ? ai.slice(0, 2) : methods.slice(0, 1);
+    return ai.length ? ai.slice(0, 1) : methods.slice(0, 1);
   });
   const [running, setRunning] = useState<ReviewImageModel[]>([]);
+  const [size, setSize] = useState<Size>();
+  const onSize = (e: SyntheticEvent<HTMLImageElement>) => setSize({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight });
   const sending = usePhotoAction();
   const ai = methods.some(m => m !== "local");
   // The viewer starts with the original so every version can be compared with what was photographed.
@@ -174,9 +186,10 @@ function EditRequest({ productId, request, events, ready }: { productId: string;
       <span className="ps-status" data-status={status}>{t(`studio.status.${status}`)}</span></header>
     {!accepted && <fieldset className="ps-job-body" disabled={sending.busy}>
       <div className="ps-job-source">
-        {boxed(request) && p ? <AreaPicker productId={productId} request={request} value={p} onChange={place} disabled={sending.busy}/>
+        {boxed(request) && p ? <AreaPicker productId={productId} request={request} value={p} onChange={place} disabled={sending.busy} onSize={onSize}/>
           : <button type="button" className="studio-open studio-base-open" aria-label={t("lightbox.zoom") + ": " + t("lightbox.original")}
-            onClick={() => viewer.open(gallery, 0)}><img className="ps-source-img" src={url(productId, request.basePhotoId!)} alt={t("review.base")}/></button>}
+            onClick={() => viewer.open(gallery, 0)}><img className="ps-source-img" src={url(productId, request.basePhotoId!)} alt={t("review.base")} onLoad={onSize}/></button>}
+        {ai && <LowRes size={size}/>}
       </div>
       <div className="ps-job-controls">
         {mode === "ADJUST" && <div className="ps-options">
@@ -217,6 +230,7 @@ export function ReviewPhotoStudio({ productId, photos, activity, ready }: {
   const [base, setBase] = useState(photos[0]?.id ?? "");
   const [file, setFile] = useState<File | null>(null);
   const [note, setNote] = useState(""), [area, setArea] = useState(false);
+  const [sizes, setSizes] = useState<Record<string, Size>>({});
   const sending = usePhotoAction(), viewer = useLightbox();
   const events = activity.map(row => row.event);
   const needsBase = action !== "UPLOAD", basePhoto = base || photos[0]?.id;
@@ -258,10 +272,12 @@ export function ReviewPhotoStudio({ productId, photos, activity, ready }: {
         {photos.length ? <div className="studio-bases" role="radiogroup" aria-label={t("studio.base")}>
           {photos.map((photo, i) => <span className="studio-base" key={photo.id}>
             <button type="button" role="radio" aria-checked={photo.id === basePhoto} onClick={() => setBase(photo.id)}>
-              <img src={photo.url} alt={t("review.photo") + " " + photo.position} width={112} height={112}/></button>
+              <img src={photo.url} alt={t("review.photo") + " " + photo.position} width={112} height={112}
+                onLoad={e => { const { naturalWidth: width, naturalHeight: height } = e.currentTarget; setSizes(s => ({ ...s, [photo.id]: { width, height } })); }}/></button>
             <button type="button" className="studio-zoom" aria-label={t("lightbox.zoom") + ": " + t("review.photo") + " " + photo.position}
               onClick={() => viewer.open(photos.map(p => ({ url: p.url, caption: t("review.photo") + " " + p.position })), i)}>🔍</button></span>)}
           <input type="hidden" name="basePhotoId" value={basePhoto ?? ""}/></div> : <p className="ps-note">{t("review.add_base_first")}</p>}
+        {(aiOnly || action === "DETAIL") && basePhoto && <LowRes size={sizes[basePhoto]}/>}
       </Step>}
       <Step n={needsBase ? 3 : 2} title={t(withFile ? "studio.step.file" : noteField ? "studio.step.describe" : "studio.step.start")}>
         <p className="studio-help">{t(`studio.help.${action}`)}</p>
