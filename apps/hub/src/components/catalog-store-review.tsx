@@ -23,9 +23,9 @@ export function StorePreview({ row, values, layout, photos, peers, phone = false
     slot={() => null} editor={() => null}/>;
 }
 
-function StoreFrame({ row, values, layout, photos, peers, phone, slot, editor, reviewing = false }: {
+function StoreFrame({ row, values, layout, photos, peers, phone, slot, editor, reviewing = false, afterHero }: {
   row: PilotRow; values: Record<FieldKey, string[]>; layout: StoreLayout; photos: Photo[]; peers: Peer[]; phone: boolean;
-  slot: (field: FieldKey) => React.ReactNode; editor: (field: FieldKey) => React.ReactNode; reviewing?: boolean;
+  slot: (field: FieldKey) => React.ReactNode; editor: (field: FieldKey) => React.ReactNode; reviewing?: boolean; afterHero?: React.ReactNode;
 }) {
   const facts = values.facts.map(splitFact);
   const key = facts.filter(([k]) => !identityLabels.includes(k)).slice(0, 4);
@@ -68,6 +68,7 @@ function StoreFrame({ row, values, layout, photos, peers, phone, slot, editor, r
           {!!key.length && <ul className="store-keyfacts">{key.map(([k, v], i) => <li key={i}><b>{k}:</b> {v}</li>)}</ul>}
         </div>
       </div>
+      {afterHero}
       {layout.order.map(s => <section key={s} className="store-section"><h3>{t(`store.section.${s}`)}</h3>{sections[s]}</section>)}
     </div>
   </div>;
@@ -110,8 +111,9 @@ function ValueEditor({ field, values, original, photos, peers, onChange }: {
     {!sameValues(values, original) && photos.find(p => p.id === values[0])?.illustration && <small role="alert">{t("store.illustrationMain")}</small>}</div>;
 }
 
-export function CatalogStoreReview({ row, photos, peers, next, old }: {
+export function CatalogStoreReview({ row, photos, peers, next, old, studio }: {
   row: PilotRow; photos: Photo[]; peers: Peer[]; next: string | null; old: { name: string; short: string; full: string };
+  studio?: React.ReactNode;
 }) {
   const router = useRouter();
   const [response, setResponse] = useState<FeedbackResponse>(() => row.response
@@ -124,7 +126,7 @@ export function CatalogStoreReview({ row, photos, peers, next, old }: {
         return a && (a.state === "KNOWN" || a.state === "UNKNOWN") && typeof a.text === "string" && typeof a.source === "string"
           ? { state: a.state, text: a.text, source: a.source } : { state: "" as const, text: "", source: "" };
       }) });
-  const [editing, setEditing] = useState<FieldKey | null>(null);
+  const [editing, setEditing] = useState<FieldKey | null>(null), [studioOpen, setStudioOpen] = useState(false);
   const [buyer, setBuyer] = useState(false), [phone, setPhone] = useState(false), [tab, setTab] = useState<"questions" | "old">("questions");
   const [revision, setRevision] = useState(row.revision), [dirty, setDirty] = useState(false), [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<TranslationKey>();
@@ -195,6 +197,8 @@ export function CatalogStoreReview({ row, photos, peers, next, old }: {
       <button type="button" aria-pressed={f.verdict === "UNNEEDED"} data-verdict="UNNEEDED" onClick={() => pick("UNNEEDED")}>{t("store.unneeded")}</button>
       <button type="button" aria-pressed={f.unknown} data-verdict="UNKNOWN" disabled={f.verdict === "UNNEEDED"}
         onClick={() => setField(field, { ...f, unknown: !f.unknown })}>{t("store.unknown")}</button>
+      {field === "photos" && studio && <button type="button" className="store-studio-toggle" aria-expanded={studioOpen}
+        onClick={() => setStudioOpen(o => !o)}>{t(studioOpen ? "studio.close" : "studio.open")}</button>}
       {section && <span className="store-order">
         <button type="button" aria-label={t("store.sectionUp")} onClick={() => moveSection(field as Section, -1)}>↑</button>
         <button type="button" aria-label={t("store.sectionDown")} onClick={() => moveSection(field as Section, 1)}>↓</button></span>}
@@ -221,7 +225,8 @@ export function CatalogStoreReview({ row, photos, peers, next, old }: {
     </div>
     <div className="store-layout">
       <div>
-        <StoreFrame row={row} values={values} layout={layout} photos={photos} peers={peers} phone={phone} slot={slot} editor={editor} reviewing={!buyer}/>
+        <StoreFrame row={row} values={values} layout={layout} photos={photos} peers={peers} phone={phone} slot={slot} editor={editor} reviewing={!buyer}
+          afterHero={!buyer && studioOpen ? <div className="store-studio">{studio}</div> : null}/>
         {!buyer && <div className="store-notes"><label className="store-missing">{t("store.missing")}<textarea maxLength={1600} value={layout.missing}
           onChange={e => update({ layout: { ...layout, missing: e.target.value } })}/></label>
           <label className="store-missing">{t("pilot.photoReview")}<textarea maxLength={1600} value={response.photoNote}

@@ -3,50 +3,51 @@
 import { useRef, useState, useTransition, type FormEvent, type PointerEvent } from "react";
 import { useRouter } from "next/navigation";
 import type { getReviewProduct } from "@khidi/catalog-review";
+import type { ReviewAdjustment, ReviewImageModel, ReviewPhotoMode, ReviewPlacement } from "@khidi/db";
 import { t, type TranslationKey } from "@khidi/i18n";
 
 type Activity = Awaited<ReturnType<typeof getReviewProduct>>["photoWork"];
 type Row = Activity[number]["event"];
 type Photo = { id: string; position: number; url: string };
-const models = { local: "review.local", "gemini-3.1-flash-image": "review.fast", "gemini-3-pro-image": "review.pro" } as const;
+type Action = "UPLOAD" | "ADJUST" | "CLEAN" | "BACKGROUND" | "DETAIL" | "SCENE";
+const actions: Action[] = ["UPLOAD", "ADJUST", "CLEAN", "BACKGROUND", "DETAIL", "SCENE"];
+const aiModels: ReviewImageModel[] = ["gpt-image-2.6-sunburst", "gemini-3-pro-image", "gpt-image-2.6-flare", "gemini-3.1-flash-image"];
 const date = new Intl.DateTimeFormat("ka-GE", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Tbilisi" });
 const url = (product: string, photo: string) => "/api/catalog-review/photo/" + product + "/" + photo;
+const boxed = (mode: ReviewPhotoMode) => mode === "INSET" || mode === "MOUNT" || mode === "CLEAN";
+const methodsFor = (mode: ReviewPhotoMode, ready: ReviewImageModel[]): ReviewImageModel[] =>
+  mode === "ADJUST" || mode === "INSET" ? ["local"]
+    : [...(mode === "MOUNT" ? ["local" as const] : []), ...aiModels.filter(m => ready.includes(m))];
+const errors: Record<number, TranslationKey> = { 400: "review.failed", 401: "review.expired", 409: "review.conflict",
+  412: "review.paid_limit", 413: "review.image_invalid", 422: "review.render_failed" };
 
+/** Posts photo operations. Each distinct operation keeps its retry key until it succeeds, so a retry is never billed twice. */
 function usePhotoAction() {
   const router = useRouter();
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState(0);
   const [refreshing, startTransition] = useTransition();
   const [message, setMessage] = useState<TranslationKey>();
-  const inFlight = useRef(false);
-  const key = useRef({ identity: "", value: "", file: null as File | null });
+  const keys = useRef(new Map<string, string>());
   async function submit(body: FormData | Record<string, unknown>, onSuccess?: () => void) {
-    if (inFlight.current || refreshing) return;
-    inFlight.current = true;
     const multipart = body instanceof FormData;
-    const identity = multipart ? JSON.stringify([...body.entries()].filter(([name]) => name !== "image")) : JSON.stringify(body);
     const file = multipart ? body.get("image") as File : null;
-    if (key.current.identity !== identity || file !== key.current.file) key.current = { identity, file, value: crypto.randomUUID() };
-    setBusy(true);
-    setMessage("review.working_photo");
+    const identity = (multipart ? JSON.stringify([...body.entries()].filter(([n]) => n !== "image")) : JSON.stringify(body))
+      + (file ? file.name + file.size + file.lastModified : "");
+    if (!keys.current.has(identity)) keys.current.set(identity, crypto.randomUUID());
+    setPending(n => n + 1); setMessage("review.working_photo");
     try {
       const response = await fetch("/api/catalog-review/photo-work", { method: "POST",
-        headers: { "Idempotency-Key": key.current.value, ...(multipart ? {} : { "Content-Type": "application/json" }) },
+        headers: { "Idempotency-Key": keys.current.get(identity)!, ...(multipart ? {} : { "Content-Type": "application/json" }) },
         body: multipart ? body : JSON.stringify(body) });
-      if (!response.ok) {
-        if (response.status === 422) key.current.identity = "";
-        const errors: Record<number, TranslationKey> = { 400: multipart ? "review.image_invalid" : "review.failed", 401: "review.expired",
-          409: "review.conflict", 412: "review.paid_limit", 413: "review.image_invalid", 422: "review.render_failed" };
-        setMessage(errors[response.status] ?? "review.failed");
-      } else {
-        key.current.identity = "";
-        onSuccess?.();
-        setMessage("review.saved");
-      }
+      if (response.ok || response.status === 422) keys.current.delete(identity);
+      if (!response.ok) setMessage(multipart && response.status === 400 ? "review.image_invalid" : errors[response.status] ?? "review.failed");
+      else { onSuccess?.(); setMessage("review.saved"); }
       startTransition(() => router.refresh());
     } catch { setMessage("review.failed"); }
-    finally { inFlight.current = false; setBusy(false); }
+    finally { setPending(n => n - 1); }
   }
-  return { busy: busy || refreshing, submit, feedback: <p role="status" className="review-feedback">{message ? t(message) : null}</p> };
+  return { busy: pending > 0 || refreshing, waiting: pending > 0, submit,
+    feedback: <p role="status" className="review-feedback">{message ? t(message) : null}</p> };
 }
 
 export function ReviewPhotoHistory({ activity }: { activity: Activity }) {
@@ -56,107 +57,170 @@ export function ReviewPhotoHistory({ activity }: { activity: Activity }) {
       <strong>{t(`review.operation.${event.kind}`)}</strong> · {actor} · {date.format(new Date(event.createdAt))}
       {event.detail && <span> · {event.detail}</span>}
       {event.mode && <span> · {t(`review.${event.mode}`)}</span>}
-      {event.model && <span> · {t(models[event.model])}</span>}
+      {event.model && <span> · {t(`studio.model.${event.model}`)}</span>}
+      {event.note && <span> · {event.note}</span>}
       {event.placement && <span> · X {event.placement.x}% · Y {event.placement.y}% · {t("review.size")} {event.placement.size}%</span>}
     </li>)}</ol></details>;
 }
 
-function DetailRequest({ productId, request, events, paid }: { productId: string; request: Row; events: Row[]; paid: boolean }) {
+function AreaPicker({ productId, request, value, onChange, disabled }: {
+  productId: string; request: Row; value: ReviewPlacement; onChange: (p: ReviewPlacement) => void; disabled: boolean;
+}) {
+  const left = (100 - value.size) * value.x / 100, top = (100 - value.size) * value.y / 100;
+  function move(e: PointerEvent<HTMLDivElement>) {
+    const r = e.currentTarget.getBoundingClientRect();
+    const at = (point: number, start: number, length: number) => Math.max(0, Math.min(100,
+      Math.round(((point - start) / length * 100 - value.size / 2) * 100 / (100 - value.size))));
+    onChange({ ...value, x: at(e.clientX, r.left, r.width), y: at(e.clientY, r.top, r.height) });
+  }
+  const style = { left: left + "%", top: top + "%", width: value.size + "%", height: value.size + "%" };
+  return <>
+    <div className="review-edit-canvas" onPointerDown={e => {
+      if (disabled || e.button !== 0) return;
+      e.currentTarget.setPointerCapture(e.pointerId); move(e);
+    }} onPointerMove={e => { if (!disabled && e.currentTarget.hasPointerCapture(e.pointerId)) move(e); }}>
+      <img src={url(productId, request.basePhotoId!)} alt={t("review.base")}/>
+      {request.photoId ? <img className="review-detail-layer" data-mode={request.mode} src={url(productId, request.photoId)}
+        alt={request.detail ?? ""} style={style}/> : <span className="studio-area" style={style}/>}
+    </div>
+    <small>{t(request.photoId ? "review.move_detail" : "studio.area")}</small>
+    {(["x", "y", "size"] as const).map(axis => <label key={axis}>{t(axis === "size" && !request.photoId ? "studio.area_size" : `review.${axis}`)} · {value[axis]}%
+      <input type="range" min={axis === "size" ? 10 : 0} max={axis === "size" ? 70 : 100} value={value[axis]}
+        onChange={e => onChange({ ...value, [axis]: Number(e.currentTarget.value) })}/></label>)}
+    <button type="button" onClick={() => onChange(request.placement!)}>{t("review.reset_layout")}</button>
+  </>;
+}
+
+function Preview({ productId, preview, render, accepted, rejected, onDone, sending }: {
+  productId: string; preview: Row; render: Row; accepted?: Row; rejected?: Row; onDone: boolean;
+  sending: ReturnType<typeof usePhotoAction>;
+}) {
+  const [reason, setReason] = useState(""), [asking, setAsking] = useState(false);
+  // Every result except a deterministic adjustment contains composed or generated pixels.
+  const illustration = !render.settings;
+  const mine = accepted?.photoId === preview.photoId;
+  return <figure data-state={mine ? "accepted" : rejected ? "rejected" : "open"}>
+    <a href={url(productId, preview.photoId!)} target="_blank" rel="noreferrer"><img src={url(productId, preview.photoId!)} alt=""/></a>
+    <figcaption>{t(`studio.model.${render.model!}`)}{illustration && <em> · {t("studio.illustration")}</em>}</figcaption>
+    {mine && <strong>{t("review.approved_photo")}</strong>}
+    {rejected && <p className="studio-rejected">{t("studio.rejected")} · {rejected.note}</p>}
+    {!onDone && !rejected && <div className="studio-verdict">
+      <button type="button" className="studio-accept" disabled={sending.busy} onClick={() => sending.submit({ productId, previewId: preview.id })}>{t("studio.accept")}</button>
+      {asking ? <><input maxLength={600} value={reason} aria-label={t("studio.reject_reason")} placeholder={t("studio.reject_reason")}
+        onChange={e => setReason(e.target.value)}/>
+        <button type="button" disabled={sending.busy || !reason.trim()} onClick={() => sending.submit({ productId, previewId: preview.id, note: reason.trim() })}>
+          {t("studio.reject_save")}</button></>
+        : <button type="button" onClick={() => setAsking(true)}>{t("studio.reject")}</button>}
+    </div>}
+  </figure>;
+}
+
+function EditRequest({ productId, request, events, ready }: { productId: string; request: Row; events: Row[]; ready: ReviewImageModel[] }) {
+  const mode = request.mode!;
   const renders = events.filter(e => e.kind === "RENDER" && e.parentId === request.id);
   const previews = events.filter(e => e.kind === "PREVIEW" && renders.some(r => r.id === e.parentId));
+  const failed = events.filter(e => e.kind === "FAILED" && renders.some(r => r.id === e.parentId)).length;
   const accepted = events.find(e => e.kind === "ACCEPT" && e.parentId === request.id);
+  const methods = methodsFor(mode, ready);
   const latest = renders.at(-1);
-  const [p, place] = useState(latest?.placement ?? request.placement!);
-  const [model, setModel] = useState<keyof typeof models>(paid && request.mode === "MOUNT" ? "gemini-3.1-flash-image" : "local");
+  const [p, place] = useState<ReviewPlacement | null>(latest?.placement ?? request.placement);
+  const [settings, setSettings] = useState<ReviewAdjustment>(latest?.settings ?? { rotate: 0, tone: true, trim: true });
+  const [chosen, choose] = useState<ReviewImageModel[]>(() => {
+    const ai = methods.filter(m => m !== "local");
+    return mode === "MOUNT" && !ai.length || !ai.length ? methods.slice(0, 1) : ai.slice(0, 2);
+  });
   const sending = usePhotoAction();
-  const left = (100 - p.size) * p.x / 100;
-  const top = (100 - p.size) * p.y / 100;
-  function moveDetail(e: PointerEvent<HTMLDivElement>) {
-    const box = e.currentTarget.getBoundingClientRect();
-    const offset = (point: number, start: number, length: number) => Math.max(0, Math.min(100,
-      Math.round(((point - start) / length * 100 - p.size / 2) * 100 / (100 - p.size))));
-    place({ ...p, x: offset(e.clientX,box.left,box.width), y: offset(e.clientY,box.top,box.height) });
+  const ai = methods.some(m => m !== "local");
+  function make() {
+    for (const model of chosen) void sending.submit({ productId, requestId: request.id, model,
+      ...(boxed(mode) ? { placement: p } : {}), ...(mode === "ADJUST" ? { settings } : {}) });
   }
+  const toggle = (m: ReviewImageModel) => choose(c => c.includes(m) ? c.filter(x => x !== m) : [...c, m].slice(-2));
   return <section className="review-detail-request">
-    <h3>{request.detail} · {t(`review.${request.mode!}`)}</h3>
-    {accepted ? <p>{t("review.approved_photo")}</p> : <fieldset disabled={sending.busy}>
-      <legend>{t("review.layout")}</legend>
-      <div className="review-edit-canvas" onPointerDown={e => {
-        if (sending.busy || e.button !== 0) return;
-        e.currentTarget.setPointerCapture(e.pointerId);
-        moveDetail(e);
-      }} onPointerMove={e => {
-        if (!sending.busy && e.currentTarget.hasPointerCapture(e.pointerId)) moveDetail(e);
-      }}>
-        <img src={url(productId,request.basePhotoId!)} alt={t("review.base")} />
-        <img className="review-detail-layer" data-mode={request.mode} src={url(productId,request.photoId!)} alt={request.detail!}
-          style={{ left: left + "%", top: top + "%", width: p.size + "%", height: p.size + "%" }} />
-      </div>
-      <small>{t("review.move_detail")}</small>
-      {(["x","y","size"] as const).map(axis => <label key={axis}>{t(`review.${axis}`)} · {p[axis]}%
-        <input type="range" min={axis === "size" ? 10 : 0} max={axis === "size" ? 70 : 100}
-          value={p[axis]} onChange={e => place({ ...p, [axis]: Number(e.currentTarget.value) })} />
-      </label>)}
-      <button type="button" onClick={() => place(request.placement!)}>{t("review.reset_layout")}</button>
-      {request.mode === "MOUNT" && <><label>{t("review.method")}
-        <select value={model} onChange={e => setModel(e.target.value as keyof typeof models)}>
-          {Object.entries(models).map(([m,label]) => <option key={m} disabled={!paid && m !== "local"} value={m}>{t(label)}</option>)}
-        </select></label><small>{t(paid ? "review.ai_hint" : "review.paid_unavailable")}</small>
-        {model !== "local" && <small>{t("review.paid_info")}</small>}</>}
-      <button type="button" onClick={() => sending.submit({ productId, requestId: request.id, placement: p, model })}>
-        {t(model === "local" ? "review.render" : "review.render_paid")}</button>
+    <h3>{t(`review.${mode}`)}{request.detail ? " · " + request.detail : ""}</h3>
+    {!accepted && <fieldset disabled={sending.busy}>
+      {boxed(mode) && p && <AreaPicker productId={productId} request={request} value={p} onChange={place} disabled={sending.busy}/>}
+      {!boxed(mode) && <img className="review-base-thumb" src={url(productId, request.basePhotoId!)} alt={t("review.base")}/>}
+      {mode === "ADJUST" && <div className="studio-adjust">
+        <button type="button" onClick={() => setSettings(s => ({ ...s, rotate: (s.rotate + 90) % 360 as ReviewAdjustment["rotate"] }))}>
+          {t("studio.rotate")} · {settings.rotate}°</button>
+        <label className="studio-check"><input type="checkbox" checked={settings.trim} onChange={e => setSettings(s => ({ ...s, trim: e.target.checked }))}/>{t("studio.trim")}</label>
+        <label className="studio-check"><input type="checkbox" checked={settings.tone} onChange={e => setSettings(s => ({ ...s, tone: e.target.checked }))}/>{t("studio.tone")}</label>
+      </div>}
+      {methods.length > 1 && <div className="studio-methods" role="group" aria-label={t("studio.methods")}><span>{t("studio.methods")}</span>
+        {methods.map(m => <label key={m} className="studio-check"><input type="checkbox" checked={chosen.includes(m)} onChange={() => toggle(m)}/>{t(`studio.model.${m}`)}</label>)}</div>}
+      {!methods.length && <p>{t("studio.no_ai")}</p>}
+      {ai && <small>{t("studio.ai_note")}</small>}
+      <button type="button" className="studio-make" disabled={!chosen.length || !methods.length} onClick={make}>
+        {t(chosen.length > 1 ? "studio.compare" : "studio.make")}</button>
+      {sending.waiting && chosen.some(m => m !== "local") && <small>{t("studio.waiting")}</small>}
     </fieldset>}
+    {failed > 0 && <small>{t("review.render_failed")} ({failed})</small>}
     {previews.length > 0 && <div className="review-edit-previews"><h4>{t("review.previews")}</h4>
-      {previews.slice().reverse().map(e => <figure key={e.id}>
-        <img src={url(productId,e.photoId!)} alt={request.detail!} />
-        <figcaption>{t(models[renders.find(r => r.id === e.parentId)!.model!])}</figcaption>
-        {accepted?.photoId === e.photoId && <strong>{t("review.approved_photo")}</strong>}
-        {!accepted && <button type="button" disabled={sending.busy}
-          onClick={() => sending.submit({ productId, previewId: e.id })}>{t("review.accept_draft")}</button>}
-      </figure>)}</div>}
+      {previews.slice().reverse().map(e => <Preview key={e.id} productId={productId} preview={e} sending={sending} onDone={Boolean(accepted)}
+        render={renders.find(r => r.id === e.parentId)!} accepted={accepted}
+        rejected={events.find(x => x.kind === "REJECT" && x.parentId === e.id)}/>)}</div>}
     {sending.feedback}
   </section>;
 }
 
-export function ReviewPhotoStudio({ productId, photos, activity, paid }: {
-  productId: string; photos: Photo[]; activity: Activity; paid: boolean;
+export function ReviewPhotoStudio({ productId, photos, activity, ready }: {
+  productId: string; photos: Photo[]; activity: Activity; ready: ReviewImageModel[];
 }) {
-  const [kind, setKind] = useState("UPLOAD");
+  const [action, setAction] = useState<Action>("UPLOAD");
   const [base, setBase] = useState(photos[0]?.id ?? "");
   const [file, setFile] = useState<File | null>(null);
+  const [note, setNote] = useState("");
   const sending = usePhotoAction();
   const events = activity.map(row => row.event);
+  const needsBase = action !== "UPLOAD", basePhoto = base || photos[0]?.id;
+  const aiOnly = action === "CLEAN" || action === "BACKGROUND" || action === "SCENE";
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!file) return;
-    const form = e.currentTarget;
-    const data = new FormData(form);
-    data.set("productId",productId);
-    data.set("kind",kind);
-    data.set("image",file);
-    void sending.submit(data, () => { form.reset(); setFile(null); });
+    if (action === "UPLOAD" || action === "DETAIL") {
+      if (!file) return;
+      const form = e.currentTarget, data = new FormData(form);
+      data.set("productId", productId);
+      data.set("kind", action === "UPLOAD" ? "UPLOAD" : "REQUEST");
+      if (action === "UPLOAD") { data.delete("basePhotoId"); data.delete("detail"); data.delete("mode"); }
+      data.set("image", file);
+      void sending.submit(data, () => { form.reset(); setFile(null); });
+    } else {
+      void sending.submit({ productId, basePhotoId: basePhoto, mode: action, ...(note.trim() ? { detail: note.trim() } : {}) },
+        () => setNote(""));
+    }
   }
-  return <section className="review-photo-studio"><h2>{t("review.studio")}</h2>
+  const requests = events.filter(e => e.kind === "REQUEST").reverse();
+  const open = requests.filter(r => !events.some(e => e.kind === "ACCEPT" && e.parentId === r.id));
+  const done = requests.filter(r => !open.includes(r));
+  return <section className="review-photo-studio"><h2>{t("studio.title")}</h2>
+    <div className="studio-actions" role="tablist">{actions.map(a => <button type="button" role="tab" aria-selected={a === action} key={a}
+      onClick={() => { setAction(a); setNote(""); }}>{t(`studio.action.${a}`)}</button>)}</div>
     <form onSubmit={submit}><fieldset disabled={sending.busy}>
-      <div className="review-actions">{(["UPLOAD","REQUEST"] as const).map(k =>
-        <button type="button" aria-pressed={k === kind} key={k} onClick={() => setKind(k)}>
-          {t(k === "UPLOAD" ? "review.upload" : "review.request_detail")}</button>)}</div>
-      {kind === "REQUEST" && photos.length > 0 && <>
-        <label>{t("review.base")}<select name="basePhotoId" value={base || photos[0]!.id} onChange={e => setBase(e.target.value)}>
-          {photos.map(photo => <option key={photo.id} value={photo.id}>{t("review.photo")} {photo.position}</option>)}</select></label>
-        <img className="review-base-thumb" src={url(productId,base || photos[0]!.id)} alt={t("review.base")} />
-        <label>{t("review.detail")}<input name="detail" maxLength={240} required placeholder={t("review.detail_hint")} /></label>
-        <label>{t("review.presentation")}<select name="mode"><option value="INSET">{t("review.INSET")}</option>
-          <option value="MOUNT">{t("review.MOUNT")}</option></select></label></>}
-      {kind === "REQUEST" && !photos.length ? <p>{t("review.add_base_first")}</p> : <>
-        <label>{t(kind === "UPLOAD" ? "review.upload" : "review.source_image")}
-          <input type="file" required accept="image/jpeg,image/png,image/webp" onChange={e => setFile(e.target.files?.[0] ?? null)} />
-          <small>{t("review.file_help")}</small></label>
-        <button type="submit" disabled={!file || file.size > 15 * 1024 * 1024}>{t(kind === "UPLOAD" ? "review.upload_save" : "review.layout_suggest")}</button>
-        {file && file.size > 15 * 1024 * 1024 && <small role="alert">{t("review.image_invalid")}</small>}</>}
+      <p className="studio-help">{t(`studio.help.${action}`)}</p>
+      {needsBase && (photos.length ? <div className="studio-bases" role="radiogroup" aria-label={t("studio.base")}><span>{t("studio.base")}</span>
+        {photos.map(photo => <button type="button" role="radio" aria-checked={photo.id === basePhoto} key={photo.id} onClick={() => setBase(photo.id)}>
+          <img src={photo.url} alt={t("review.photo") + " " + photo.position} width={72} height={72}/></button>)}
+        <input type="hidden" name="basePhotoId" value={basePhoto ?? ""}/></div> : <p>{t("review.add_base_first")}</p>)}
+      {action === "DETAIL" && <>
+        <label>{t("review.detail")}<input name="detail" maxLength={240} required placeholder={t("review.detail_hint")}/></label>
+        <label>{t("review.presentation")}<select name="mode"><option value="MOUNT">{t("review.MOUNT")}</option>
+          <option value="INSET">{t("review.INSET")}</option></select></label></>}
+      {(action === "CLEAN" || action === "SCENE") && <label>{t(action === "CLEAN" ? "studio.clean_label" : "studio.scene_label")}
+        <input maxLength={240} required value={note} placeholder={t(action === "CLEAN" ? "studio.clean_hint" : "studio.scene_hint")}
+          onChange={e => setNote(e.target.value)}/></label>}
+      {(action === "UPLOAD" || action === "DETAIL") && <label>{t(action === "UPLOAD" ? "review.upload" : "review.source_image")}
+        <input type="file" required accept="image/jpeg,image/png,image/webp" onChange={e => setFile(e.target.files?.[0] ?? null)}/>
+        <small>{t("review.file_help")}</small></label>}
+      {aiOnly && !ready.length && <p>{t("studio.no_ai")}</p>}
+      <button type="submit" className="studio-make" disabled={needsBase && !photos.length || aiOnly && !ready.length
+        || (action === "UPLOAD" || action === "DETAIL") && (!file || file.size > 15 * 1024 * 1024)}>
+        {t(action === "UPLOAD" ? "review.upload_save" : action === "DETAIL" ? "review.layout_suggest" : "studio.start")}</button>
+      {file && file.size > 15 * 1024 * 1024 && <small role="alert">{t("review.image_invalid")}</small>}
     </fieldset>{sending.feedback}</form>
-    {events.filter(e => e.kind === "REQUEST").reverse().map(request =>
-      <DetailRequest key={request.id} productId={productId} request={request} events={events} paid={paid} />)}
-    <ReviewPhotoHistory activity={activity} />
+    {open.map(r => <EditRequest key={r.id} productId={productId} request={r} events={events} ready={ready}/>)}
+    {done.length > 0 && <details><summary>{t("studio.done")} ({done.length})</summary>
+      {done.map(r => <EditRequest key={r.id} productId={productId} request={r} events={events} ready={ready}/>)}</details>}
+    <ReviewPhotoHistory activity={activity}/>
   </section>;
 }

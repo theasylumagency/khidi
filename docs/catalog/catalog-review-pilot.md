@@ -87,13 +87,27 @@ available. An accepted composition is editorial media and does not verify fit or
 The queue shows affected products, history identifies the actor and first-pass reports created
 after migration include the reviewer's uploads, requests and accepted edits by product.
 
-Local placement uses Sharp. Set the server-only REVIEW_GEMINI_API_KEY to enable optional
-mounted previews with Gemini 3.1 Flash Image or Gemini 3 Pro Image. The paid button sends
-three metadata-free reference images and the requested part description to Google. Each
-request asks for one 1K image with at most 4096 output tokens. The pilot shares 40 paid
-attempts across all reviewers and models. Failed or interrupted attempts consume a slot.
-Duplicate submissions do not call the provider again. Set the proxy limits in the server
-setup guide. The editor works without a provider key.
+Migration 0064 extends the editor into a photo workbench, opened from the photo block of the
+store-preview card. Besides uploads and accessory details it offers:
+
+- **Adjust** (Sharp, no provider): quarter turns, trimming of plain borders, automatic tone and
+  the square white canvas. The result is a real photo and may become the main image.
+- **Clean up** (AI): the reviewer names what to remove and marks a square; only that square is
+  taken from the model, every other pixel stays the original.
+- **White background** and **in-use scene** (AI): the whole image is generated.
+
+Every result that contains composed or generated pixels is stored with origin `COMPOSITION`,
+shown as an illustration and refused as the main photo. The reviewer can accept a preview into
+the gallery or reject it with a reason. Rejections are kept as pilot evidence per method.
+
+Providers are optional and server-only. `REVIEW_OPENAI_API_KEY` enables GPT-Image-2.6 Sunburst
+(quality `high`) and Flare (`medium`) through `POST /v1/images/edits`. The square is sent as a
+transparent red-outline `markup` image. `REVIEW_GEMINI_API_KEY` enables Gemini 3 Pro Image and
+Gemini 3.1 Flash Image. The reviewer may request two methods at once to compare them. Each
+paid call is recorded before the provider is contacted and counts against two limits: 16 per
+product and `REVIEW_AI_RENDER_LIMIT` across the pilot (default 160). Failed or interrupted calls
+count too, and retries with the same key never call the provider again. Images sent to a
+provider are re-encoded without metadata. The editor works without any provider key.
 
 Before the approved Hub release, use the [upgrade and recovery runbook](../ops/server-setup.md). Keep the version 2 manifest and the audited `originals/` tree in a restricted operator directory outside the release, Git and the web root. Run the file-only preview before the handover and again after transfer. It prints the manifest SHA-256 and validates every referenced original against its audit.
 

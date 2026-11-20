@@ -35,7 +35,7 @@ Do not remove real users or reference data to make bootstrap work.
    Set client_max_body_size 1m normally, 64k for /api/v1/storefront/ and authentication (the
    app uses 16 KiB login, 64 KiB passkeys, 4 KiB setup/activity limits), 8m for /api/prices/csv,
    and 16m for /api/media/uploads, /api/catalog-review/photo-work and /api/evidence multipart bodies.
-   Allow 120s upstream read timeout on /api/catalog-review/photo-work for interactive image edits. Include matching proxy
+   Allow 180s upstream read timeout on /api/catalog-review/photo-work for interactive image edits. Include matching proxy
    headers in every nested nginx location; child locations do not inherit sibling settings.
    Limit body/header read time (e.g. 15s), header sizes and upstream timeouts; leave application
    streaming limits enabled. Do not log request bodies, Authorization/Cookie headers, setup
