@@ -8,6 +8,7 @@ import { boxedModes, optionalBoxModes, modelsFor, providerConfigured, renderRevi
 import { digest, type MediaStorage } from "@khidi/media/storage";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import { lockPilotPhotoWork, requireReviewProduct } from "./access.ts";
+import { visibleGalleryPhoto, visiblePhotoWork } from "./photo-visibility.ts";
 
 const uid = z.string().uuid();
 export const photoForm = z.discriminatedUnion("kind", [
@@ -63,7 +64,7 @@ async function readAsset(tx: DbExecutor, storage: MediaStorage, batchId: string,
 }
 
 async function event(tx: DbExecutor, productId: string, id: string, kind: typeof work.$inferSelect.kind) {
-  const [row] = await tx.select().from(work).where(and(eq(work.productId,productId),eq(work.id,id),eq(work.kind,kind)));
+  const [row] = await tx.select().from(work).where(and(eq(work.productId,productId),eq(work.id,id),eq(work.kind,kind),visiblePhotoWork));
   if (!row) throw new AppError("NOT_FOUND","Unknown review photo operation.");
   return row;
 }
@@ -78,7 +79,7 @@ export async function uploadReviewImage(db: AppDatabase, storage: MediaStorage, 
       await lockPilotPhotoWork(ctx.tx, principal, productId);
       let placement;
       if (form.kind === "REQUEST") {
-        const [base] = await ctx.tx.select().from(links).where(and(eq(links.productId,productId), eq(links.photoId,form.basePhotoId)));
+        const [base] = await ctx.tx.select().from(links).where(and(eq(links.productId,productId), eq(links.photoId,form.basePhotoId),visibleGalleryPhoto));
         if (!base) throw new AppError("VALIDATION_ERROR","Select a gallery image from this product.");
         placement = await suggestReviewPlacement(await readAsset(ctx.tx, storage, batchId, base.photoId), form.mode);
       }
@@ -97,7 +98,7 @@ export async function requestReviewEdit(db: AppDatabase, storage: MediaStorage, 
     tx => withDomainTransaction(tx, { userId: principal.userId }, async ctx => {
       const { id: productId, batchId } = await requireReviewProduct(ctx.tx, principal, input.productId);
       await lockPilotPhotoWork(ctx.tx, principal, productId);
-      const [base] = await ctx.tx.select().from(links).where(and(eq(links.productId,productId), eq(links.photoId,input.basePhotoId)));
+      const [base] = await ctx.tx.select().from(links).where(and(eq(links.productId,productId), eq(links.photoId,input.basePhotoId),visibleGalleryPhoto));
       if (!base) throw new AppError("VALIDATION_ERROR","Select a gallery image from this product.");
       // A clean-up always works in a square; a free instruction only when the reviewer asked to limit it.
       const placement = input.mode === "CLEAN" || input.mode === "INSTRUCT" && input.area
@@ -130,7 +131,7 @@ export async function renderReviewDraft(db: AppDatabase, storage: MediaStorage, 
         await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended('review-photo-paid-pilot',0))`);
         const [used] = await ctx.tx.select({ all: sql<number>`count(*)::int`,
           product: sql<number>`count(*) FILTER (WHERE ${work.productId}=${product.id})::int` }).from(work)
-          .where(and(eq(work.kind,"RENDER"), sql`${work.model} <> 'local'`));
+          .where(and(eq(work.kind,"RENDER"), sql`${work.model} <> 'local'`,visiblePhotoWork));
         if (used!.all >= paidLimit() || used!.product >= paidPerProduct) {
           throw new AppError("PRECONDITION_FAILED","Pilot image allowance exhausted.");
         }
