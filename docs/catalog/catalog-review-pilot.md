@@ -95,13 +95,18 @@ store-preview card. Besides uploads and accessory details it offers:
 - **Clean up** (AI): the reviewer names what to remove and marks a square; only that square is
   taken from the model, every other pixel stays the original.
 - **White background** and **in-use scene** (AI): the whole image is generated.
+- **AI instruction** (migration 0065): the reviewer writes what to change in plain Georgian
+  ("remove the rust from the engine"); examples are one click away. The model is told to change
+  nothing else and to add no parts. She may limit it to a square; then only that square is taken
+  from the model.
 
 Results are stored by kind, and the kind decides what the reviewer must confirm before the
 photo can lead the card (owner decision, 2026-11-20):
 
 - **Photo** (upload, adjustment): no confirmation.
-- **AI edit** (clean-up, white background; origin `AI_EDIT`): may be the main photo once she
-  confirms she compared it with the original and the product itself is unchanged. Buyers see it as
+- **AI edit** (clean-up, white background, AI instruction; origin `AI_EDIT`): may be the main
+  photo once she confirms she compared it with the original and the product looks as the buyer
+  will receive it. Buyers see it as
   an ordinary photo; the review view marks it.
 - **Illustration** (mounted or inset detail, scene; origin `COMPOSITION`): the card advises against
   using it as the main photo and offers to restore a real one. She may still choose it, with an
