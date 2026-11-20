@@ -11,11 +11,11 @@ export const visiblePhotoWork = sql<boolean>`NOT EXISTS (
 
 /** Only photos appended to a gallery by the voided actor are hidden; imported photos stay untouched. */
 export const visibleGalleryPhoto = sql<boolean>`NOT EXISTS (
-  SELECT 1 FROM catalog_review_photo_work event
+  SELECT 1 FROM catalog_review_photo_work w
   JOIN catalog_review_photo_test_resets r
-    ON r.product_id = event.product_id AND r.actor_id = event.actor_id
-  WHERE event.product_id = ${links.productId}
-    AND event.photo_id = ${links.photoId}
-    AND event.kind IN ('UPLOAD', 'ACCEPT')
-    AND event.created_at <= r.cutoff_at
+    ON r.product_id = w.product_id AND r.actor_id = w.actor_id
+  WHERE w.product_id = ${links.productId}
+    AND w.photo_id = ${links.photoId}
+    AND w.kind IN ('UPLOAD', 'ACCEPT')
+    AND w.created_at <= r.cutoff_at
 )`;
