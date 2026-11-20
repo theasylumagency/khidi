@@ -47,7 +47,8 @@ describe("manual catalog text and exact approvals", () => {
     expect(detail.history[0]).toMatchObject({ action: "EDIT", editedText: text, approvedText: null });
     expect(await listReviewProducts(db, f.principal)).toMatchObject([{ total: 2, pending: 1, name: text }]);
     expect(await listReviewProducts(db, f.other)).toMatchObject([{ name: "", pending: 2 }]);
-    expect(await listReviewProducts(db, f.admin)).toMatchObject([{ name: text }]);
+    // An administrator sees every batch; other test files may have left products behind, so select this fixture's product.
+    expect((await listReviewProducts(db, f.admin)).filter((p) => p.id === f.productId)).toMatchObject([{ name: text }]);
     const approve = { proposalId: saved.body.proposalId, revision: 1, action: "APPROVE", textVersion: saved.body.id } as const;
     const approvalKey = uuid(), accepted = await recordReviewDecision(db, f.principal, approvalKey, approve);
     expect(await recordReviewDecision(db, f.principal, approvalKey, approve)).toMatchObject({ replayed: true, body: accepted.body });
