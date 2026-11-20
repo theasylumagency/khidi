@@ -78,6 +78,7 @@ export const CATALOG_REVIEW_LABELS = {
   "pilot.relation.part": "შესაძლო სათადარიგო ნაწილი",
   "pilot.relation.kit": "კომპლექტის შესაძლო ნაწილი",
   "pilot.relation.supply": "შესაძლო სახარჯი",
+  "pilot.relation.fits": "ერგება (დასადასტურებელი)",
   "pilot.target.name": "სახელი",
   "pilot.target.facts": "მახასიათებლები",
   "pilot.target.description": "აღწერა",

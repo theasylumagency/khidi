@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>კატალოგის პილოტი · მაღაზიის ხედი</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Georgian:wght@400;500;600;700&family=Noto+Serif+Georgian:wght@600;700&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: the reviewer works inside a neutral store page (left) with a review rail (right); review chrome is green, the store stays brand-less grey. */
+:root{
+  --ink:#1d2421; --muted:#5f6b66; --line:#dde3df; --paper:#f4f6f5; --card:#ffffff;
+  --review:#1f4d3a; --review-soft:#e3efe8; --flag:#b6541b; --flag-soft:#fbeadf; --ok:#2f7a4f; --edit:#2c5aa0; --edit-soft:#e4ecf8;
+  --display:"Noto Serif Georgian", Georgia, serif; --body:"Noto Sans Georgian", "Segoe UI", system-ui, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ink:#e7ece9; --muted:#9aa7a1; --line:#33403a; --paper:#161b19; --card:#1e2522;
+    --review:#8fd0ae; --review-soft:#22352c; --flag:#f0a272; --flag-soft:#3a2a20; --ok:#7fd0a0; --edit:#9bbcf0; --edit-soft:#202c3d;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --ink:#e7ece9; --muted:#9aa7a1; --line:#33403a; --paper:#161b19; --card:#1e2522;
+  --review:#8fd0ae; --review-soft:#22352c; --flag:#f0a272; --flag-soft:#3a2a20; --ok:#7fd0a0; --edit:#9bbcf0; --edit-soft:#202c3d;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--paper);color:var(--ink);font:15px/1.55 var(--body)}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--edit);outline-offset:2px}
+.top{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:10px 20px;background:var(--card);border-bottom:1px solid var(--line)}
+.top h1{font:700 17px/1.2 var(--display);margin:0;color:var(--review)}
+.top .grow{flex:1}
+.progress{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.progress .bar{width:140px;height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.progress .bar i{display:block;height:100%;background:var(--review)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;padding:6px 12px;font-size:13px}
+.seg button[aria-pressed="true"]{background:var(--review);color:var(--card)}
+.nav select{max-width:320px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+.btn{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:6px 12px;font-size:13px}
+.btn.primary{background:var(--review);border-color:var(--review);color:var(--card);font-weight:600}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.wrap{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:20px;padding:20px;max-width:1500px;margin:0 auto}
+@media (max-width:1100px){.wrap{grid-template-columns:1fr}}
+/* store frame */
+.frame{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:0 auto;width:100%;transition:max-width .2s}
+.frame.mobile{max-width:400px}
+.storebar{display:flex;align-items:center;gap:12px;padding:10px 18px;border-bottom:1px solid var(--line);font-size:13px;color:var(--muted)}
+.storebar b{font-weight:700;color:var(--ink);letter-spacing:.04em}
+.storebar .search{flex:1;height:28px;border:1px solid var(--line);border-radius:14px;padding:0 12px;display:flex;align-items:center}
+.crumbs{padding:12px 22px 0;font-size:12px;color:var(--muted)}
+.page{padding:12px 22px 28px;display:flex;flex-direction:column;gap:22px}
+.hero{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:24px}
+.frame.mobile .hero{grid-template-columns:1fr}
+.gallery .main{aspect-ratio:4/3;border-radius:10px;background:repeating-linear-gradient(45deg,var(--paper),var(--paper) 10px,var(--card) 10px,var(--card) 20px);border:1px solid var(--line);display:grid;place-items:center;color:var(--muted);font-size:13px;text-align:center;padding:10px}
+.thumbs{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.thumb{width:58px;height:44px;border-radius:6px;border:1px solid var(--line);background:var(--paper);display:grid;place-items:center;font-size:11px;color:var(--muted)}
+.thumb.main{border:2px solid var(--ink)}
+.buy h2{font:700 24px/1.25 var(--display);margin:0 0 6px;text-wrap:balance}
+.frame.mobile .buy h2{font-size:20px}
+.sub{font-size:12px;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.chip{font-size:12px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;background:var(--paper)}
+.price{display:flex;align-items:baseline;gap:10px;margin:14px 0 8px}
+.price .p{font-size:22px;font-weight:700;color:var(--muted)}
+.price small{font-size:12px;color:var(--muted)}
+.cta{display:flex;gap:8px;flex-wrap:wrap}
+.cta span{padding:10px 16px;border-radius:8px;font-size:14px;font-weight:600;background:var(--ink);color:var(--card);opacity:.85}
+.cta span.alt{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.keyfacts{margin:16px 0 0;padding:0;list-style:none;display:grid;gap:4px;font-size:14px}
+.keyfacts li{display:flex;gap:6px}.keyfacts li b{font-weight:600}
+.sec h3{font:600 17px/1.3 var(--body);margin:0 0 10px}
+.desc p{margin:0 0 10px;max-width:65ch}
+table.specs{width:100%;border-collapse:collapse;font-size:14px}
+table.specs td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+table.specs td:first-child{color:var(--muted);width:42%}
+.kit li{margin:2px 0}
+.rel{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+.relcard{border:1px solid var(--line);border-radius:10px;padding:10px;font-size:13px;display:flex;flex-direction:column;gap:4px;background:var(--card)}
+.relcard .k{font-size:11px;text-transform:none;color:var(--muted)}
+.relcard button{align-self:flex-start;border:0;background:none;padding:0;color:var(--edit);font-size:12px;text-decoration:underline}
+.empty{color:var(--muted);font-size:13px;font-style:italic}
+/* review overlay on sections */
+.rv{position:relative;border-radius:10px}
+.reviewing .rv{outline:1px dashed var(--line);outline-offset:8px}
+.reviewing .rv.st-OK{outline:1px solid var(--ok)}
+.reviewing .rv.st-EDIT{outline:2px solid var(--edit)}
+.reviewing .rv.st-UNNEEDED{outline:1px solid var(--muted);opacity:.6}
+.strip{display:none;margin-top:10px;padding:8px 10px;border-radius:8px;background:var(--review-soft);font-size:13px;gap:8px;flex-wrap:wrap;align-items:center}
+.reviewing .strip{display:flex}
+.strip .lab{font-weight:600;color:var(--review);margin-right:4px}
+.pill{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:3px 10px;font-size:12px}
+.pill[aria-pressed="true"].v-OK{background:var(--ok);border-color:var(--ok);color:var(--card)}
+.pill[aria-pressed="true"].v-EDIT{background:var(--edit);border-color:var(--edit);color:var(--card)}
+.pill[aria-pressed="true"].v-UNNEEDED{background:var(--muted);border-color:var(--muted);color:var(--card)}
+.pill[aria-pressed="true"].v-UNK{background:var(--flag);border-color:var(--flag);color:var(--card)}
+.strip .order{margin-left:auto;display:flex;gap:4px}
+.strip input.reason{flex:1 1 100%;border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:var(--card)}
+.strip input.reason.need{border-color:var(--flag);background:var(--flag-soft)}
+.editbox{display:flex;flex-direction:column;gap:6px}
+.editbox textarea,.editbox input[type=text]{width:100%;border:1px solid var(--edit);border-radius:6px;padding:8px;background:var(--edit-soft)}
+.editbox textarea{min-height:130px;resize:vertical}
+.rowedit{display:grid;grid-template-columns:1fr 1.3fr auto;gap:6px;align-items:center}
+.rowedit.single{grid-template-columns:1fr auto}
+.rowedit .mini{display:flex;gap:2px}
+.mini button{border:1px solid var(--line);background:var(--card);border-radius:5px;padding:2px 7px;font-size:12px}
+.addrow{display:flex;gap:6px;flex-wrap:wrap}
+.addrow select,.addrow input{border:1px solid var(--line);border-radius:6px;padding:5px 8px;background:var(--card)}
+.diff{font-size:12px;color:var(--muted)}
+.diff del{color:var(--flag)} .diff ins{color:var(--ok);text-decoration:none}
+.missing{display:none}
+.reviewing .missing{display:block}
+.missing textarea{width:100%;min-height:60px;border:1px dashed var(--review);border-radius:8px;padding:8px;background:var(--review-soft)}
+/* rail */
+.rail{display:flex;flex-direction:column;gap:14px;position:sticky;top:64px;align-self:start;max-height:calc(100vh - 84px);overflow:auto}
+@media (max-width:1100px){.rail{position:static;max-height:none}}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.panel h4{margin:0 0 8px;font:600 14px/1.3 var(--body);color:var(--review)}
+.tabs{display:flex;gap:4px;margin-bottom:10px}
+.tabs button{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:4px 10px;font-size:12px}
+.tabs button[aria-selected="true"]{background:var(--review-soft);border-color:var(--review);color:var(--review)}
+.old{white-space:pre-wrap;font-size:13px;max-height:420px;overflow:auto;color:var(--ink)}
+.old h5{margin:8px 0 4px;font-size:12px;color:var(--muted);font-weight:600}
+.q{border-top:1px solid var(--line);padding:10px 0;font-size:13px}
+.q:first-of-type{border-top:0}
+.q .f{font-size:11px;color:var(--muted)}
+.q .opts{display:flex;gap:6px;margin:6px 0}
+.q textarea{width:100%;min-height:52px;border:1px solid var(--line);border-radius:6px;padding:6px;background:var(--card)}
+.q .src{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.checklist{font-size:13px;display:grid;gap:4px;margin:0;padding:0;list-style:none}
+.checklist li{display:flex;justify-content:space-between;gap:8px}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block;background:var(--line);vertical-align:middle}
+.dot.OK{background:var(--ok)}.dot.EDIT{background:var(--edit)}.dot.UNNEEDED{background:var(--muted)}.dot.UNK{background:var(--flag)}
+.note{font-size:12px;color:var(--muted)}
+.results{padding:20px;max-width:1200px;margin:0 auto}
+.results table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:12px;font-size:13px}
+.results th,.results td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;font-variant-numeric:tabular-nums}
+.results th{font-weight:600;color:var(--muted);font-size:12px}
+.results pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;max-height:320px;overflow:auto;font-size:12px}
+.survey textarea{width:100%;min-height:70px;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--card);margin-bottom:10px}
+.hide{display:none!important}
+.wrap:not(.reviewing){grid-template-columns:1fr}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>კატალოგის პილოტი</h1>
+  <div class="progress"><span id="prog">0 / 20</span><span class="bar"><i id="progbar" style="width:0"></i></span></div>
+  <div class="nav"><select id="pick" aria-label="ბარათის არჩევა"></select></div>
+  <button class="btn" id="prev" type="button">← წინა</button>
+  <button class="btn" id="next" type="button">შემდეგი →</button>
+  <span class="grow"></span>
+  <div class="seg" role="group" aria-label="რეჟიმი">
+    <button type="button" id="m-review" aria-pressed="true">განხილვა</button>
+    <button type="button" id="m-buyer" aria-pressed="false">მყიდველის თვალით</button>
+  </div>
+  <div class="seg" role="group" aria-label="ეკრანის ზომა">
+    <button type="button" id="w-desk" aria-pressed="true">კომპიუტერი</button>
+    <button type="button" id="w-mob" aria-pressed="false">ტელეფონი</button>
+  </div>
+  <button class="btn" id="go-results" type="button">შედეგები</button>
+</header>
+
+<main id="work" class="wrap reviewing">
+  <div><div class="frame" id="frame"></div></div>
+  <aside class="rail" id="rail"></aside>
+</main>
+
+<section id="results" class="results hide" aria-live="polite"></section>
+
+<script>
+const CARDS = [
+  {
+    "wp": 7171,
+    "type": "მოტობლოკი",
+    "name": "მოტობლოკი ჰირომიკი MQ170GS, მსხვილღერძიანი",
+    "description": "ბენზინის მოტობლოკი ბაღის, ვენახისა და ნაკვეთის დასამუშავებლად. 7 ცხენისძალიანი 170F ძრავი ხისტ ნიადაგსაც უმკლავდება, ხოლო მსხვილი ღერძი და 112 კგ წონა მუშაობისას მანქანას მყარად აჩერებს. ფრეზები ერთ გავლაზე 140 სმ ზოლს ამუშავებს 22 სმ სიღრმემდე.\n\nთუ მეტი სიმძლავრე გჭირდებათ, იმავე სერიაშია 9 ცხ.ძ.-იანი MQ177-4.",
+    "facts": [
+      "ბრენდი: ჰირომიკი (HIROMIKI)",
+      "მოდელი: MQ170GS",
+      "ძრავი: 170F, ბენზინის",
+      "სიმძლავრე: 7 ცხ.ძ., 3600 ბრ/წთ",
+      "ღერძი: მსხვილი",
+      "გადაცემათა კოლოფი: კარდნული (კბილანური)",
+      "დამუშავების სიგანე: 140 სმ",
+      "დამუშავების სიღრმე: 22 სმ",
+      "საწვავის ავზი: 5 ლ",
+      "საბურავები: 5.00-10",
+      "წონა: 112 კგ",
+      "დამზადების წელი: 2025",
+      "წარმოშობა: ჩინეთი",
+      "გარანტია: 3 წელი",
+      "კოდი: 00683"
+    ],
+    "kit": [
+      "ფრეზი — 32 ცალი"
+    ],
+    "links": [
+      {
+        "wp": 7179,
+        "kind": "alternative"
+      },
+      {
+        "wp": 7190,
+        "kind": "attachment"
+      },
+      {
+        "wp": 7193,
+        "kind": "attachment"
+      },
+      {
+        "wp": 8014,
+        "kind": "part"
+      }
+    ],
+    "questions": [
+      {
+        "field": "იდენტობა",
+        "prompt": "#7393-იც MQ170GS-ია, მაგრამ 82 კგ, 4 ლ და 90 სმ უწერია. ეს ორი სხვადასხვა ვერსიაა თუ ერთ-ერთი ჩანაწერია შესასწორებელი?"
+      },
+      {
+        "field": "მახასიათებლები",
+        "prompt": "ძველ საიტზე 140 სმ „დამუშავების სიგრძედ“ წერია. ეს ფრეზების სამუშაო სიგანეა?"
+      },
+      {
+        "field": "კომპლექტაცია",
+        "prompt": "„32 ცალი ფრეზი“ 32 დანას ნიშნავს თუ სექციას? კიდევ რა დევს ყუთში?"
+      },
+      {
+        "field": "თავსებადობა",
+        "prompt": "რომელი მისაბმელი იარაღი (გუთანი, საკვალი, ურიკა) ერგება ამ ღერძს და რა სამაგრით?"
+      }
+    ]
+  },
+  {
+    "wp": 7393,
+    "type": "მოტობლოკი",
+    "name": "მოტობლოკი ჰირომიკი MQ170GS (2021 წლის ვერსია)",
+    "description": "7 ცხენისძალიანი ბენზინის მოტობლოკი 170F ძრავით. ფრეზები 90 სმ ზოლს ამუშავებს და სიღრმე 15-დან 30 სმ-მდე რეგულირდება. 82 კგ წონით ეს MQ170GS-ის უფრო მსუბუქი ვარიანტია, 4.00-10 საბურავებით.",
+    "facts": [
+      "ბრენდი: ჰირომიკი (HIROMIKI)",
+      "მოდელი: MQ170GS",
+      "ძრავი: 170F",
+      "სიმძლავრე: 7 ცხ.ძ., 3600 ბრ/წთ",
+      "დამუშავების სიგანე: 90 სმ",
+      "დამუშავების სიღრმე: 15–30 სმ",
+      "გადაცემები: -1, 0, 1, 2",
+      "საწვავის ავზი: 4 ლ",
+      "საბურავები: 4.00-10",
+      "წონა: 82 კგ",
+      "დამზადების თარიღი: 2021 წლის ივნისი",
+      "წარმოშობა: ჩინეთი",
+      "გარანტია: 12 თვე"
+    ],
+    "kit": [],
+    "links": [
+      {
+        "wp": 7190,
+        "kind": "attachment"
+      },
+      {
+        "wp": 7193,
+        "kind": "attachment"
+      },
+      {
+        "wp": 7383,
+        "kind": "part"
+      },
+      {
+        "wp": 8014,
+        "kind": "part"
+      }
+    ],
+    "questions": [
+      {
+        "field": "იდენტობა",
+        "prompt": "ეს #7171-ის ძველი ვერსიაა, სხვა მოდელია თუ შეცდომით შექმნილი ჩანაწერი? თუ ჯერ კიდევ იყიდება, რით ცნობს მას გამყიდველი?"
+      },
+      {
+        "field": "მახასიათებლები",
+        "prompt": "„-1, 2, 0, 1“ ორ სიჩქარეს წინ და ერთს უკან ნიშნავს?"
+      },
+      {
+        "field": "კომპლექტაცია",
+        "prompt": "რა მოჰყვება ამ ვერსიას: ფრეზები, ფრთები, ბორბლები?"
+      }
+    ]
+  },
+  {
+    "wp": 7179,
+    "type": "მოტობლოკი",
+    "name": "მოტობლოკი ჰირომიკი MQ177-4, 9 ცხ.ძ.",
+    "description": "ჰირომიკის უფრო მძლავრი მოტობლოკი ბაღებისა და სასოფლო-სამეურნეო ნაკვეთებისთვის. 177F ბენზინის ძრავი 9 ცხენისძალას ავითარებს, ფრეზები 115 სმ ზოლს ამუშავებს 15–30 სმ სიღრმეზე. 139 კგ წონა და 5.00-12 საბურავები მანქანას სტაბილურს ხდის.\n\nMQ170GS-თან შედარებით ძრავი უფრო ძლიერია, თავად მანქანაც უფრო მძიმე.",
+    "facts": [
+      "ბრენდი: ჰირომიკი (HIROMIKI)",
+      "მოდელი: MQ177-4",
+      "ძრავი: 177F, ბენზინის",
+      "სიმძლავრე: 9 ცხ.ძ., 3600 ბრ/წთ",
+      "გადაცემათა კოლოფი: კარდნული",
+      "დამუშავების სიგანე: 115 სმ",
+      "დამუშავების სიღრმე: 15–30 სმ",
+      "საწვავის ავზი: 6 ლ",
+      "საბურავები: 5.00-12",
+      "წონა: 139 კგ",
+      "დამზადების წელი: 2025",
+      "წარმოშობა: ჩინეთი",
+      "გარანტია: 3 წელი",
+      "კოდი: 00680"
+    ],
+    "kit": [],
+    "links": [
+      {
+        "wp": 7171,
+        "kind": "alternative"
+      },
+      {
+        "wp": 7190,
+        "kind": "attachment"
+      },
+      {
+        "wp": 7193,
+        "kind": "attachment"
+      }
+    ],
+    "questions": [
+      {
+        "field": "მახასიათებლები",
+        "prompt": "ძველ ტექსტში 9 ცხ.ძ.-იც წერია და 7 ცხ.ძ.-იც. რა აწერია ძრავის ფირფიტას?"
+      },
+      {
+        "field": "მახასიათებლები",
+        "prompt": "გარანტია ერთგან 3 წელია, მეორეგან 12 თვე; დამზადების წელი 2025 და 2021. დღეს რომელია სწორი?"
+      },
+      {
+        "field": "კომპლექტაცია",
+        "prompt": "რა მოჰყვება ამ მოდელს საბაზისო ფასში?"
+      }
+    ]
+  },
+  {
+    "wp": 7190,
+    "type": "მოტობლოკის მისაბმელი",
+    "name": "მოტობლოკის მისაბმელი ურიკა, 1,5 × 1 მ",
+    "description": "მოტობლოკზე ჩასაბმელი ურიკა ტვირთის გადასატანად ნაკვეთზე და ეზოში. ძარა 1,5 მ სიგრძისა და 1 მ სიგანისაა, ბორტის სიმაღლე 30 სმ. საბურავები 4.00-12 ზომისაა.",
+    "facts": [
+      "ძარის ზომა: 1,50 × 1,00 მ",
+      "ბორტის სიმაღლე: 0,30 მ",
+      "საბურავები: 4.00-12",
+      "წარმოშობა: ჩინეთი",
+      "კოდი: 010"
+    ],
+    "kit": [],
+    "links": [
+      {
+        "wp": 7171,
+        "kind": "fits"
+      },
+      {
+        "wp": 7179,
+        "kind": "fits"
+      },
+      {
+        "wp": 7393,
+        "kind": "fits"
+      }
+    ],
+    "questions": [
+      {
+        "field": "თავსებადობა",
+        "prompt": "ძველ საიტზე წერია „თავსებადია ნებისმიერ კულტივატორთან“. რომელ მოტობლოკებზე გაქვთ გამოცდილი და რა სამაგრი სჭირდება?"
+      },
+      {
+        "field": "მახასიათებლები",
+        "prompt": "რამდენ კგ-ს იტანს ურიკა? აქვს თუ არა მუხრუჭი ან გადმოსაყირავებელი ძარა?"
+      },
+      {
+        "field": "იდენტობა",
+        "prompt": "წყაროში სამი ბრენდია (Buffalo, Firtina, Hiromiki). რომელი აწერია ურიკას?"
+      }
+    ]
+  },
+  {
+    "wp": 7383,
+    "type": "საბურავი კამერითა და დისკით",
+    "name": "ბორბალი 4.00-10: საბურავი, კამერა და დისკი",
+    "description": "აწყობილი ბორბალი 4.00-10 ზომის: საბურავი, კამერა და დისკი ერთად. გამოდგება ცვეთილი ან დაზიანებული ბორბლის შესაცვლელად. ყიდვამდე შეამოწმეთ, რომ დისკის სამაგრი თქვენს ტექნიკას ემთხვევა.",
+    "facts": [
+      "ზომა: 4.00-10"
+    ],
+    "kit": [
+      "საბურავი",
+      "კამერა",
+      "დისკი"
+    ],
+    "links": [
+      {
+        "wp": 7393,
+        "kind": "fits"
+      }
+    ],
+    "questions": [
+      {
+        "field": "თავსებადობა",
+        "prompt": "დისკს რამდენი ჭანჭიკის ნახვრეტი აქვს და რა დიამეტრის ღერძზე ჯდება?"
+      },
+      {
+        "field": "იდენტობა",
+        "prompt": "იგივე სერიის სხვა საბურავებს ბრენდი Karman უწერია. ამასაც Karman აქვს?"
+      },
+      {
+        "field": "ფოტოები",
+        "prompt": "ამ ჩანაწერს ფოტო არ აქვს. შეგიძლიათ გადაიღოთ ბორბალი და დისკის სამაგრი ახლოდან?"
+      }
+    ]
+  },
+  {
+    "wp": 7193,
+    "type": "მისაბმელიანი შემასხურებელი",
+    "name": "მისაბმელიანი შემასხურებელი 400 ლ, ბენზინის ძრავით",
+    "description": "400-ლიტრიანი შემასხურებელი საკუთარ მისაბმელზე, ბაღებისა და მინდვრის კულტურების შესაწამლად. ტუმბოს 6,5 ცხ.ძ. ბენზინის ძრავი ამუშავებს და ხსნარს 12 მეტრამდე აფრქვევს. დიდი ავზით დიდ ფართობს ხშირი შევსების გარეშე ამუშავებთ.",
+    "facts": [
+      "ხსნარის ავზი: 400 ლ",
+      "ტუმბოს ძრავი: 6,5 ცხ.ძ., ბენზინის",
+      "საწვავის ავზი: 3,6 ლ",
+      "შესხურების მანძილი: 12 მ-მდე",
+      "საბურავები: 5.00-12",
+      "გაბარიტები: 108 × 266 × 112,5 სმ",
+      "წონა: 140 კგ",
+      "წარმოშობა: თურქეთი",
+      "გარანტია: 2 წელი"
+    ],
+    "kit": [],
+    "links": [
+      {
+        "wp": 7171,
+        "kind": "fits"
+      },
+      {
+        "wp": 7179,
+        "kind": "fits"
+      },
+      {
+        "wp": 7393,
+        "kind": "fits"
+      }
+    ],
+    "questions": [
+      {
+        "field": "თავსებადობა",
+        "prompt": "წყარო ამბობს „თავსებადია ყველა კულტივატორთან“. რას აბამთ ამ შემასხურებელს და რა სჭირდება შესაერთებლად?"
+      },
+      {
+        "field": "კომპლექტაცია",
+        "prompt": "რამდენი მეტრი შლანგი და რომელი საქშენები მოყვება?"
+      },
+      {
+        "field": "მახასიათებლები",
+        "prompt": "რა წნევას იძლევა ტუმბო და რა ბრენდისაა?"
+      }
+    ]
+  },
+  {
+    "wp": 7299,
+    "type": "ელექტრო შემასხურებელი",
+    "name": "ელექტრო შემასხურებელი პანდორა, 20 ლ, ურიკით",
+    "description": "ელექტრო შემასხურებელი ურიკით, ბაღისა და ბოსტნის შესაწამლად. 20-ლიტრიანი ავზი ურიკით გადაადგილდება, ასე რომ მძიმე ავზის ზურგით ტარება არ გიწევთ.\n\nთუ ხელით ტარება გირჩევნიათ, იმავე სერიაშია 16-ლიტრიანი ვერსია.",
+    "facts": [
+      "ბრენდი: პანდორა (Pandora)",
+      "კოდი: CF-BY-16",
+      "ავზი: 20 ლ",
+      "წონა: 7,3 კგ",
+      "გაბარიტები: 34,5 × 25,5 × 54 სმ",
+      "მასალა: პლასტმასი",
+      "შეფუთვა: 1 ცალი ყუთში",
+      "წარმოშობა: ჩინეთი",
+      "გარანტია: 2 წელი"
+    ],
+    "kit": [
+      "ურიკა"
+    ],
+    "links": [
+      {
+        "wp": 7296,
+        "kind": "alternative"
+      }
+    ],
+    "questions": [
+      {
+        "field": "იდენტობა",
+        "prompt": "ძველ ჩანაწერში მოდელად „16 ლიტრიანი“ წერია, მოცულობად 20 ლ. რა აწერია ავზს?"
+      },
+      {
+        "field": "კომპლექტაცია",
+        "prompt": "ურიკა კომპლექტშია თუ ცალკე იყიდება? აკუმულატორი და დამტენიც მოჰყვება?"
+      },
+      {
+        "field": "მახასიათებლები",
+        "prompt": "რა ტევადობის აკუმულატორი აქვს და რამდენი ავზი გამოდის ერთ დატენვაზე?"
+      }
+    ]
+  },
+  {
+    "wp": 7296,
+    "type": "ელექტრო შემასხურებელი",
+    "name": "ელექტრო შემასხურებელი პანდორა CF-BY-16, 16 ლ",
+    "description": "16-ლიტრიანი ელექტრო შემასხურებელი ბაღისა და ბოსტნის შესაწამლად. ტუმბოს ელექტროძრავა ამუშავებს, ამიტომ ხელით ტუმბვა არ გიწევთ.\n\nთუ დიდ ფართობს ამუშავებთ და ავზის ტარება არ გინდათ, იმავე სერიაშია 20-ლიტრიანი ვერსია ურიკით.",
+    "facts": [
+      "ბრენდი: პანდორა (Pandora)",
+      "მოდელი: CF-BY-16",
+      "ავზი: 16 ლ",
+      "წონა: 6,8 კგ",
+      "გაბარიტები: 34,5 × 25,5 × 54 სმ",
+      "შეფუთვა: 1 ცალი ყუთში",
+      "წარმოშობა: ჩინეთი",
+      "გარანტია: 2 წელი"
+    ],
+    "kit": [],
+    "links": [
+      {
+        "wp": 7299,
+        "kind": "alternative"
+      }
+    ],
+    "questions": [
+      {
+        "field": "კომპლექტაცია",
+        "prompt": "რომელი საქშენები, აკუმულატორი და დამტენი მოჰყვება?"
+      },
+      {
+        "field": "მახასიათებლები",
+        "prompt": "რა ტევადობის აკუმულატორი აქვს და რამდენ ხანს მუშაობს ერთ დატენვაზე?"
+      }
+    ]
+  },
+  {
+    "wp": 7336,
+    "type": "მიწის ბურღი",
+    "name": "მიწის ბურღი როიალ პარტნერი, 52 სმ³",
+    "description": "ბენზინის მიწის ბურღი ბოძებისა და ნერგებისთვის ორმოების გასაკეთებლად, ბაღსა და სამშენებლო სამუშაოებზე. 52 სმ³ ძრავი ორმაგი რედუქტორით ძალას პირზე გადასცემს. დამქოქი მარტივია, სახელური მყარი. კომპლექტში მოყვება 150 მმ დიამეტრის პირი.",
+    "facts": [
+      "ბრენდი: როიალ პარტნერი (Royal Partner)",
+      "ძრავი: 52 სმ³, ბენზინის",
+      "ბრუნვა: 3600 ბრ/წთ",
+      "რედუქტორი: ორმაგი",
+      "ჩამრთველი: მექანიკური",
+      "დამქოქი: მარტივი",
+      "სახელური: გამაგრებული",
+      "წარმოშობა: ჩინეთი",
+      "კოდი: ID520"
+    ],
+    "kit": [
+      "ბურღის პირი 150 მმ, სიგრძე 500 მმ"
+    ],
+    "links": [
+      {
+        "wp": 7362,
+        "kind": "kit"
+      }
+    ],
+    "questions": [
+      {
+        "field": "კომპლექტაცია",
+        "prompt": "კომპლექტის პირი იგივეა, რაც ცალკე იყიდება (#7362)? მხოლოდ დიამეტრის დამთხვევა საკმარისი არ არის."
+      },
+      {
+        "field": "თავსებადობა",
+        "prompt": "რომელი დიამეტრის პირები ერგება ამ ბურღს (100, 200, 250 მმ)?"
+      },
+      {
+        "field": "მახასიათებლები",
+        "prompt": "რამდენს იწონის და რა პროპორციით ერევა საწვავი?"
+      }
+    ]
+  },
+  {
+    "wp": 7362,
+    "type": "მიწის ბურღის პირი",
+    "name": "მიწის ბურღის პირი, 150 მმ",
+    "description": "150 მმ დიამეტრის პირი ბენზინის მიწის ბურღისთვის, ბოძებისა და ნერგებისთვის ორმოების გასაკეთებლად. გამოდგება ცვეთილი პირის შესაცვლელად ან დამატებით დიამეტრად. ყიდვამდე შეამოწმეთ, რომ სამაგრი თქვენს ბურღს ემთხვევა.",
+    "facts": [
+      "დიამეტრი: 150 მმ"
+    ],
+    "kit": [],
+    "links": [
+      {
+        "wp": 7336,
+        "kind": "fits"
+      }
+    ],
+    "questions": [
+      {
+        "field": "მახასიათებლები",
+        "prompt": "რამდენია პირის სიგრძე და შესაერთებელი ღერძის დიამეტრი?"
+      },
+      {
+        "field": "თავსებადობა",
+        "prompt": "რომელ ბურღებს ერგება ეს პირი?"
+      }
+    ]
+  },
+  {
+    "wp": 7594,
+    "type": "ბალახის სათიბი",
+    "name": "ბენზოცელი პანდორა HQ-5800 PRO, 52 სმ³",
+    "description": "ბენზინის ბენზოცელი სქელი ბალახისა და ბუჩქნარის გასაკრეჭად ეზოში, ბაღში და რთულ რელიეფზე. 52 სმ³ ორტაქტიანი ძრავი 1,8 კვტ სიმძლავრეს ავითარებს. მუშაობს ბენზინისა და ზეთის 25:1 ნაზავზე, 1,2-ლიტრიანი ავზით.",
+    "facts": [
+      "ბრენდი: პანდორა (Pandora)",
+      "მოდელი: HQ-5800 PRO",
+      "ძრავი: 1E44F-5, ერთცილინდრიანი, 2-ტაქტიანი, ჰაერის გაგრილებით",
+      "ძრავის მოცულობა: 52 სმ³",
+      "სიმძლავრე: 1,8 კვტ",
+      "ცილინდრის დიამეტრი: 44 მმ",
+      "ბრუნვა: 6500–7500 ბრ/წთ (უქმ სვლაზე 2800–3200)",
+      "საწვავის ავზი: 1,2 ლ",
+      "საწვავის ნაზავი: 25:1 (ბენზინი : ზეთი)",
+      "კარბურატორი: Pump-Float",
+      "ანთება: CDI"
+    ],
+    "kit": [],
+    "links": [],
+    "questions": [
+      {
+        "field": "სახელი",
+        "prompt": "მყიდველები ამას რას ეძახიან: ბენზოცელი, ტრიმერი, ბალახის საკრეჭი თუ სათიბი?"
+      },
+      {
+        "field": "კომპლექტაცია",
+        "prompt": "რომელი საჭრელი თავი მოჰყვება (ძუა, დისკი, დანა) და აქვს თუ არა სამხრე ღვედი?"
+      },
+      {
+        "field": "თავსებადობა",
+        "prompt": "როგორი ბალახისთვის ურჩევთ ამ მოდელს?"
+      }
+    ]
+  },
+  {
+    "wp": 8115,
+    "type": "ბეტონის ელექტროშემრევი",
+    "name": "ბეტონის შემრევი ფიქსტოპი FT90060, 200 ლ",
+    "description": "ელექტრო ბეტონის შემრევი 200-ლიტრიანი ბარაბნით, სამშენებლო სამუშაოებისთვის. ერთ შერევაზე ერთი ტომარა ცემენტის ხსნარს ამზადებს. 850 ვტ ძრავი ჩვეულებრივ 220 ვ ქსელზე მუშაობს.",
+    "facts": [
+      "ბრენდი: ფიქსტოპი (FIXTOP)",
+      "კოდი: FT90060",
+      "ბარაბანი: 200 ლ",
+      "ერთ შერევაზე: 1 ტომარა ცემენტი",
+      "სიმძლავრე: 850 ვტ",
+      "ძაბვა: 220–240 ვ, 50/60 ჰც",
+      "ბარაბნის ბრუნვა: 30 ბრ/წთ",
+      "წონა: 60–64 კგ",
+      "შეფუთვის ზომა: 88 × 77,5 × 57,5 სმ",
+      "წარმოშობა: ჩინეთი",
+      "გარანტია: 2 წელი"
+    ],
+    "kit": [],
+    "links": [],
+    "questions": [
+      {
+        "field": "მახასიათებლები",
+        "prompt": "წყაროში „64/60 კგ (ნეტო/მთლიანი)“ წერია. რამდენს იწონის აწყობილი შემრევი?"
+      },
+      {
+        "field": "მახასიათებლები",
+        "prompt": "ძველ ტექსტში ბრუნვა „30 ბრ/წმ“-ია. სწორია 30 ბრუნი წუთში?"
+      },
+      {
+        "field": "კომპლექტაცია",
+        "prompt": "აწყობილი იყიდება თუ ყუთში, ასაწყობად? აქვს ბორბლები?"
+      }
+    ]
+  },
+  {
+    "wp": 8164,
+    "type": "კუთხსახეხი",
+    "name": "კუთხსახეხი ფიქსტოპი FT50801, 230 მმ",
+    "description": "დიდი კუთხსახეხი 230 მმ დისკისთვის, ლითონისა და ქვის საჭრელად და დასამუშავებლად. დიდი დისკით უფრო ღრმად ჭრით. 2600 ვტ ძრავი, სიჩქარის რეგულატორი და გვერდითი ჩამრთველი.\n\nმსუბუქი სამუშაოებისთვის იმავე ბრენდს აქვს კომპაქტური FT50811, 115 მმ დისკით.",
+    "facts": [
+      "ბრენდი: ფიქსტოპი (GS FIXTOP)",
+      "კოდი: FT50801",
+      "დისკის დიამეტრი: 230 მმ",
+      "სიმძლავრე: 2600 ვტ",
+      "ბრუნვა: 6000 ბრ/წთ",
+      "სიჩქარის რეგულირება: აქვს",
+      "ჩამრთველი: გვერდითი",
+      "შპინდელი: 22M",
+      "ძაბვა: 220 ვ, 50–60 ჰც",
+      "წარმოშობა: ჩინეთი"
+    ],
+    "kit": [],
+    "links": [
+      {
+        "wp": 8165,
+        "kind": "alternative"
+      }
+    ],
+    "questions": [
+      {
+        "field": "მახასიათებლები",
+        "prompt": "შპინდელზე „22M“ წერია. ეს M14 ხრახნია თუ 22 მმ ნახვრეტი? 230 მმ კუთხსახეხებს ჩვეულებრივ M14 აქვთ."
+      },
+      {
+        "field": "კომპლექტაცია",
+        "prompt": "რა მოჰყვება: დამცავი გარსი, გვერდითი სახელური, გასაღები?"
+      },
+      {
+        "field": "თავსებადობა",
+        "prompt": "რა სამუშაოსთვის ირჩევენ 230 მმ-ს 115 მმ-ის ნაცვლად?"
+      }
+    ]
+  },
+  {
+    "wp": 8165,
+    "type": "კუთხსახეხი",
+    "name": "კუთხსახეხი ფიქსტოპი FT50811, 115 მმ",
+    "description": "კომპაქტური და მსუბუქი კუთხსახეხი 115 მმ დისკისთვის, ლითონის საჭრელად, დასახეხად და საყოფაცხოვრებო სარემონტო სამუშაოებისთვის. 1200 ვტ ძრავით.\n\nუფრო ღრმა ჭრისთვის იმავე ბრენდს აქვს FT50801, 230 მმ დისკით.",
+    "facts": [
+      "ბრენდი: ფიქსტოპი (GS FIXTOP)",
+      "კოდი: FT50811",
+      "დისკის დიამეტრი: 115 მმ",
+      "სიმძლავრე: 1200 ვტ",
+      "ბრუნვა: 3000–11000 ბრ/წთ",
+      "შპინდელი: M14",
+      "ძაბვა: 220 ვ, 50–60 ჰც",
+      "წარმოშობა: ჩინეთი"
+    ],
+    "kit": [],
+    "links": [
+      {
+        "wp": 8164,
+        "kind": "alternative"
+      },
+      {
+        "wp": 8183,
+        "kind": "supply"
+      }
+    ],
+    "questions": [
+      {
+        "field": "მახასიათებლები",
+        "prompt": "„3000/11000 ბრ/წთ“ სიჩქარის რეგულირებას ნიშნავს? აქვს რეგულატორი?"
+      },
+      {
+        "field": "თავსებადობა",
+        "prompt": "#8183 დისკი (115 × 1,2 × 22,2 მმ) ამ კუთხსახეხზე ჯდება?"
+      },
+      {
+        "field": "კომპლექტაცია",
+        "prompt": "რა მოჰყვება: დამცავი გარსი, გვერდითი სახელური, გასაღები?"
+      }
+    ]
+  },
+  {
+    "wp": 8183,
+    "type": "ლითონის საჭრელი დისკი",
+    "name": "ლითონის საჭრელი დისკი ფიქსტოპი, 115 × 1,2 მმ",
+    "description": "აბრაზიული საჭრელი დისკი ლითონისთვის, 115 მმ კუთხსახეხზე. 1,2 მმ სისქე სუფთა და ზუსტ ჭრას იძლევა.",
+    "facts": [
+      "ბრენდი: ფიქსტოპი (GS FIXTOP)",
+      "კოდი: FT50322-1",
+      "დიამეტრი: 115 მმ",
+      "სისქე: 1,2 მმ",
+      "შიდა დიამეტრი: 22,2 მმ",
+      "მასალა: ლითონი",
+      "წარმოშობა: ჩინეთი"
+    ],
+    "kit": [],
+    "links": [
+      {
+        "wp": 8165,
+        "kind": "fits"
+      }
+    ],
+    "questions": [
+      {
+        "field": "მახასიათებლები",
+        "prompt": "რა მაქსიმალური ბრუნვა აწერია დისკს ან შეფუთვას?"
+      },
+      {
+        "field": "კომპლექტაცია",
+        "prompt": "ცალობით იყიდება თუ შეკვრით? რამდენი დისკია შეკვრაში?"
+      }
+    ]
+  },
+  {
+    "wp": 8014,
+    "type": "მოტობლოკის ძრავი",
+    "name": "მოტობლოკის ძრავი ბუფალო, 7 ცხ.ძ., შლიცით",
+    "description": "ბუფალოს 7 ცხენისძალიანი ძრავი მოტობლოკისთვის, შლიციანი გამომავალი ლილვით. გამოდგება ცვეთილი ან დაზიანებული ძრავის შესაცვლელად, თუ ლილვის ტიპი და სამაგრი თქვენს მოტობლოკს ემთხვევა.",
+    "facts": [
+      "ბრენდი: ბუფალო (Buffalo)",
+      "სიმძლავრე: 7 ცხ.ძ.",
+      "გამომავალი ლილვი: შლიცით",
+      "წარმოშობა: ჩინეთი",
+      "გარანტია: 2 წელი"
+    ],
+    "kit": [],
+    "links": [
+      {
+        "wp": 7171,
+        "kind": "fits"
+      },
+      {
+        "wp": 7393,
+        "kind": "fits"
+      }
+    ],
+    "questions": [
+      {
+        "field": "მახასიათებლები",
+        "prompt": "ძრავის მოდელი 170F-ია? ბენზინზე მუშაობს?"
+      },
+      {
+        "field": "თავსებადობა",
+        "prompt": "ლილვის რა დიამეტრი და შლიცების რა რაოდენობა სჭირდება მყიდველს შესადარებლად?"
+      },
+      {
+        "field": "მახასიათებლები",
+        "prompt": "გარანტია ერთგან 2 წელია, მეორეგან 3. რომელია სწორი?"
+      }
+    ]
+  },
+  {
+    "wp": 8135,
+    "type": "ბენზინის გენერატორი",
+    "name": "ბენზინის გენერატორი ფიქსტოპი FT51975, 3 კვტ",
+    "description": "3 კვტ-იანი ბენზინის გენერატორი სახლის სარეზერვო კვებისთვის, სამშენებლო და გარე სამუშაოებისთვის. 170Fi ძრავი 5-ლიტრიან ავზზე მუშაობს, 24 კგ წონით კი ადგილიდან ადგილზე ადვილად გადაგაქვთ.",
+    "facts": [
+      "ბრენდი: ფიქსტოპი (GS FIXTOP)",
+      "კოდი: FT51975",
+      "სიმძლავრე: 3 კვტ",
+      "ძაბვა: 220–240 ვ",
+      "სიხშირე: 50/60 ჰც",
+      "ძრავი: 170Fi",
+      "საწვავის ავზი: 5 ლ",
+      "წონა: 24 კგ",
+      "წარმოშობა: ჩინეთი"
+    ],
+    "kit": [],
+    "links": [],
+    "questions": [
+      {
+        "field": "მახასიათებლები",
+        "prompt": "3 კვტ ნომინალური სიმძლავრეა თუ მაქსიმალური? რას წერს პასპორტი?"
+      },
+      {
+        "field": "მახასიათებლები",
+        "prompt": "ძველ ჩანაწერში „1000 ბრ/წთ“ და „გარემოს მაქს. ტემპერატურა 400“ წერია. რა უნდა იყოს სინამდვილეში?"
+      },
+      {
+        "field": "კომპლექტაცია",
+        "prompt": "რამდენი როზეტი აქვს და აქვს თუ არა 12 ვ გამოსასვლელი?"
+      }
+    ]
+  },
+  {
+    "wp": 8138,
+    "type": "ბენზინის გენერატორი",
+    "name": "ბენზინის გენერატორი ფიქსტოპი FT51975, 3 კვტ",
+    "description": "3 კვტ-იანი ბენზინის გენერატორი სახლის სარეზერვო კვებისთვის, სამშენებლო და გარე სამუშაოებისთვის. 170Fi ძრავი 5-ლიტრიან ავზზე მუშაობს, 24 კგ წონით კი ადგილიდან ადგილზე ადვილად გადაგაქვთ.",
+    "facts": [
+      "ბრენდი: ფიქსტოპი (GS FIXTOP)",
+      "კოდი: FT51975",
+      "სიმძლავრე: 3 კვტ",
+      "ძაბვა: 220–240 ვ",
+      "სიხშირე: 50/60 ჰც",
+      "ძრავი: 170Fi",
+      "საწვავის ავზი: 5 ლ",
+      "წონა: 24 კგ",
+      "წარმოშობა: ჩინეთი"
+    ],
+    "kit": [],
+    "links": [],
+    "questions": [
+      {
+        "field": "იდენტობა",
+        "prompt": "ეს #8135-ის ზუსტი ასლია (იგივე კოდი, იგივე ტექსტი). წავშალოთ, თუ რამე განასხვავებს?"
+      },
+      {
+        "field": "ფოტოები",
+        "prompt": "ფოტოები #8135-ისას ემთხვევა?"
+      }
+    ]
+  },
+  {
+    "wp": 8706,
+    "type": "საზიდარი ურიკა",
+    "name": "საზიდარი ურიკა FT70004, 150 კგ",
+    "description": "ბაღისა და სამშენებლო ურიკა ფოლადის ძარით, 150 კგ-მდე ტვირთისთვის. კამერიანი რეზინის საბურავი მძიმე ტვირთითაც რბილად მიდის. საყრდენები ურიკას დატვირთვისას და დადგმისას მყარად აჩერებს.",
+    "facts": [
+      "კოდი: FT70004",
+      "მაქსიმალური დატვირთვა: 150 კგ",
+      "ძარა: ფოლადი",
+      "საბურავი: 4.00-8, კამერით",
+      "ჩარჩო: ერთიანი ლითონის",
+      "წარმოშობა: ჩინეთი"
+    ],
+    "kit": [],
+    "links": [],
+    "questions": [
+      {
+        "field": "იდენტობა",
+        "prompt": "რა ბრენდი აწერია ურიკას ან ეტიკეტს? FT კოდი ფიქსტოპზე მიუთითებს."
+      },
+      {
+        "field": "მახასიათებლები",
+        "prompt": "რამდენი ლიტრია ძარის მოცულობა და რამდენი ბორბალი აქვს?"
+      }
+    ]
+  },
+  {
+    "wp": 8169,
+    "type": "ლითონის საჭრელი დისკი",
+    "name": "ლითონის საჭრელი დისკი ფიქსტოპი, 125 × 1 მმ",
+    "description": "აბრაზიული საჭრელი დისკი ლითონისთვის, 125 მმ კუთხსახეხზე. 1 მმ სისქე თხელი ლითონის სწრაფ და ზუსტ ჭრას იძლევა.",
+    "facts": [
+      "ბრენდი: ფიქსტოპი (GS FIXTOP)",
+      "კოდი: FT50320-1",
+      "დიამეტრი: 125 მმ",
+      "სისქე: 1 მმ",
+      "შიდა დიამეტრი: 22 მმ",
+      "მასალა: ლითონი",
+      "წარმოშობა: ჩინეთი"
+    ],
+    "kit": [],
+    "links": [],
+    "questions": [
+      {
+        "field": "მახასიათებლები",
+        "prompt": "რა მაქსიმალური ბრუნვა აწერია დისკს?"
+      },
+      {
+        "field": "კომპლექტაცია",
+        "prompt": "ცალობით იყიდება თუ შეკვრით?"
+      },
+      {
+        "field": "თავსებადობა",
+        "prompt": "125 მმ კუთხსახეხი მაღაზიაში გაქვთ? მყიდველი რომელ მოდელთან ერთად ყიდულობს?"
+      }
+    ]
+  }
+];
+const SOURCE = {"7171": {"name": "ჰირომიკი MQ170GS მსხვილღერძიანი", "short": "ბრენდი: HIROMIKI\nმოდელი: MQ170GS\nძრავის მოდელი: 170F\nსიმძლავრე: 7 ცხენისძალა / 3600 ბრუნი\nსაწვავის ტიპი: ბენზინი\nსაწვავის ტევადობა: 5 ლიტრი\nგადაცემათა კოლოფი: კარდნული (კბილანური)\nდამუშავების სიგრძე: 140 სმ\nდამუშავების სიღრმე: 22 სმ\nსაბურავების ზომა: 500/10\nწონა: 112 კგ\nგამორჩეული მახასიათებელი: მსხვილღერძიანი\nდამატებითი აქსესუარები: 32 ცალი ფრეზი\nდამზადების თარიღი: 2025\nმწარმოებელი ქვეყანა: ჩინეთი\nგარანტია: 3 წელი\nID: 00683", "full": "მოტობლოკი MQ170GS – ძლიერი, გამძლე და პრაქტიკული მოტობლოკი მათთვის, ვისაც მრავალსეზონიანი საიმედოობა სჭირდება.\nუნივერსალური და სანდო სამუშაო იარაღი ბაღისთვის, ვენახისთვის ან ნაკვეთის დასამუშავებლად.\n7 ცხენისძალიანი 170F მოდელი ბენზინის ძრავით, რომელიც 3600 ბრუნს უზრუნველყოფს. ეფექტურად უმკლავდება ხისტ ნიადაგს.\nდამუშავების შესაძლებლობები:\n• სიგრძე: 140 სმ\n• სიღრმე: 22 სმ\n• გადაცემათა კოლოფი: კარდნული (კბილანური) – საიმედო ტრანსმისია ხანგრძლივი მუშაობისთვის\nეკონომიური და პრაქტიკული:\n• საწვავის ტიპი: ბენზინი\n• ავზის ტევადობა: 5 ლიტრი – იძლევა ხანგრძლივი მუშაობის საშუალებას შუალედური შევსების გარეშე\nმტკიცე და გამძლე:\n• წონა: 112 კგ – დამატებითი სტაბილურობა მსხვილ ღერძზე\n• საბურავები: 500/10 – გამოდგება ნებისმიერ რელიეფზე\nდამზადებულია 2025 წელს. მოყვება 3 წლიანი გარანტია.\nშეძენა შესაძლებელია:\n– ნაღდი ან უნაღდო ანგარიშსწორებით\n– კრედო ბანკის 4 თვიანი უპროცენტო განვადებით\n– თიბისის ან საქართველოს ბანკის განვადებით\nმიტანა უფასოა მთელი საქართველოს მასშტაბით.", "status": "PUBLISHED", "photos": 4, "category": "სასოფლო-სამეურნეო ტექნიკა"}, "7393": {"name": "კულტივატორი ჰირომიკი MQ170GS", "short": "მოდელი: MQ170GS\nძრავის მოდელი: 170F\nდამუშავების სიგრძე (მმ): 900\nდამუშავების სიღრმე (მმ): 150-300\nსიმძლავრე (ცხ/ძ – ბრუნი): 7 ცხ/ძ – 3600\nგადაცემათა კოლოფი: -1,2,0,1\nსაწვავის ტევადობა: 4.0 ლიტრი\nწონა (კგ): 82\nსაბურავის ზომა: 4.00-10\nდამზადების თარიღი: 06.2021\nგარანტია (თვე): 12\nმწარმოებელი ქვეყანა: ჩინეთი", "full": "", "status": "DRAFT", "photos": 4, "category": "სასოფლო-სამეურნეო ტექნიკა"}, "7179": {"name": "ჰირომიკი MQ177-4 (9 ცხ.ძ.)", "short": "მოდელი: MQ177-4\nძრავის მოდელი: 177F\nსიმძლავრე: 9 ცხენისძალა / 3600 ბრ/წთ\nდამუშავების სიგრძე (მმ): 1150\nდამუშავების სიღრმე (მმ): 150-300\nსიმძლავრე (ცხ/ძ – ბრუნი): 7 ცხ/ძ – 3600\nგადაცემათა კოლოფი: კარდნული\nსაწვავის ტევადობა: 6.0 ლ\nწონა (კგ): 139\nსაბურავის ზომა: 5.00-12\nდამზადების თარიღი: 2025\nგარანტია: 3 წელი\nმწარმოებელი ქვეყანა: ჩინეთი\nID: 00680", "full": "კულტივატორი MQ177-4 – 9 ცხ.ძ ბენზინის ძრავით საიმედო და მძლავრი კულტივატორია, რომელიც განკუთვნილია ბაღებისა და სასოფლო-სამეურნეო ნაკვეთების დასამუშავებლად. 7 ცხ.ძ-იანი ბენზინის ძრავა მარტივად უმკლავდება ნებისმიერი ნიადაგს. MQ177-4 კულტივატორი ეფექტურად და თანაბრად ამუშავებს ნიადაგს, რაც ამარტივებს მოსამზადებელ სამუშაოებს და ნაკვეთის მოვლას. კომპაქტური ზომის მიუხედავად, აქვს მაღალი სტაბილურობა და მარტივია სამართავად.\nმახასიათებლები:\n• მოდელი: MQ177-4\n• ძრავის მოდელი: 177F\n• სიმძლავრე: 7 ცხ.ძ – 3600 ბრუნი/წუთში\n• დამუშავების სიგრძე: 1150 მმ\n• დამუშავების სიღრმე: 150–300 მმ\n• გადაცემათა კოლოფი: კარდნული\n• საწვავის ავზის მოცულობა: 6.0 ლ\n• საბურავის ზომა: 5.00-12\n• წონა: 139 კგ\n• დამზადების თარიღი: 2021\n• გარანტია: 12 თვე\nMQ177-4 იდეალური არჩევანია მათთვის, ვისაც სურს მარტივად და სწრაფად დაამუშავოს ნაკვეთი.\nშეძენა შესაძლებელია:\n– ნაღდი ან უნაღდო ანგარიშსწორებით\n– კრედო ბანკის 4 თვიანი უპროცენტო განვადებით\n– თიბისის ან საქართველოს ბანკის განვადებით\nმიტანა უფასოა საქართველოს მასშტაბით.", "status": "PUBLISHED", "photos": 2, "category": "სასოფლო-სამეურნეო ტექნიკა"}, "7190": {"name": "მოტობლოკის მისაბმელი", "short": "თავსებადია ნებისმიერ კულტივატორთან\nბორტის სიგანე: 1.00 მ\nბორტის სიგრძე: 1.50 მ\nბორტის სიმაღლე: 0.30 მ\nსაბურავის ზომა 4.00-12\nმწარმოებელი ქვეყანა: ჩინეთი\nID: 010", "full": "თავსებადია ნებისმიერ კულტივატორთან", "status": "PUBLISHED", "photos": 5, "category": "სასოფლო-სამეურნეო ტექნიკა"}, "7383": {"name": "საბურავი კამერით და დისკით 4.00-10", "short": "", "full": "", "status": "DRAFT", "photos": 0, "category": "საბურავები და ბორბლები"}, "7193": {"name": "მაღალი წნევის შემასხურებელი აპარატი მისაბმელით", "short": "ძრავის სიმძლავრე 6,5 ცხ/ძ\nსაწვავის ავზის ტევადობა 3,6 ლიტრი\nშენასხურებელი ავზი 400 ლიტრიანი\nგაფრქვევის მაქს. სიმძლავრე 12 მ.\nზომა: 108 სმ * 266 სმ * 112,5 სმ\nსაბურავის ზომა 5.00-12\nწონა: 140 კგ.\nთავსებადია ყველა კულტივატორთან\nმწარმოებელი ქვეყანა: თურქეთი\nგარანტია: 2 წელი\nID:", "full": "ეს 400-ლიტრიანი შემასხურებელი განკუთვნილია სასოფლო-სამეურნეო სამუშაოებისთვის და გამოირჩევა მაღალი წარმადობითა და პრაქტიკული კონსტრუქციით. მოწყობილობა აღჭურვილია 6,5 ცხენისძალიანი ძრავით, რაც უზრუნველყოფს სტაბილურ და ეფექტურ მუშაობას სხვადასხვა ტიპის კულტურების შესაწამლად. 400-ლიტრიანი ავზი საშუალებას გაძლევთ დიდი ფართობის დამუშავება ხშირი შევსების გარეშე, ხოლო გაფრქვევის მაქსიმალური 12-მეტრიანი სიმძლავრე მნიშვნელოვნად ამარტივებს სამუშაო პროცესს.\nშემასხურებელი თავსებადია ყველა ტიპის კულტივატორთან, რაც მის გამოყენებას კიდევ უფრო უნივერსალურს ხდის. გამძლე კონსტრუქცია, 5.00-12 ზომის საბურავები და 140 კგ წონა უზრუნველყოფს სტაბილურ გადაადგილებას სხვადასხვა ტიპის რელიეფზე. მოწყობილობის ზომებია 108 × 266 × 112,5 სმ, რაც ოპტიმალურად აერთიანებს ტევადობასა და მოხერხებულობას. მოდელი დამზადებულია თურქეთში და მოყვება 2-წლიანი გარანტია, რაც დამატებით სანდოობასა და ხარისხის გარანტიას ქმნის.\nმისაბმელიანი მაღალი წნევის შემასხურებელი აპარატის შეძენა შესაძლებელია ნაღდი ან უნაღდო ანგარიშსწორებით „აგრო თრეიდის“ მაღაზიებში (თბილისი, წერეთლის გამზ. N147 (მთავარი საწყობი და მაღაზია) • ოკამი, თბილისი-ლესელიძის მე-40 კილომეტრი • ზესტაფონი, რუსთაველის ქ. N60), ან კრედო ბანკის, თიბისის ან საქართველოს ბანკის განვადებით.\nმიტანა უფასოა მთელი საქართველოს მასშტაბით.", "status": "PUBLISHED", "photos": 2, "category": "შესხურება და სარწყავი"}, "7299": {"name": "პანდორას ელექტრო შემასხურებელი 20 ლიტრიანი", "short": "მოდელი: 16 ლიტრიანი ელექტრო შემასხურებელი\nბრენდი: პანდორა – Pandora\nსერიული ნომერი: CF-BY-16\nმოდელის ნომერი: CF-BY-16\nმოცულობა: 20 ლიტრი\nშეფუთვა: 1ცალი/ყუთში\nმთლიანი წონა: 7.3 კგ.\nზომა: 34.5×25.5×54სმ\nმასალა: პლასტმასი\nგარანტია: 2 წელი\nმწარმოებელი ქვეყანა: ჩინეთი\nID:", "full": "პანდორას ელექტრო შემასხურებელი ურიკით.", "status": "PUBLISHED", "photos": 4, "category": "შესხურება და სარწყავი"}, "7296": {"name": "პანდორას ელექტრო შემასხურებელი 16 ლიტრიანი", "short": "მოდელი: 16 ლიტრიანი ელექტრო შემასხურებელი\nბრენდი: პანდორა – Pandora\nსერიული ნომერი: CF-BY-16\nმოდელის ნომერი: CF-BY-16\nმოცულობა: 16 ლიტრი\nშეფუთვა: 1ცალი/ყუთში\nᲛთლიანი წონა: 6.8 კგ.\nზომა: 34.5×25.5×54სმ\nგარანტია: 2 წელი\nმწარმოებელი ქვეყანა: ჩინეთი\nID:", "full": "", "status": "PUBLISHED", "photos": 5, "category": "შესხურება და სარწყავი"}, "7336": {"name": "მიწის ბურღი როიალ პარტნიორი 52 CC", "short": "მწარმოებელი: Royal Partner\nტიპი: ბურღი\nპარამეტრები:\nსაწვავი: ბენზინი\nძრავი: 52cc\nსიგანე: 150 მმ\nსიღრმე: 500 მმ\nმაქსიმალური სიმძლავრე: 3600 ბრუნი\nჩამრთველი: მექანიკური\nმარტივი დამქოქი\nძლიერი სახელური\nრედუქტორი: ორმაგი\nაქსესუარი: 150 მმ ბურღის პირი\nმწარმოებელი ქვეყანა: ჩინეთი\nID: ID520", "full": "მიწის ბურღი Royal Partner 52CC – საიმედო და გამძლე მოწყობილობა ნიადაგის, ბაღისა და სამშენებლო სამუშაოებისთვის. აღჭურვილია 52CC ბენზინის ძრავით და 3600 ბრუნის სიმძლავრით, რაც უზრუნველყოფს სწრაფ და ეფექტურ ბურღვას. კომპლექტში მოყვება 150 მმ სიგანისა და 500 მმ სიღრმის ბურღის პირი. მექანიკური ჩამრთველი ხდის გამოყენებას მარტივს და პრაქტიკულს, ხოლო ხარისხიანი კონსტრუქცია უზრუნველყოფს ხანგრძლივ სამსახურს.\nმიწის ბურღი Royal Partner 52CC-ის შეძენა შესაძლებელია „აგრო თრეიდის“ მაღაზიებში (თბილისი, წერეთლის გამზ. N147 (მთავარი საწყობი და მაღაზია) • ოკამი, თბილისი-ლესელიძის მე-40 კილომეტრი • ზესტაფონი, რუსთაველის ქ. N60) ან ამავე გვერდიდან.", "status": "PUBLISHED", "photos": 3, "category": "სასოფლო-სამეურნეო ტექნიკა"}, "7362": {"name": "ბურღის პირი 150 მმ", "short": "", "full": "", "status": "PUBLISHED", "photos": 2, "category": "სათადარიგო ნაწილები და აქსესუარები"}, "7594": {"name": "პროფესიონალური ბალახის საკრეჭი (PANDORA)", "short": "ბრენდი: Pandora\nმოდელი: HQ-5800 PRO\nტიპი: ბენზოცელი\nძრავის მოდელი: 1E44F-5\nძრავის ტიპი: ერთცილინდრიანი, 2-ტაქტიანი, ჰაერის გაგრილებით\nსიმძლავრე: 1.8 KW (რაც დაახლოებით 1800 W-ია)\nძრავის მოცულობა: 52 CC\nცილინდრის დიამეტრი: 44 მმ\nავზის მოცულობა: 1200 მლ (1.2 ლიტრი)\nბრუნვის სიჩქარე: 6500 – 7500 ბრ/წთ (სამუშაო რეჟიმი); 2800 – 3200 ბრ/წთ (უქმი სვლა)\nკარბურატორი: Pump-Float ტიპის\nაალების სისტემა: CDI\nსაწვავის ნაზავი: 25:1 (ბენზინი/ზეთი).\nID:", "full": "ბენზოცელი Pandora HQ-5800 PRO – პროფესიონალური სიმძლავრე და სტაბილურობა\nPandora HQ-5800 PRO არის Professional Series-ის მძლავრი და საიმედო ბენზოცელი, რომელიც სპეციალურად შექმნილია ხანგრძლივი, ინტენსიური და დატვირთული სამუშაოებისთვის. მოწყობილობა იდეალური არჩევანია როგორც ეზოსა და ბაღის დასასუფთავებლად, ასევე რთულ რელიეფზე სქელი, უხეში ბალახისა და ბუჩქნარის იოლად გასაკრეჭად.\nინსტრუმენტი აღჭურვილია 52 CC მოცულობის მქონე 1E44F-5 მოდელის 2-ტაქტიანი, ერთცილინდრიანი ძრავით (44 მმ ცილინდრის დიამეტრით), რომელიც უზრუნველყოფს 1.8 KW (1800 W) სიმძლავრეს. ჰაერის ეფექტური გაგრილების სისტემა, გამძლე Pump-Float ტიპის კარბურატორი და თანამედროვე CDI სისტემა პასუხისმგებელია ძრავის სტაბილურ, შეუფერხებელ გამართულობასა და იოლ დაქოქვაზე.\nბენზოცელის სამუშაო ბრუნვის სიჩქარე 6500 – 7500 ბრ/წთ-ს აღწევს (2800 – 3200 ბრ/წთ), რაც მაღალ პროდუქტიულობასა და სუფთა ჭრას განაპირობებს. მოწყობილობა მუშაობს ბენზინისა და ზეთის 25:1 პროპორციის ნაზავზე, ხოლო 1.2-ლიტრიანი (1200 მლ) საწვავის ავზი საშუალებას გაძლევთ შეასრულოთ დიდი მოცულობის სამუშაო საწვავის ხშირი დამატების გარეშე. Pandora HQ-5800 PRO გამოირჩევა ხანგრძლივი რესურსითა და მაღალი კონსტრუქციული გამძლეობით.\nშეძენა შესაძლებელია ნაღდი ან უნაღდო ანგარიშსწორებით „აგრო თრეიდის“ მაღაზიებში (თბილისი, წერეთლის გამზ. N147 (მთავარი საწყობი და მაღაზია) • ოკამი, თბილისი-ლესელიძის მე-40 კილომეტრი • ზესტაფონი, რუსთაველის ქ. N60), ასევე კრედო ბანკის, თიბისის ან საქართველოს ბანკის განვადებით.", "status": "PUBLISHED", "photos": 3, "category": "ბაღისა და ტყის ტექნიკა"}, "8115": {"name": "ბეტონის ელექტროშემრევი FT90060", "short": "მწარმოებელი: FIXTOP\nტიპი : ბეტონის შემრევი\nფიზიკური პარამეტრები:\nბარაბნის ტევადობა: 200 ლ;\nსიმძლავრე: 850 ვატი;\nძაბვა: 220-240 – 50/60 ჰერცი;\nბარაბნის ბრუნვის სიჩქარე: 30 ბრ/წმ\nერთ შერევაზე ხსნის 1 ტომარა ცემენტს.\nშეფუთვის ზომები: 88/77.5/57,5 სმ\nწონა ნეტო/მთლიანი 64/60 კგ\nმწარმოებელი ქვეყანა: ჩინეთი\nგარანტია 2 წელი\nID: FT90060", "full": "ბეტონის ელექტროშემრევი FIXTOP FT90060 დამზადებულია მაღალი ხარისხის მასალით და აღჭურვილია 200 ლ ბარაბნით. სიმძლავრე 850 ვატი, ძაბვა 220-240V/50-60Hz. ერთი შერევით შესაძლებელია 1 ტომარა ცემენტის ხსნაც. ბარაბნის ბრუნვის სიჩქარე 30 ბრ/წმ. შეფუთვის ზომები: 88/77.5/57.5 სმ, წონა ნეტო/მთლიანი 64/60 კგ. გარანტია 2 წელი.\nშეძენა შესაძლებელია „აგრო თრეიდის“ მაღაზიებში (თბილისი, წერეთლის გამზ. N147 (მთავარი საწყობი და მაღაზია) • ოკამი, თბილისი-ლესელიძის მე-40 კილომეტრი • ზესტაფონი, რუსთაველის ქ. N60) ან ამავე გვერდიდან.", "status": "PUBLISHED", "photos": 2, "category": "სახელოსნო და სამშენებლო"}, "8164": {"name": "კუთხსახეხი FT50801", "short": "მწარმოებელი: GS FIXTOP\nტიპი: კუთხსახეხი სიჩქარის კონტროლით და გვერდითი გადამრთველით\nპარამეტრები:\nძაბვა: 220 V\nსიხშირე: 50-60 Hz\nსიმძლავრე: 2600 w\nბრუნთა რიცხვი: 6000 ბრ/წთ\nშპინდელის ზომა: 22M\nქვის ზომა: 230 მმ\nმწარმოებელი ქვეყანა: ჩინეთი\nID: FT50801", "full": "კუთხსახეხი FT50801 – მძლავრი ხელსაწყო სიჩქარის კონტროლით და გვერდითი გადამრთველით. 2600W სიმძლავრე და 230 მმ ქვის ზომა უზრუნველყოფს სწრაფ და ეფექტურ ჭრას. იდეალურია მეტალის, ქვის და სხვა მასალების დასამუშავებლად.\nკუთხსახეხის შეძენა შესაძლებელია „აგრო თრეიდის“ მაღაზიებში (თბილისი, წერეთლის გამზ. N147 (მთავარი საწყობი და მაღაზია) • ოკამი, თბილისი-ლესელიძის მე-40 კილომეტრი • ზესტაფონი, რუსთაველის ქ. N60) ან ამავე გვერდიდან.", "status": "PUBLISHED", "photos": 2, "category": "სახელოსნო და სამშენებლო"}, "8165": {"name": "კუთხსახეხი FT50811", "short": "მწარმოებელი: GS FIXTOP\nტიპი: კუთხსახეხი\nპარამეტრები:\nძაბვა: 220 V\nსიხშირე: 50-60 Hz\nსიმძლავრე: 1200 w\nბრუნთა რიცხვი: 3000/11000 ბრ/წ\nშპინდელის ზომა: 14M\nქვის ზომა: 115 მმ\nმწარმოებელი ქვეყანა: ჩინეთი\nID: FT50811", "full": "კუთხსახეხი FT50811 – კომპაქტური და მსუბუქი მოდელი, რომელიც 1200W სიმძლავრითა და 115 მმ დისკით უზრუნველყოფს ეფექტურ ჭრასა და დამუშავებას. მრავალფუნქციური ინსტრუმენტი საყოფაცხოვრებო და სარემონტო სამუშაოებისთვის.\nკუთხსახეხის შეძენა შესაძლებელია „აგრო თრეიდის“ მაღაზიებში (თბილისი, წერეთლის გამზ. N147 (მთავარი საწყობი და მაღაზია) • ოკამი, თბილისი-ლესელიძის მე-40 კილომეტრი • ზესტაფონი, რუსთაველის ქ. N60) ან ამავე გვერდიდან.", "status": "PUBLISHED", "photos": 2, "category": "სახელოსნო და სამშენებლო"}, "8183": {"name": "მეტალის საჭრელი აბრაზიული დისკი (115-1.2 მმ)", "short": "მწარმოებელი: GS FIXTOP\nტიპი: საჭრელი დისკი\nპარამეტრები:\nმეტალის საჭრელი აბრაზიული დისკი 115*1.2*22.2\nგამოყენების ადგილი: მეტალი\nსისქე: 1.2 მმ\nშიდა გულის დიამეტრი: 22.2 მმ\nდიამეტრი: 115 მმ\nმწარმოებელი ქვეყანა: ჩინეთი\nID: FT50322-1", "full": "მეტალის საჭრელი აბრაზიული დისკი FT50322-1 115 მმ დიამეტრითა და 1.2 მმ სისქით. განკუთვნილია მეტალის ზუსტი და სუფთა ჭრისთვის. მაღალი ხარისხის მასალა უზრუნველყოფს გამძლეობასა და ეფექტურობას.\nმეტალის საჭრელი აბრაზიული დისკის შეძენა შესაძლებელია „აგრო თრეიდის“ მაღაზიებში (თბილისი, წერეთლის გამზ. N147 (მთავარი საწყობი და მაღაზია) • ოკამი, თბილისი-ლესელიძის მე-40 კილომეტრი • ზესტაფონი, რუსთაველის ქ. N60) ან ამავე გვერდიდან.", "status": "PUBLISHED", "photos": 2, "category": "სათადარიგო ნაწილები და აქსესუარები"}, "8014": {"name": "ბუფალო კულტივატორის ძრავი შლიციანი — 7 ცხ.ძ.", "short": "კულტივატორის ძრავი – 7 ც/ძ.\nშლიციანი ღერძით\nსამწლიანი განვადება\nგარანტია: 2 წელი\nმწარმოებელი ქვეყანა: ჩინეთი\nID:", "full": "ბუფალოს ხელის კულტივატორის 7 ცხენის ძალის ძრავები, შლიციანი ღერძით.\nპროდუქტს აქვს სამწლიანი გარანტია.\nშეძენა შესაძლებელია:\n– ნაღდი ან უნაღდო ანგარიშსწორებით\n– კრედო ბანკის 4 თვიანი უპროცენტო განვადებით\n– თიბისის ან საქართველოს ბანკის განვადებით", "status": "PUBLISHED", "photos": 3, "category": "სათადარიგო ნაწილები და აქსესუარები"}, "8135": {"name": "გენერატორი ბენზინის ძრავზე FT51975", "short": "მწარმოებელი: GS FIXTOP\nტიპი: გენერატორი\nპარამეტრები:\nსიმძლავრე: 3 კვტ\nძაბვა: 220-240V\nსიხშირე: 50/60Hz\nძრავი: 170Fi\nბრუნთა რიცხვი: 1000 ბრ/წთ\nსაწვავის ავზის მოცულობა: 5 ლ\nგარემოს მაქსიმალური ტემპერატურა: 400\nწონა: 24 კგ\nმწარმოებელი ქვეყანა: ჩინეთი\nID: FT51975", "full": "გენერატორი FT51975 იდეალურია როგორც სახლისთვის, ასევე სამშენებლო ან გარე სამუშაოებისთვის. 3 კვტ სიმძლავრე, 5 ლ საწვავის ავზი და ეკონომიური 170Fi ძრავი საშუალებას იძლევა მუდმივად გქონდეთ ელექტროენერგიის წყარო. კომპაქტური 24 კგ წონით – ადვილად სატარებელი და საიმედო.\nგენერატორის შეძენა შესაძლებელია „აგრო თრეიდის“ მაღაზიებში (თბილისი, წერეთლის გამზ. N147 (მთავარი საწყობი და მაღაზია) • ოკამი, თბილისი-ლესელიძის მე-40 კილომეტრი • ზესტაფონი, რუსთაველის ქ. N60) ან ამავე გვერდიდან.", "status": "PUBLISHED", "photos": 2, "category": "სახელოსნო და სამშენებლო"}, "8138": {"name": "გენერატორი ბენზინის ძრავზე FT51975", "short": "მწარმოებელი: GS FIXTOP\nტიპი: გენერატორი\nპარამეტრები:\nსიმძლავრე: 3 კვტ\nძაბვა: 220-240V\nსიხშირე: 50/60Hz\nძრავი: 170Fi\nბრუნთა რიცხვი: 1000 ბრ/წთ\nსაწვავის ავზის მოცულობა: 5 ლ\nგარემოს მაქსიმალური ტემპერატურა: 400\nწონა: 24 კგ\nმწარმოებელი ქვეყანა: ჩინეთი\nID: FT51975", "full": "გენერატორი FT51975 იდეალურია როგორც სახლისთვის, ასევე სამშენებლო ან გარე სამუშაოებისთვის. 3 კვტ სიმძლავრე, 5 ლ საწვავის ავზი და ეკონომიური 170Fi ძრავი საშუალებას იძლევა მუდმივად გქონდეთ ელექტროენერგიის წყარო. კომპაქტური 24 კგ წონით – ადვილად სატარებელი და საიმედო.\nგენერატორის შეძენა შესაძლებელია „აგრო თრეიდის“ მაღაზიებში (თბილისი, წერეთლის გამზ. N147 (მთავარი საწყობი და მაღაზია) • ოკამი, თბილისი-ლესელიძის მე-40 კილომეტრი • ზესტაფონი, რუსთაველის ქ. N60) ან ამავე გვერდიდან.", "status": "DRAFT", "photos": 2, "category": "სახელოსნო და სამშენებლო"}, "8706": {"name": "ურიკა FT70004", "short": "მაქსიმალური დატვირთვა: 150 კგ.\nფოლადის ავზი\nრეზინის საბურავი კამერით, ზომა: 400/8\nმწარმოებელი ქვეყანა: ჩინეთი\nსაიდენტიფიკაციო კოდი: FT70004", "full": "ურიკა გამიზნულია ტვირთის გადასატანად. მას აქვს გამძლე რკინის ავზი და აქვს ექსპლუატაციის ხანგრძლივი ვადა. მაქსიმალური ტევადობა არის 150 კგ, რაც საშუალებას გაძლევთ მარტივად გადაიტანოთ სხვადასხვა მასალა – სამშენებლო, ბაღის თუ საოჯახო საჭიროებისთვის. რეზინის საბურავი კამერით უზრუნველყოფს რბილ და მოსახერხებელ გადაადგილებას, თუნდაც მძიმე ტვირთით დატვირთვისას.\nზომა: სტანდარტული სამშენებლო/ბაღის ურიკის ზომა\nკონსტრუქციული თავისებურება:\nმყარი, ერთიანი მეტალის რამა.\nსაყრდენები, რომლებიც უზრუნველყოფს სტაბილურობას დატვირთვისას და დადებისას.\nდამატებითი წინა დამცავი/გადამკეტი ბორბლის ირგვლივ.\nშეძენა შესაძლებელია ნაღდი ან უნაღდო ანგარიშსწორებით „აგრო თრეიდის“ მაღაზიებში (თბილისი, წერეთლის გამზ. N147 (მთავარი საწყობი და მაღაზია) • ოკამი, თბილისი-ლესელიძის მე-40 კილომეტრი • ზესტაფონი, რუსთაველის ქ. N60), ასევე კრედო ბანკის, თიბისის ან საქართველოს ბანკის განვადებით.", "status": "PUBLISHED", "photos": 1, "category": "სახელოსნო და სამშენებლო"}, "8169": {"name": "მეტალის საჭრელი აბრაზიული დისკი (125-1 მმ)", "short": "მწარმოებელი: GS FIXTOP\nტიპი: საჭრელი დისკი\nპარამეტრები:\nმეტალის საჭრელი აბრაზიული დისკი 125*1*22\nგამოყენების ადგილი: მეტალი\nსისქე: 1.0 მმ\nშიდა გულის დიამეტრი: 22 მმ\nდიამეტრი: 125 მმ\nმწარმოებელი ქვეყანა: ჩინეთი\nID: FT50320-1", "full": "მეტალის საჭრელი აბრაზიული დისკი FT50320-1 – 125 მმ დიამეტრით და 1 მმ სისქით. განკუთვნილია მეტალის სწრაფი და ზუსტი ჭრისთვის. ეკონომიური და გამძლე მოდელი ყოველდღიური გამოყენებისთვის.\nცულის შეძენა შესაძლებელია „აგრო თრეიდის“ მაღაზიებში (თბილისი, წერეთლის გამზ. N147 (მთავარი საწყობი და მაღაზია) • ოკამი, თბილისი-ლესელიძის მე-40 კილომეტრი • ზესტაფონი, რუსთაველის ქ. N60) ან ამავე გვერდიდან.", "status": "PUBLISHED", "photos": 2, "category": "სათადარიგო ნაწილები და აქსესუარები"}};
+const KIND = {alternative:"შეადარეთ",attachment:"მისაბმელი იარაღი",part:"სათადარიგო ნაწილი",kit:"კომპლექტშია",supply:"სახარჯი მასალა",fits:"ერგება",compare:"ჩანაწერების შედარება"};
+const FIELDS = [["name","სახელი"],["photos","ფოტოები"],["description","აღწერა"],["facts","მახასიათებლები"],["kit","კომპლექტაცია"],["links","კავშირები"]];
+const LABEL = Object.fromEntries(FIELDS);
+const MOVABLE = ["description","facts","kit","links"];
+const SOURCES = ["ფირფიტა","პასპორტი/ინსტრუქცია","შეფუთვა","მომწოდებელი","გაყიდვის გამოცდილება"];
+const SURVEY = ["რა აკლდა ყველა ბარათს?","რომელ ველს არასდროს შეავსებდით მაღაზიაში?","რას გეკითხებიან მყიდველები ყველაზე ხშირად, რაც ბარათზე არ ჩანს?"];
+const byWp = Object.fromEntries(CARDS.map(c=>[c.wp,c]));
+const KEY="khidi-pilot-proto-v3";
+let state = load() || init();
+let idx = 0, mode = "review", width = "desk", railTab = "questions";
+
+function init(){
+  const s={cards:{},survey:["","",""]};
+  for(const c of CARDS){
+    const photos=Array.from({length:SOURCE[c.wp].photos},(_,i)=>"ფოტო "+(i+1));
+    const orig={name:[c.name],description:[c.description],facts:c.facts.slice(),kit:c.kit.slice(),links:c.links.map(l=>l.kind+":"+l.wp),photos};
+    s.cards[c.wp]={orig,value:JSON.parse(JSON.stringify(orig)),
+      review:Object.fromEntries(FIELDS.map(([k])=>[k,{verdict:"",reason:"",unknown:false}])),
+      order:MOVABLE.slice(),missing:"",answers:c.questions.map(()=>({state:"",text:"",source:""})),
+      seconds:0,submitted:false};
+  }
+  return s;
+}
+function load(){try{const r=localStorage.getItem(KEY);return r?JSON.parse(r):null}catch(e){return null}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}}
+const esc=s=>String(s).replace(/[&<>"]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
+const same=(a,b)=>a.length===b.length&&a.every((v,i)=>v===b[i]);
+const cur=()=>CARDS[idx]; const cs=()=>state.cards[cur().wp];
+function split(f){const i=f.indexOf(":");return i<0?["",f.trim()]:[f.slice(0,i).trim(),f.slice(i+1).trim()]}
+function autoLine(c,v){
+  const pri=["სიმძლავრე","ძრავის მოცულობა","ხსნარის ავზი","ავზი","ბარაბანი","დისკის დიამეტრი","დიამეტრი","ზომა","მაქსიმალური დატვირთვა","ღერძი","ძარის ზომა"];
+  const facts=v.facts.map(split); const out=[c.type];
+  for(const p of pri){const f=facts.find(([k])=>k===p); if(f&&out.length<4) out.push(f[1].split(",")[0]);}
+  return out;
+}
+let editing=null, tick=null;
+
+function render(){
+  const c=cur(), s=cs(); const v=s.value;
+  document.getElementById("pick").innerHTML=CARDS.map((x,i)=>`<option value="${i}" ${i===idx?"selected":""}>${state.cards[x.wp].submitted?"✓ ":""}${i+1}. ${esc(state.cards[x.wp].value.name[0]||x.name)}</option>`).join("");
+  const done=CARDS.filter(x=>state.cards[x.wp].submitted).length;
+  document.getElementById("prog").textContent=done+" / 20";
+  document.getElementById("progbar").style.width=(done*5)+"%";
+  const frame=document.getElementById("frame"); frame.className="frame"+(width==="mob"?" mobile":"");
+  const name=v.name[0]||"";
+  const facts=v.facts.map(split);
+  const key=facts.filter(([k])=>!["ბრენდი","კოდი","მოდელი","წარმოშობა"].includes(k)).slice(0,4);
+  const brand=(facts.find(([k])=>k==="ბრენდი")||[])[1]||""; const code=(facts.find(([k])=>k==="კოდი"||k==="მოდელი")||[])[1]||"";
+  const sections={
+    description:`<section class="sec rv st-${s.review.description.verdict}" data-f="description"><h3>აღწერა</h3>${editing==="description"
+      ?`<div class="editbox"><textarea id="ed-desc">${esc(v.description[0]||"")}</textarea><div><button class="btn primary" data-act="done" type="button">შენახვა</button></div></div>`
+      :(v.description[0]?`<div class="desc">${v.description[0].split(/\n+/).map(p=>`<p>${esc(p)}</p>`).join("")}</div>`:`<p class="empty">აღწერა არ არის</p>`)}${strip("description")}</section>`,
+    facts:`<section class="sec rv st-${s.review.facts.verdict}" data-f="facts"><h3>მახასიათებლები</h3>${editing==="facts"?listEditor("facts",true):
+      (facts.length?`<table class="specs"><tbody>${facts.map(([k,x])=>`<tr><td>${esc(k)}</td><td>${esc(x)}</td></tr>`).join("")}</tbody></table>`:`<p class="empty">მახასიათებლები არ არის</p>`)}${strip("facts")}</section>`,
+    kit:`<section class="sec rv st-${s.review.kit.verdict}" data-f="kit"><h3>ყუთში დევს</h3>${editing==="kit"?listEditor("kit",false):
+      (v.kit.length?`<ul class="kit">${v.kit.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:`<p class="empty">კომპლექტაცია მითითებული არ არის</p>`)}${strip("kit")}</section>`,
+    links:`<section class="sec rv st-${s.review.links.verdict}" data-f="links"><h3>დაკავშირებული პროდუქტები</h3>${linksView(v.links)}${strip("links")}</section>`
+  };
+  frame.innerHTML=`
+    <div class="storebar"><b>მაღაზია</b><span class="search">ძიება…</span><span>კალათა</span></div>
+    <div class="crumbs">მთავარი › ${esc(SOURCE[c.wp].category)} › ${esc(c.type)}</div>
+    <div class="page">
+      <div class="hero">
+        <div class="rv st-${s.review.photos.verdict}" data-f="photos">${galleryView(v.photos)}${strip("photos")}</div>
+        <div class="buy">
+          <div class="rv st-${s.review.name.verdict}" data-f="name">${editing==="name"
+            ?`<div class="editbox"><input type="text" id="ed-name" value="${esc(name)}"><div><button class="btn primary" data-act="done" type="button">შენახვა</button></div></div>`
+            :`<h2>${esc(name)}</h2>`}
+            <div class="sub">${esc(brand)}${brand&&code?" · ":""}${esc(code)}</div>${strip("name")}</div>
+          <div class="chips" title="მოკლე ხაზი ავტომატურად აიწყობა ტიპიდან და მახასიათებლებიდან">${autoLine(c,v).map(x=>`<span class="chip">${esc(x)}</span>`).join("")}</div>
+          <div class="price"><span class="p">— ₾</span><small>ფასი და მარაგი Hub-იდან</small></div>
+          <div class="cta"><span>კალათაში</span><span class="alt">განვადებით</span></div>
+          ${key.length?`<ul class="keyfacts">${key.map(([k,x])=>`<li><b>${esc(k)}:</b> ${esc(x)}</li>`).join("")}</ul>`:""}
+        </div>
+      </div>
+      ${s.order.map(k=>sections[k]).join("")}
+      <div class="missing"><label for="miss" class="note">რა აკლია ამ გვერდს მყიდველისთვის? (სურვილისამებრ)</label><textarea id="miss">${esc(s.missing)}</textarea></div>
+    </div>`;
+  renderRail();
+  bindFrame();
+}
+function galleryView(p){
+  if(!p.length) return `<div class="gallery"><div class="main">ფოტო არ არის<br>გადაღებაა საჭირო</div></div>`;
+  return `<div class="gallery"><div class="main">${esc(p[0])}<br><small>მთავარი ფოტო · პროტოტიპში გამოსახულების ნაცვლად</small></div>
+   <div class="thumbs">${p.map((x,i)=>`<span class="thumb ${i===0?"main":""}">${i+1}</span>`).join("")}</div>
+   ${editing==="photos"?`<div class="editbox" style="margin-top:8px">${p.map((x,i)=>`<div class="rowedit single"><span>${esc(x)}${i===0?" · მთავარი":""}</span><span class="mini"><button type="button" data-ph="up" data-i="${i}" aria-label="ზემოთ">↑</button><button type="button" data-ph="del" data-i="${i}">ამოღება</button></span></div>`).join("")}<div><button class="btn primary" data-act="done" type="button">შენახვა</button></div></div>`:""}</div>`;
+}
+function linksView(list){
+  if(editing==="links"){
+    return `<div class="editbox">${list.map((x,i)=>{const [k,w]=x.split(":");return `<div class="rowedit single"><span>${esc(KIND[k])} · ${esc(byWp[w]?.name||("#"+w))}</span><span class="mini"><button type="button" data-ln="del" data-i="${i}">ამოღება</button></span></div>`}).join("")}
+    <div class="addrow"><select id="ln-kind">${Object.entries(KIND).filter(([k])=>k!=="compare").map(([k,l])=>`<option value="${k}">${esc(l)}</option>`).join("")}</select>
+    <select id="ln-wp"><option value="">აირჩიეთ პროდუქტი</option>${CARDS.filter(x=>x.wp!==cur().wp).map(x=>`<option value="${x.wp}">${esc(x.name)}</option>`).join("")}</select>
+    <button class="btn" type="button" data-ln="add">დამატება</button></div>
+    <p class="note">რეალურ სისტემაში ძიება მთელ კატალოგზე იმუშავებს.</p>
+    <div><button class="btn primary" data-act="done" type="button">შენახვა</button></div></div>`;
+  }
+  if(!list.length) return `<p class="empty">დაკავშირებული პროდუქტი არ არის</p>`;
+  return `<div class="rel">${list.map(x=>{const [k,w]=x.split(":");const c=byWp[w];return `<div class="relcard"><span class="k">${esc(KIND[k])}${mode==="review"?" · დასადასტურებელი":""}</span><span>${esc(c?state.cards[w].value.name[0]:"#"+w)}</span><button type="button" data-goto="${w}">გახსნა</button></div>`}).join("")}</div>`;
+}
+function listEditor(f,pairs){
+  const list=cs().value[f];
+  const rows=list.map((x,i)=>{const [k,val]=pairs?split(x):["",x];return pairs
+    ?`<div class="rowedit"><input type="text" data-row="${i}" data-part="k" value="${esc(k)}" aria-label="ველი ${i+1}"><input type="text" data-row="${i}" data-part="v" value="${esc(val)}" aria-label="მნიშვნელობა ${i+1}"><span class="mini"><button type="button" data-mv="up" data-i="${i}" aria-label="ზემოთ">↑</button><button type="button" data-mv="down" data-i="${i}" aria-label="ქვემოთ">↓</button><button type="button" data-mv="del" data-i="${i}">×</button></span></div>`
+    :`<div class="rowedit single"><input type="text" data-row="${i}" data-part="v" value="${esc(val)}" aria-label="სტრიქონი ${i+1}"><span class="mini"><button type="button" data-mv="up" data-i="${i}" aria-label="ზემოთ">↑</button><button type="button" data-mv="del" data-i="${i}">×</button></span></div>`}).join("");
+  return `<div class="editbox" data-list="${f}" data-pairs="${pairs?1:0}">${rows}<div class="addrow"><button class="btn" type="button" data-mv="add">+ სტრიქონი</button></div><div><button class="btn primary" data-act="done" type="button">შენახვა</button></div></div>`;
+}
+function strip(f){
+  const r=cs().review[f]; const changed=!same(cs().orig[f],cs().value[f]);
+  const needReason=(r.verdict==="EDIT"||r.verdict==="UNNEEDED")&&!r.reason.trim();
+  const mv=MOVABLE.includes(f)?`<span class="order"><button class="mini btn" type="button" data-ord="up" data-f="${f}" aria-label="სექცია ზემოთ">↑</button><button class="mini btn" type="button" data-ord="down" data-f="${f}" aria-label="სექცია ქვემოთ">↓</button></span>`:"";
+  return `<div class="strip"><span class="lab">${LABEL[f]}</span>
+   <button type="button" class="pill v-OK" data-v="OK" data-f="${f}" aria-pressed="${r.verdict==="OK"}" ${changed?"disabled":""}>სწორია</button>
+   <button type="button" class="pill v-EDIT" data-edit="${f}" aria-pressed="${r.verdict==="EDIT"}">${editing===f?"რედაქტირება…":"შევცვლი"}</button>
+   <button type="button" class="pill v-UNNEEDED" data-v="UNNEEDED" data-f="${f}" aria-pressed="${r.verdict==="UNNEEDED"}">არ სჭირდება</button>
+   <button type="button" class="pill v-UNK" data-unk="${f}" aria-pressed="${r.unknown}">ვერ ვადასტურებ</button>${mv}
+   ${(r.verdict==="EDIT"||r.verdict==="UNNEEDED")?`<input class="reason ${needReason?"need":""}" type="text" data-reason="${f}" placeholder="რატომ? ერთი წინადადება" value="${esc(r.reason)}" aria-label="${LABEL[f]}: მიზეზი">`:""}
+   ${changed&&f!=="photos"?`<div class="diff">${diffText(cs().orig[f],cs().value[f])}</div>`:""}</div>`;
+}
+function diffText(a,b){
+  const rem=a.filter(x=>!b.includes(x)), add=b.filter(x=>!a.includes(x));
+  if(a.length===1&&b.length===1){return `<del>${esc(a[0]).slice(0,160)}</del> → <ins>${esc(b[0]).slice(0,160)}</ins>`}
+  return `${rem.length?`ამოიღო: ${rem.map(x=>`<del>${esc(x)}</del>`).join(", ")}. `:""}${add.length?`დაამატა: ${add.map(x=>`<ins>${esc(x)}</ins>`).join(", ")}.`:""}${!rem.length&&!add.length?"რიგი შეიცვალა.":""}`;
+}
+function renderRail(){
+  const c=cur(), s=cs(), src=SOURCE[c.wp];
+  const verdictDots=FIELDS.map(([k,l])=>{const r=s.review[k];return `<li><span>${l}</span><span>${r.unknown?'<span class="dot UNK" title="ვერ ვადასტურებ"></span> ':""}<span class="dot ${r.verdict}"></span></span></li>`}).join("");
+  const problems=checkCard();
+  document.getElementById("rail").innerHTML=`
+   <div class="panel">
+     <h4>${idx+1} / 20 · #${c.wp}${src.status==="DRAFT"?" · ძველ საიტზე დრაფტი":""}</h4>
+     <ul class="checklist">${verdictDots}</ul>
+     <p class="note">${problems.length?esc(problems[0]):(s.submitted?"ბარათი დასრულებულია.":"ყველაფერი შევსებულია — შეგიძლიათ დაასრულოთ.")}</p>
+     <div class="cta" style="margin-top:8px"><button class="btn primary" id="finish" type="button" ${problems.length||s.submitted?"disabled":""}>ბარათის დასრულება</button></div>
+   </div>
+   <div class="panel">
+     <div class="tabs" role="tablist">
+       <button type="button" role="tab" data-tab="questions" aria-selected="${railTab==="questions"}">კითხვები (${c.questions.length})</button>
+       <button type="button" role="tab" data-tab="old" aria-selected="${railTab==="old"}">ძველი საიტი</button>
+     </div>
+     ${railTab==="old"?`<div class="old"><h5>სახელი</h5>${esc(src.name)}<h5>მოკლე აღწერა</h5>${esc(src.short||"—")}<h5>სრული აღწერა</h5>${esc(src.full||"—")}</div>`
+      :c.questions.map((q,i)=>{const a=s.answers[i];return `<div class="q"><div class="f">${esc(q.field)}</div><div>${esc(q.prompt)}</div>
+        <div class="opts"><button type="button" class="pill v-OK" data-qa="KNOWN" data-i="${i}" aria-pressed="${a.state==="KNOWN"}">პასუხი მაქვს</button><button type="button" class="pill v-UNK" data-qa="UNKNOWN" data-i="${i}" aria-pressed="${a.state==="UNKNOWN"}">არ ვიცი</button></div>
+        ${a.state==="KNOWN"?`<textarea data-qt="${i}" aria-label="პასუხი">${esc(a.text)}</textarea><div class="src">${SOURCES.map(x=>`<button type="button" class="pill v-EDIT" data-qs="${esc(x)}" data-i="${i}" aria-pressed="${a.source===x}">${esc(x)}</button>`).join("")}</div>`:""}</div>`}).join("")}
+   </div>
+   <p class="note">პროტოტიპი: მონაცემები მხოლოდ ამ ბრაუზერში ინახება. ფოტოები ამ გვერდზე ჩანაცვლებულია ადგილის მაჩვენებლებით.</p>`;
+  bindRail();
+}
+function checkCard(){
+  const s=cs(), c=cur(), out=[];
+  for(const [k,l] of FIELDS){const r=s.review[k];
+    if(!r.verdict) {out.push(`შეაფასეთ: ${l}`);continue;}
+    if((r.verdict==="EDIT"||r.verdict==="UNNEEDED")&&!r.reason.trim()) out.push(`${l}: მიუთითეთ მიზეზი`);
+  }
+  s.answers.forEach((a,i)=>{if(!a.state) out.push(`უპასუხეთ კითხვას ${i+1}`); else if(a.state==="KNOWN"&&(!a.text.trim()||!a.source)) out.push(`კითხვა ${i+1}: პასუხი და წყარო`);});
+  return out;
+}
+function setEdited(f){const s=cs(); const ch=!same(s.orig[f],s.value[f]); s.review[f].verdict=ch?"EDIT":(s.review[f].verdict==="EDIT"?"":s.review[f].verdict);}
+function bindFrame(){
+  const fr=document.getElementById("frame"), s=cs();
+  fr.querySelectorAll("[data-v]").forEach(b=>b.onclick=()=>{const f=b.dataset.f,r=s.review[f];r.verdict=r.verdict===b.dataset.v?"":b.dataset.v; if(r.verdict==="UNNEEDED"){} commit();});
+  fr.querySelectorAll("[data-unk]").forEach(b=>b.onclick=()=>{const r=s.review[b.dataset.unk];r.unknown=!r.unknown;commit();});
+  fr.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>{flushEditor();editing=editing===b.dataset.edit?null:b.dataset.edit;commit();});
+  fr.querySelectorAll("[data-reason]").forEach(i=>i.oninput=()=>{s.review[i.dataset.reason].reason=i.value;save();i.classList.toggle("need",!i.value.trim());renderRail();});
+  fr.querySelectorAll("[data-ord]").forEach(b=>b.onclick=()=>{const o=s.order,i=o.indexOf(b.dataset.f),j=b.dataset.ord==="up"?i-1:i+1;if(j<0||j>=o.length)return;[o[i],o[j]]=[o[j],o[i]];commit();});
+  fr.querySelectorAll("[data-goto]").forEach(b=>b.onclick=()=>{const i=CARDS.findIndex(x=>x.wp==b.dataset.goto);if(i>=0){go(i)}});
+  const miss=document.getElementById("miss"); if(miss) miss.oninput=()=>{s.missing=miss.value;save();};
+  const dn=fr.querySelector("[data-act=done]"); if(dn) dn.onclick=()=>{flushEditor();editing=null;commit();};
+  const box=fr.querySelector("[data-list]");
+  if(box){const f=box.dataset.list,pairs=box.dataset.pairs==="1";
+    box.querySelectorAll("[data-mv]").forEach(b=>b.onclick=()=>{flushEditor();const L=s.value[f],i=+b.dataset.i;
+      if(b.dataset.mv==="add") L.push(pairs?"ახალი ველი: ":"ახალი სტრიქონი");
+      if(b.dataset.mv==="del") L.splice(i,1);
+      if(b.dataset.mv==="up"&&i>0) [L[i-1],L[i]]=[L[i],L[i-1]];
+      if(b.dataset.mv==="down"&&i<L.length-1) [L[i+1],L[i]]=[L[i],L[i+1]];
+      setEdited(f);commit();});}
+  fr.querySelectorAll("[data-ph]").forEach(b=>b.onclick=()=>{const L=s.value.photos,i=+b.dataset.i;if(b.dataset.ph==="del")L.splice(i,1);if(b.dataset.ph==="up"&&i>0)[L[i-1],L[i]]=[L[i],L[i-1]];setEdited("photos");commit();});
+  fr.querySelectorAll("[data-ln]").forEach(b=>b.onclick=()=>{const L=s.value.links;
+    if(b.dataset.ln==="del")L.splice(+b.dataset.i,1);
+    if(b.dataset.ln==="add"){const w=document.getElementById("ln-wp").value,k=document.getElementById("ln-kind").value;if(!w)return;const e=k+":"+w;if(!L.some(x=>x.split(":")[1]===w))L.push(e);}
+    setEdited("links");commit();});
+}
+function flushEditor(){
+  const s=cs();
+  const n=document.getElementById("ed-name"); if(n){s.value.name=[n.value.trim()];setEdited("name");}
+  const d=document.getElementById("ed-desc"); if(d){s.value.description=[d.value.trim()];setEdited("description");}
+  const box=document.querySelector("[data-list]");
+  if(box){const f=box.dataset.list,pairs=box.dataset.pairs==="1";const rows=[...box.querySelectorAll(".rowedit")];
+    s.value[f]=rows.map(r=>{const k=r.querySelector('[data-part="k"]'),v=r.querySelector('[data-part="v"]');return pairs?((k.value.trim()?k.value.trim()+": ":"")+v.value.trim()):v.value.trim()}).filter(x=>x&&x!==":");
+    setEdited(f);}
+}
+function bindRail(){
+  const r=document.getElementById("rail"), s=cs();
+  r.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{railTab=b.dataset.tab;renderRail();});
+  r.querySelectorAll("[data-qa]").forEach(b=>b.onclick=()=>{const a=s.answers[+b.dataset.i];a.state=a.state===b.dataset.qa?"":b.dataset.qa;commit();});
+  r.querySelectorAll("[data-qt]").forEach(t=>t.oninput=()=>{s.answers[+t.dataset.qt].text=t.value;save();});
+  r.querySelectorAll("[data-qs]").forEach(b=>b.onclick=()=>{const a=s.answers[+b.dataset.i];a.source=a.source===b.dataset.qs?"":b.dataset.qs;commit();});
+  const fin=document.getElementById("finish"); if(fin) fin.onclick=()=>{flushEditor();editing=null;s.submitted=true;save();const n=CARDS.findIndex(x=>!state.cards[x.wp].submitted);if(n>=0)go(n);else showResults();};
+}
+function commit(){save();render();}
+function go(i){flushEditor();editing=null;idx=i;railTab="questions";render();window.scrollTo({top:0});}
+function showResults(){
+  flushEditor();editing=null;
+  document.getElementById("work").classList.add("hide");
+  const R=document.getElementById("results"); R.classList.remove("hide");
+  const rows=CARDS.map((c,i)=>{const s=state.cards[c.wp];const edits=FIELDS.filter(([k])=>s.review[k].verdict==="EDIT").length;
+    const unk=s.answers.filter(a=>a.state==="UNKNOWN").length;const moved=!same(s.order,MOVABLE);
+    return `<tr><td>${i+1}</td><td>${esc(s.value.name[0])}</td>${FIELDS.map(([k])=>`<td><span class="dot ${s.review[k].verdict}"></span>${s.review[k].unknown?' <span class="dot UNK"></span>':""}</td>`).join("")}<td>${edits}</td><td>${unk}/${s.answers.length}</td><td>${moved?"კი":""}</td><td>${s.submitted?"✓":""}</td></tr>`}).join("");
+  const all=CARDS.every(c=>state.cards[c.wp].submitted);
+  const exportData={round:1,cards:CARDS.map(c=>{const s=state.cards[c.wp];return {wp:c.wp,submitted:s.submitted,fields:Object.fromEntries(FIELDS.map(([k])=>[k,{before:s.orig[k],after:s.value[k],...s.review[k]}])),sectionOrder:s.order,missing:s.missing,answers:c.questions.map((q,i)=>({question:q.prompt,...s.answers[i]}))}}),survey:state.survey};
+  R.innerHTML=`<h2 style="font:700 22px/1.3 var(--display);margin:0 0 12px">ოცეული 1 · შედეგები</h2>
+   <p class="note">ფერი: <span class="dot OK"></span> სწორია · <span class="dot EDIT"></span> შეცვლილი · <span class="dot UNNEEDED"></span> არ სჭირდება · <span class="dot UNK"></span> ვერ ადასტურებს</p>
+   <div style="overflow-x:auto"><table><thead><tr><th>#</th><th>პროდუქტი</th>${FIELDS.map(([,l])=>`<th>${l}</th>`).join("")}<th>ცვლილება</th><th>არ ვიცი</th><th>რიგი შეცვალა</th><th>დასრ.</th></tr></thead><tbody>${rows}</tbody></table></div>
+   <div class="panel survey" style="margin-top:18px"><h4>დამამთავრებელი კითხვები ${all?"":"(ჩაირთვება 20 ბარათის შემდეგ)"}</h4>${SURVEY.map((q,i)=>`<label for="sv${i}">${esc(q)}</label><textarea id="sv${i}" ${all?"":"disabled"}>${esc(state.survey[i])}</textarea>`).join("")}</div>
+   <div class="panel" style="margin-top:18px"><h4>ჩაწერილი მონაცემები (JSON)</h4><p class="note">ეს არის ის სტრუქტურა, რასაც სისტემა თითო ბარათზე ინახავს: ველის ძველი და ახალი მნიშვნელობა, შეფასება, მიზეზი, სექციების რიგი და პასუხები წყაროთი.</p>
+   <div class="cta" style="margin:8px 0"><button class="btn" id="copy" type="button">კოპირება</button><button class="btn" id="back" type="button">ბარათებზე დაბრუნება</button><button class="btn" id="reset" type="button">პროტოტიპის გასუფთავება</button></div><pre id="json"></pre></div>`;
+  document.getElementById("json").textContent=JSON.stringify(exportData,null,1);
+  SURVEY.forEach((_,i)=>{const t=document.getElementById("sv"+i);t.oninput=()=>{state.survey[i]=t.value;save();}});
+  document.getElementById("copy").onclick=async e=>{try{await navigator.clipboard.writeText(document.getElementById("json").textContent);e.target.textContent="დაკოპირდა"}catch(err){e.target.textContent="კოპირება ვერ მოხერხდა"}};
+  document.getElementById("back").onclick=()=>{R.classList.add("hide");document.getElementById("work").classList.remove("hide");render();};
+  document.getElementById("reset").onclick=e=>{if(e.target.dataset.sure){state=init();save();R.classList.add("hide");document.getElementById("work").classList.remove("hide");idx=0;render();}else{e.target.dataset.sure=1;e.target.textContent="დააჭირეთ კიდევ ერთხელ"}};
+}
+document.getElementById("pick").onchange=e=>go(+e.target.value);
+document.getElementById("prev").onclick=()=>go((idx+19)%20);
+document.getElementById("next").onclick=()=>go((idx+1)%20);
+document.getElementById("go-results").onclick=showResults;
+function setMode(m){mode=m;document.getElementById("m-review").setAttribute("aria-pressed",m==="review");document.getElementById("m-buyer").setAttribute("aria-pressed",m==="buyer");document.getElementById("work").classList.toggle("reviewing",m==="review");document.getElementById("rail").classList.toggle("hide",m!=="review");if(m!=="review"){flushEditor();editing=null;}render();}
+function setWidth(w){width=w;document.getElementById("w-desk").setAttribute("aria-pressed",w==="desk");document.getElementById("w-mob").setAttribute("aria-pressed",w==="mob");render();}
+document.getElementById("m-review").onclick=()=>setMode("review");
+document.getElementById("m-buyer").onclick=()=>setMode("buyer");
+document.getElementById("w-desk").onclick=()=>setWidth("desk");
+document.getElementById("w-mob").onclick=()=>setWidth("mob");
+setInterval(()=>{if(document.visibilityState==="visible"&&!cs().submitted){cs().seconds+=5;save();}},5000);
+render();
+</script>
+</body>
+</html>

@@ -1,7 +1,8 @@
 import { z } from "zod";
 export const fieldKeys = ["name","description","facts","kit","links","photos"] as const;
 export type FieldKey = typeof fieldKeys[number];
-export const relationKinds = ["compare","alternative","attachment","part","kit","supply"] as const;
+// "fits" points from an accessory, part or consumable to the machine it is used with.
+export const relationKinds = ["compare","alternative","attachment","part","kit","supply","fits"] as const;
 const line = z.string().trim().min(1).max(300);
 export const cardDefinition = z.object({
   wp: z.number().int().positive(), type: line, name: line, description: z.string().trim().min(1).max(4000),

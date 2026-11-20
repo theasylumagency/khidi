@@ -2,6 +2,9 @@
 
 ## November 19 feedback round
 
+Proposed next card version (store preview, complete facts, `fits` links): see
+[catalog-review-card-v3.md](catalog-review-card-v3.md).
+
 Apply migrations 0061 and 0062 with the updated Hub. The first twenty versioned proposals live in PostgreSQL. The oldest ranked import with the configured archive fingerprint supplies their product IDs and original photos. Existing feedback revisions remain immutable. An already-started unidentified card keeps its place during migration.
 
 At `/review`, the assigned reviewer edits six fields (name, description, ordered facts, kit, typed links and photos). Each field has an independent verdict. A change or inapplicable field requires a reason. Missing evidence can be marked independently. Product-specific questions retain their sources. Saving a draft preserves the initial proposal, gallery and order. Submitting freezes that card.

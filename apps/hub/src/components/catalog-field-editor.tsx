@@ -7,7 +7,7 @@ export function FieldEditor({field, entry, original, peers, photos, invalid, onC
   field:FieldKey;entry:Assessments[FieldKey];original:string[];peers:{wp:number;name:string}[];
   photos:{id:string;position:number;url:string}[];invalid:boolean;onChange:(entry:Assessments[FieldKey])=>void;
 }) {
-  const [newRow,setNewRow]=useState(""), [kind,setKind]=useState<typeof relationKinds[number]>("compare");
+  const [newRow,setNewRow]=useState(""), [kind,setKind]=useState<typeof relationKinds[number]>("alternative");
   const single=field==="name" || field==="description";
   const inactive=entry.verdict==="UNNEEDED", values=entry.value;
   const setValues=(value:string[])=>onChange({...entry,value,verdict:sameValues(original,value) ? "" : "EDIT"});
