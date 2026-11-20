@@ -17,16 +17,14 @@ rewrites a product page, so the reviewer must see the product roughly as a buyer
 
 - Replace the 20 round-1 definitions with `pilot/round1-cards-v3.json`, same IDs and positions.
   `catalog_feedback_round_cards` is append-only (`enforce_append_only_table`), so a migration
-  cannot simply update `definition`. **Open question for the owner before implementation:**
-  1. *Card revisions (recommended).* New append-only table, e.g.
-     `catalog_feedback_round_card_revisions(round_no, position, revision, definition, actor, created_at)`.
-     `listPilot` reads the latest revision; a card that already has a feedback entry keeps the
-     definition snapshot stored in that entry. Revision 2 for round 1 is inserted by migration
-     only for positions without entries.
-  2. *Restart as round 2.* Leave round 1 as the archived first draft and open round 2 with these
-     cards. The current OPEN action requires a completed round 1, so this needs an admin
-     “void round” decision recorded in the audit log.
-  Do not lift the append-only trigger.
+  cannot simply update `definition`. **Owner decision (2026-11-20): card revisions.**
+  Migration `0063_catalog_feedback_card_revisions.sql` adds the append-only table
+  `catalog_feedback_round_card_revisions(round_no, position, revision, definition, note, created_at)`
+  and inserts revision 2 for round 1 where the position's WordPress ID matches the JSON.
+  `listPilot` reads the latest revision and exposes it as `cardRevision`; a product that already
+  has a feedback entry keeps the card snapshot stored with that entry, so recorded work never
+  changes. The append-only trigger is not lifted. (The rejected alternative was restarting the
+  pilot as round 2, which needed a new admin "void round" decision.)
 - The file follows `cardDefinition` in `packages/catalog-review/src/fields.ts`, with one change:
   add relation kind `fits` (accessory → host machine), label `ერგება`.
 - Rules the content follows. Keep them for later rounds and the admin template:

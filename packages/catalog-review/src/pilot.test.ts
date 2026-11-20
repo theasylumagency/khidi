@@ -7,7 +7,7 @@ import { createUuidV7 as uuid } from "@khidi/shared";
 import { getReviewProduct, listReviewProducts, recordReviewDecision, createReviewText } from "./index.ts";
 import { listPilot, savePilot, type FeedbackResponse } from "./pilot.ts";
 import { pilotBaseline } from "./access.ts";
-import { cardDefinition, fieldKeys, startReview, changes, fieldProblem } from "./fields.ts";
+import { cardDefinition, fieldKeys, startReview, changes, fieldProblem, shortLine, storeLayout } from "./fields.ts";
 import { saveRound,roundDetails } from "./rounds.ts";
 import { lockPilotPhotoWork } from "./access.ts";
 
@@ -42,6 +42,12 @@ it("keeps all twenty responses, rejects the twenty-first and never releases on r
       await tx.insert(catalogReviewPhotos).values({ id: photoId, batchId: batch, assetKey: "fixture", sourceUrl: "https://example.test/p.jpg",
         audit: {}, rawKey: "raw/fixture", rawSha256: "a".repeat(64), previewKey: "master/fixture", previewSha256: "a".repeat(64) });
       await tx.insert(catalogReviewPhotoLinks).values({ batchId: batch, productId: items[0]!.id, photoId, position: 1 });
+      const composition = uuid();
+      await tx.insert(catalogReviewPhotos).values({ id: composition, batchId: batch, assetKey: "review-"+composition, sourceUrl: "review:"+composition,
+        audit: { origin: "COMPOSITION" }, rawKey: "raw/composition", rawSha256: "b".repeat(64), previewKey: "master/composition", previewSha256: "b".repeat(64) });
+      await tx.insert(catalogReviewPhotoLinks).values({ batchId: batch, productId: items[0]!.id, photoId: composition, position: 2 });
+      await expect(tx.transaction(async nested => { await nested.execute(sql`UPDATE catalog_feedback_round_card_revisions SET note = 'changed'`); }))
+        .rejects.toThrow();
       await tx.execute(sql`SET LOCAL ROLE hub_app`);
       const db = tx as unknown as AppDatabase;
       const first = items[0]!, extra = items[20]!;
@@ -51,6 +57,11 @@ it("keeps all twenty responses, rejects the twenty-first and never releases on r
         return { fields,answers:row.card.questions.map(()=>({state:"UNKNOWN",text:"",source:""})) };
       }
       const response=accepted(0);
+      // Migration 0063 revises round 1 without touching the append-only revision 1.
+      expect(rows.map(r=>r.cardRevision)).toEqual(Array(20).fill(2));
+      expect(rows[0]!.card.facts).toHaveLength(15);
+      expect(rows.flatMap(r=>r.card.links).some(l=>l.kind==="compare")).toBe(false);
+      expect(rows[0]!.illustrations).toEqual([composition]);
       const release={action:"OPEN" as const,round:1,choice:"KEEP" as const,note:"Keep the tested fields",
         cards:items.slice(20).map(p=>({...pilotCards[0]!,wp:p.wp,links:[]}))};
       const survey={action:"SURVEY" as const,round:1,answers:["First","Second","Third"]};
@@ -69,7 +80,7 @@ it("keeps all twenty responses, rejects the twenty-first and never releases on r
         .rejects.toMatchObject({ code: "NOT_FOUND" });
       await expect(savePilot(db, person, uuid(), { productId: extra.id, revision: 0, submit: true, response }))
         .rejects.toMatchObject({ code: "NOT_FOUND" });
-      const answered = pilotCards[0]!.questions.map(() => ({ state: "KNOWN" as const, text: "observed", source: "plate" }));
+      const answered = rows[0]!.card.questions.map(() => ({ state: "KNOWN" as const, text: "observed", source: "plate" }));
       const draft = { productId: first.id, revision: 0, submit: false, response: { ...response, answers: answered } };
       const key = uuid(), initial = await savePilot(db, person, key, draft);
       expect((await savePilot(db, person, key, draft)).body).toEqual(initial.body);
@@ -78,14 +89,24 @@ it("keeps all twenty responses, rejects the twenty-first and never releases on r
         .rejects.toMatchObject({ code: "VALIDATION_ERROR" });
       await expect(savePilot(db, person, uuid(), { ...draft, revision: 1, submit: true, response: { ...draft.response,
         answers: answered.map(a => ({ ...a, source: "" })) } })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
-      for (const [i, card] of pilotCards.entries()) {
+      const photosField = response.fields.photos;
+      await expect(savePilot(db, person, uuid(), { ...draft, revision: 1, response: { ...draft.response, fields: { ...response.fields,
+        photos: { ...photosField, value: [composition, photoId], verdict: "EDIT", reason: "illustration first" } } } }))
+        .rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+      await expect(savePilot(db, person, uuid(), { ...draft, revision: 1, response: { ...draft.response,
+        layout: { order: ["facts","facts","kit","links"], missing: "" } } as unknown as FeedbackResponse }))
+        .rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+      for (const [i, row] of rows.entries()) {
         await savePilot(db, person, uuid(), { productId: items[i]!.id, revision: i === 0 ? 1 : 0, submit: true,
-          response: { ...accepted(i), answers: i === 0 ? answered : card.questions.map(() => ({ state: "UNKNOWN", text: "", source: "" })) } });
+          response: { ...accepted(i), answers: i === 0 ? answered : row.card.questions.map(() => ({ state: "UNKNOWN", text: "", source: "" })),
+            ...(i === 0 ? { layout: { order: ["facts","description","kit","links"], missing: "price per hectare" }, activeSeconds: 95 } : {}) } });
       }
       const observed = await listPilot(db, admin);
       expect(observed.filter(r => r.submitted)).toHaveLength(20);
       expect(observed[0]?.response?.answers[0]?.source).toBe("plate");
       expect(observed[0]?.response?.fields.photos.value[0]).toBe(photoId);
+      expect(observed[0]?.response?.layout?.order[0]).toBe("facts");
+      expect(observed[0]?.response?.activeSeconds).toBe(95);
       await expect(lockPilotPhotoWork(db, person, first.id)).rejects.toMatchObject({ code: "CONFLICT" });
       await expect(savePilot(db, person, uuid(), { ...draft, revision: 2 })).rejects.toMatchObject({ code: "CONFLICT" });
       await expect(getReviewProduct(db, admin, extra.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -112,4 +133,7 @@ it("counts a reordering separately from insertions and rejects reverted edits",(
   expect(fieldProblem("kit",{value:[],verdict:"EDIT",reason:"why",unknown:false},[],true)).toBe(true);
   expect(fieldProblem("kit",{value:[],verdict:"OK",reason:"",unknown:true},[],true)).toBe(false);
   expect(fieldProblem("kit",{value:[],verdict:"UNNEEDED",reason:"why",unknown:true},[],true)).toBe(true);
+  expect(shortLine("მოტობლოკი",["ბრენდი: ჰირომიკი","სიმძლავრე: 7 ცხ.ძ., 3600 ბრ/წთ","ღერძი: მსხვილი"])).toEqual(["მოტობლოკი","7 ცხ.ძ.","მსხვილი"]);
+  expect(storeLayout.safeParse({order:["kit","facts","links","description"],missing:""}).success).toBe(true);
+  expect(storeLayout.safeParse({order:["kit","kit","links","description"],missing:""}).success).toBe(false);
 });
