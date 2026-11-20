@@ -65,7 +65,7 @@ try {
         COUNT(w.id)::int AS events,
         COUNT(w.id) FILTER (WHERE w.kind = 'ACCEPT')::int AS accepted,
         COUNT(w.id) FILTER (WHERE w.kind = 'PREVIEW')::int AS previews,
-        MAX(w.created_at) AS last_at
+        MAX(w.created_at) + interval '1 millisecond' AS last_at
       FROM catalog_legacy_products p
       LEFT JOIN catalog_review_photo_work w ON w.product_id=p.id AND w.actor_id=${actorId}
       WHERE p.batch_id=${batchId}
