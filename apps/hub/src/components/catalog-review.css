@@ -550,3 +550,4 @@
 @keyframes ps-shimmer { to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .ps-spinner, .ps-shimmer { animation: none; } .ps-card { transition: none; } }
 .store-studio { border: 2px solid #244f39; border-radius: .9rem; padding: 1rem; background: #fbfcfa; }
+.ps-warn { margin: 0; padding: .55rem .75rem; border-radius: .5rem; background: #fdf3e6; border-left: 4px solid #d79a2b; color: #5c4210; font-size: .9rem; }
