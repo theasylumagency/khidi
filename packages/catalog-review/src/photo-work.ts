@@ -4,7 +4,7 @@ import type { AuthenticatedPrincipal } from "@khidi/auth";
 import { catalogReviewPhotoWork as work, catalogReviewPhotoLinks as links, catalogReviewPhotos as photos,
   reviewImageModels, type AppDatabase, type DbExecutor } from "@khidi/db";
 import { executeIdempotent, withDomainTransaction, type DomainTransactionContext } from "@khidi/domain";
-import { boxedModes, modelsFor, providerConfigured, renderReviewEdit, storeLegacyReviewPhoto, suggestReviewPlacement } from "@khidi/media";
+import { boxedModes, optionalBoxModes, modelsFor, providerConfigured, renderReviewEdit, storeLegacyReviewPhoto, suggestReviewPlacement } from "@khidi/media";
 import { digest, type MediaStorage } from "@khidi/media/storage";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import { lockPilotPhotoWork, requireReviewProduct } from "./access.ts";
@@ -18,9 +18,10 @@ export const photoForm = z.discriminatedUnion("kind", [
 const placement = z.object({ x: z.number().int().min(0).max(100), y: z.number().int().min(0).max(100),
   size: z.number().int().min(10).max(70) }).strict();
 /** Edit of a gallery photo without a second image. CLEAN and SCENE need a short note: what to remove, where to show it. */
-export const editInput = z.object({ productId: uid, basePhotoId: uid, mode: z.enum(["ADJUST","CLEAN","BACKGROUND","SCENE"]),
-  detail: z.string().trim().min(1).max(240).optional() }).strict()
-  .refine(v => v.mode !== "CLEAN" && v.mode !== "SCENE" || Boolean(v.detail), { path: ["detail"] });
+export const editInput = z.object({ productId: uid, basePhotoId: uid, mode: z.enum(["ADJUST","CLEAN","BACKGROUND","SCENE","INSTRUCT"]),
+  detail: z.string().trim().min(1).max(240).optional(), area: z.boolean().optional() }).strict()
+  .refine(v => !["CLEAN","SCENE","INSTRUCT"].includes(v.mode) || Boolean(v.detail), { path: ["detail"] })
+  .refine(v => v.area === undefined || v.mode === "INSTRUCT", { path: ["area"] });
 export const renderInput = z.object({ productId: uid, requestId: uid, placement: placement.optional(),
   settings: z.object({ rotate: z.union([z.literal(0),z.literal(90),z.literal(180),z.literal(270)]),
     tone: z.boolean(), trim: z.boolean() }).strict().optional(),
@@ -98,7 +99,8 @@ export async function requestReviewEdit(db: AppDatabase, storage: MediaStorage, 
       await lockPilotPhotoWork(ctx.tx, principal, productId);
       const [base] = await ctx.tx.select().from(links).where(and(eq(links.productId,productId), eq(links.photoId,input.basePhotoId)));
       if (!base) throw new AppError("VALIDATION_ERROR","Select a gallery image from this product.");
-      const placement = input.mode === "CLEAN"
+      // A clean-up always works in a square; a free instruction only when the reviewer asked to limit it.
+      const placement = input.mode === "CLEAN" || input.mode === "INSTRUCT" && input.area
         ? await suggestReviewPlacement(await readAsset(ctx.tx, storage, batchId, base.photoId), "CLEAN") : undefined;
       const id = createUuidV7();
       await append(ctx, { id, kind: "REQUEST", productId, batchId, actorId: principal.userId, basePhotoId: base.photoId,
@@ -111,7 +113,7 @@ export async function renderReviewDraft(db: AppDatabase, storage: MediaStorage, 
   key: string, input: z.infer<typeof renderInput>) {
   const product = await requireReviewProduct(db, principal, input.productId);
   const request = await event(db, product.id, input.requestId, "REQUEST");
-  const mode = request.mode!, boxed = boxedModes.includes(mode);
+  const mode = request.mode!, boxed = boxedModes.includes(mode) || optionalBoxModes.includes(mode) && request.placement !== null;
   if (!modelsFor(mode).includes(input.model) || !providerConfigured(input.model)
     || boxed !== Boolean(input.placement) || (mode === "ADJUST") !== Boolean(input.settings)) {
     throw new AppError("VALIDATION_ERROR","This method is unavailable for the request.");
@@ -158,9 +160,9 @@ export async function renderReviewDraft(db: AppDatabase, storage: MediaStorage, 
     throw new AppError("PRECONDITION_FAILED","Render failed.", { photoStatus: "failed" });
   }
   return withDomainTransaction(db, { userId: principal.userId }, async ctx => {
-    // An adjustment is a real photo. A clean-up or new background keeps the photographed product but contains generated
+    // An adjustment is a real photo. A clean-up, new background or free instruction keeps the photographed product but contains generated
     // pixels; a mounted detail, inset or scene shows something not photographed as such and stays an illustration.
-    const origin = mode === "ADJUST" ? "ADJUSTED" : mode === "CLEAN" || mode === "BACKGROUND" ? "AI_EDIT" : "COMPOSITION";
+    const origin = mode === "ADJUST" ? "ADJUSTED" : mode === "CLEAN" || mode === "BACKGROUND" || mode === "INSTRUCT" ? "AI_EDIT" : "COMPOSITION";
     const photoId = await saveAsset(ctx.tx, storage, product.batchId, rendered, origin);
     const id = createUuidV7();
     await append(ctx, { id, productId: product.id, batchId: product.batchId, actorId: principal.userId,

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FilesystemMediaStorage } from "@khidi/media/storage";
-import { acceptReviewDraft, rejectReviewDraft, renderReviewDraft, requestReviewEdit, uploadReviewImage } from "./photo-work.ts";
+import { acceptReviewDraft, editInput, rejectReviewDraft, renderReviewDraft, requestReviewEdit, uploadReviewImage } from "./photo-work.ts";
 import { and, eq, sql } from "drizzle-orm";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
 import {
@@ -156,8 +156,28 @@ describe("catalog review", () => {
         expect(cleanedAsset?.audit).toMatchObject({ origin: "AI_EDIT" });
         await expect(rejectReviewDraft(db, principal, uuid(), { productId, previewId: adjusted.body.id, note: "x" }))
           .rejects.toMatchObject({ code: "CONFLICT" });
+        // A free instruction needs its text; it works on the whole photo unless the reviewer limits it to a square.
+        await expect(requestReviewEdit(db, storage, principal, uuid(), { productId, basePhotoId: uploaded.body.photoId, mode: "INSTRUCT" }))
+          .rejects.toThrow();
+        expect(editInput.safeParse({ productId, basePhotoId: uploaded.body.photoId, mode: "CLEAN", detail: "ყუთი", area: true }).success).toBe(false);
+        expect(editInput.safeParse({ productId, basePhotoId: uploaded.body.photoId, mode: "INSTRUCT" }).success).toBe(false);
+        const instruct = await requestReviewEdit(db, storage, principal, uuid(), { productId, basePhotoId: uploaded.body.photoId,
+          mode: "INSTRUCT", detail: "ძრავს ჟანგი მოაშორე" });
+        await expect(renderReviewDraft(db, storage, principal, uuid(), { productId, requestId: instruct.body.id,
+          model: "gpt-image-2.6-flare", placement: { x: 10, y: 10, size: 30 } })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+        const instructed = await renderReviewDraft(db, storage, principal, uuid(), { productId, requestId: instruct.body.id, model: "gpt-image-2.6-flare" });
+        const limited = await requestReviewEdit(db, storage, principal, uuid(), { productId, basePhotoId: uploaded.body.photoId,
+          mode: "INSTRUCT", detail: "მინაზე ანარეკლი მოაშორე", area: true });
+        await expect(renderReviewDraft(db, storage, principal, uuid(), { productId, requestId: limited.body.id,
+          model: "gpt-image-2.6-flare" })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+        await renderReviewDraft(db, storage, principal, uuid(), { productId, requestId: limited.body.id,
+          model: "gpt-image-2.6-flare", placement: { x: 20, y: 20, size: 30 } });
+        const instructedPhoto = (await getReviewProduct(db, principal, productId)).photoWork.map(row => row.event)
+          .find(e => e.id === instructed.body.id)!.photoId!;
+        const [instructedAsset] = await db.select().from(catalogReviewPhotos).where(eq(catalogReviewPhotos.id, instructedPhoto));
+        expect(instructedAsset?.audit).toMatchObject({ origin: "AI_EDIT" });
         // Sixteen paid calls per product at most; the attempt is recorded before the provider is contacted.
-        for (let i = 1; i < 16; i++) await renderReviewDraft(db, storage, principal, uuid(), { productId, requestId: clean.body.id,
+        for (let i = 3; i < 16; i++) await renderReviewDraft(db, storage, principal, uuid(), { productId, requestId: clean.body.id,
           model: "gpt-image-2.6-flare", placement: { x: 10, y: 10, size: 30 } });
         await expect(renderReviewDraft(db, storage, principal, uuid(), { productId, requestId: clean.body.id,
           model: "gpt-image-2.6-flare", placement: { x: 10, y: 10, size: 30 } })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });

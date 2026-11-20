@@ -108,3 +108,26 @@ it("replaces the whole background through Gemini and offers only configured AI m
   expect(providerConfigured("gemini-3-pro-image")).toBe(true);
   expect(providerConfigured("gpt-image-2.6-sunburst")).toBe(false);
 });
+
+it("applies a free instruction to the whole photo, or only inside the reviewer's square when she limited it", async () => {
+  vi.stubEnv("REVIEW_OPENAI_API_KEY", "test-only");
+  const green = await image(1024, 1024, "#00ff00");
+  const forms: FormData[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+    forms.push(init.body as FormData);
+    return Response.json({ data: [{ b64_json: green.toString("base64") }] });
+  }));
+  const base = await image(64, 64, "#646464");
+  const whole = await renderReviewEdit({ mode: "INSTRUCT", model: "gpt-image-2.6-flare", base, text: "ძრავს ჟანგი მოაშორე" });
+  expect(await rgb(whole, 900, 900)).toEqual([0, 255, 0]);
+  expect(forms[0]!.get("markup")).toBeNull();
+  expect(String(forms[0]!.get("prompt"))).toContain("ძრავს ჟანგი მოაშორე");
+  const limited = await renderReviewEdit({ mode: "INSTRUCT", model: "gpt-image-2.6-flare", base, text: "ძრავს ჟანგი მოაშორე",
+    placement: { x: 0, y: 0, size: 25 } });
+  expect(forms[1]!.get("markup")).not.toBeNull();
+  expect(await rgb(limited, 100, 100)).toEqual([0, 255, 0]);
+  expect(await rgb(limited, 900, 900)).toEqual([100, 100, 100]);
+  await expect(renderReviewEdit({ mode: "INSTRUCT", model: "gpt-image-2.6-flare", base, text: " " }))
+    .rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  expect(forms).toHaveLength(2);
+});

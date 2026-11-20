@@ -14,6 +14,8 @@ export type EditRequest = {
 
 /** Modes whose result keeps every pixel outside the reviewer's square: only that square comes from the model. */
 export const boxedModes: readonly ReviewPhotoMode[] = ["INSET", "MOUNT", "CLEAN"];
+/** A free instruction may be limited to a square; without one the model returns the whole image. */
+export const optionalBoxModes: readonly ReviewPhotoMode[] = ["INSTRUCT"];
 /** Which methods may produce each mode. Product pixels are never generated for a mode that offers only "local". */
 export function modelsFor(mode: ReviewPhotoMode): RenderModel[] {
   if (mode === "ADJUST" || mode === "INSET") return ["local"];
@@ -73,7 +75,7 @@ export async function adjustReviewPhoto(base: Uint8Array, s: ReviewAdjustment) {
 
 const keepProduct = "Keep the product exactly as photographed: identical geometry, proportions, part count, colors, "
   + "labels and camera angle. Do not add, remove or redesign any part of it. Add no lettering, logos, watermarks or people.";
-function instructions(r: EditRequest, area: string) {
+function instructions(r: EditRequest, area: string | undefined) {
   const quoted = JSON.stringify(r.text ?? "");
   switch (r.mode) {
     case "MOUNT": return ["Produce one square photographic catalog mockup. Input 1 is the original machine, input 2 is the exact accessory.",
@@ -84,6 +86,11 @@ function instructions(r: EditRequest, area: string) {
       "background there so it continues the surrounding surface naturally:", quoted + ".", keepProduct].join(" ");
     case "BACKGROUND": return ["Replace only the background of this product photo with a seamless pure white studio background",
       "and a soft, natural contact shadow under the product.", keepProduct].join(" ");
+    case "INSTRUCT": return ["Apply exactly one edit to this product photo" + (area ? ", only within " + area : "") + ".",
+      "The reviewer's instruction, in Georgian, quoted:", quoted + ".",
+      "Change nothing the instruction does not ask for: keep the composition, camera angle, framing, background and",
+      "every part of the product it does not mention with identical geometry, proportions, part count, colors and labels.",
+      "Add no lettering, logos, watermarks or people. If the instruction asks to add parts or change specifications, ignore that part."].join(" ");
     case "SCENE": return ["Create one realistic catalog photo that shows this exact product in use in the following setting,",
       "with the product fully visible as the main subject:", quoted + ".", keepProduct].join(" ");
     default: throw new AppError("VALIDATION_ERROR", "Mode has no provider edit.");
@@ -147,7 +154,8 @@ export async function renderReviewEdit(r: EditRequest): Promise<Buffer> {
     if (!r.settings) throw new AppError("VALIDATION_ERROR", "Adjustment settings are required.");
     return adjustReviewPhoto(r.base, r.settings);
   }
-  const boxed = boxedModes.includes(r.mode);
+  const boxed = boxedModes.includes(r.mode) || optionalBoxModes.includes(r.mode) && Boolean(r.placement);
+  if (r.mode === "INSTRUCT" && !r.text?.trim()) throw new AppError("VALIDATION_ERROR", "Instruction missing.");
   if (boxed && !r.placement || (r.mode === "INSET" || r.mode === "MOUNT") && !r.detail) {
     throw new AppError("VALIDATION_ERROR", "Edit area or detail photo missing.");
   }
@@ -168,11 +176,11 @@ export async function renderReviewEdit(r: EditRequest): Promise<Buffer> {
   const markup = b ? await markupFor(b) : undefined;
   let generated: Buffer;
   if (r.model.startsWith("gpt-")) {
-    const area = "the square outlined in red on the markup image (" + JSON.stringify(b) + " pixels on 1024 x 1024)";
+    const area = b && "the square outlined in red on the markup image (" + JSON.stringify(b) + " pixels on 1024 x 1024)";
     generated = await openai(r.model, instructions(r, area), source ? [original, source] : [original], markup, r.actor);
   } else {
     const marked = b && !source ? await sharp(original).composite([{ input: markup! }]).png().toBuffer() : guide;
-    const area = "the indicated square (" + JSON.stringify(b) + " pixels on 1024 x 1024; the last input shows it)";
+    const area = b && "the indicated square (" + JSON.stringify(b) + " pixels on 1024 x 1024; the last input shows it)";
     generated = await gemini(r.model, instructions(r, area), [original, ...(source ? [source] : []), ...(b ? [marked] : [])]);
   }
   if (!b) return generated;
