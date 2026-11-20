@@ -13,6 +13,7 @@ import { createReviewCheckpointIfReached } from "./checkpoint.ts";
 export { getReviewCheckpoint, listReviewCheckpoints, markReviewCheckpointViewed } from "./checkpoint.ts";
 
 import { assigned, pilotBatch, requireReviewProduct } from "./access.ts";
+import { visibleGalleryPhoto, visiblePhotoWork } from "./photo-visibility.ts";
 export * from "./pilot.ts";
 export * from "./rounds.ts";
 export { reviewRoles } from "./access.ts";
@@ -56,8 +57,8 @@ export async function listReviewProducts(db: AppDatabase, principal: Authenticat
   const rows = await db.select({
     id: products.id, wordpressId: products.wordpressId, sourceStatus: products.sourceStatus,
     recommendedOrder: products.recommendedOrder,
-    uploads: sql<number>`(SELECT count(*)::int FROM catalog_review_photo_work WHERE product_id = ${products.id} AND kind = 'UPLOAD')`,
-    detailRequests: sql<number>`(SELECT count(*)::int FROM catalog_review_photo_work WHERE product_id = ${products.id} AND kind = 'REQUEST')`,
+    uploads: sql<number>`(SELECT count(*)::int FROM catalog_review_photo_work w WHERE w.product_id = ${products.id} AND w.kind = 'UPLOAD' AND NOT EXISTS (SELECT 1 FROM catalog_review_photo_test_resets r WHERE r.product_id = w.product_id AND r.actor_id = w.actor_id AND w.created_at <= r.cutoff_at))`,
+    detailRequests: sql<number>`(SELECT count(*)::int FROM catalog_review_photo_work w WHERE w.product_id = ${products.id} AND w.kind = 'REQUEST' AND NOT EXISTS (SELECT 1 FROM catalog_review_photo_test_resets r WHERE r.product_id = w.product_id AND r.actor_id = w.actor_id AND w.created_at <= r.cutoff_at))`,
     name: sql<string | null>`COALESCE((
       SELECT COALESCE(approved_text, edited_text) FROM catalog_review_decisions
       WHERE product_id = ${products.id} AND field = 'NAME'
@@ -100,9 +101,9 @@ export async function getReviewProduct(db: AppDatabase, principal: Authenticated
       .where(eq(decisions.productId, product.id)).orderBy(desc(decisions.revision)),
     db.select({ id: links.photoId, position: links.position, audit: photos.audit })
       .from(links).innerJoin(photos, eq(links.photoId, photos.id))
-      .where(eq(links.productId, product.id)).orderBy(asc(links.position)),
+      .where(and(eq(links.productId, product.id), visibleGalleryPhoto)).orderBy(asc(links.position)),
     db.select({ event: work, actor: users.fullName }).from(work).innerJoin(users, eq(users.id, work.actorId))
-      .where(eq(work.productId, product.id)).orderBy(asc(work.createdAt), asc(work.id))
+      .where(and(eq(work.productId, product.id), visiblePhotoWork)).orderBy(asc(work.createdAt), asc(work.id))
   ]);
   return { product, proposals: options, history, photos: photoOptions, photoWork };
 }
@@ -112,8 +113,8 @@ export async function getReviewPhoto(db: AppDatabase, principal: AuthenticatedPr
   const [photo] = await db.select({
     key: photos.previewKey, sha256: photos.previewSha256, version: photos.previewVersion
   }).from(photos).where(and(eq(photos.batchId, product.batchId), eq(photos.id, photoId), or(
-    exists(db.select({ id: links.photoId }).from(links).where(and(eq(links.productId, productId), eq(links.photoId, photoId)))),
-    exists(db.select({ id: work.id }).from(work).where(and(eq(work.productId, productId), eq(work.photoId, photoId))))
+    exists(db.select({ id: links.photoId }).from(links).where(and(eq(links.productId, productId), eq(links.photoId, photoId), visibleGalleryPhoto))),
+    exists(db.select({ id: work.id }).from(work).where(and(eq(work.productId, productId), eq(work.photoId, photoId), visiblePhotoWork)))
   )));
   if (!photo) throw new AppError("NOT_FOUND", "Catalog review photo unavailable.");
   return photo;
