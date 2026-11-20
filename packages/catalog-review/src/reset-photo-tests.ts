@@ -60,7 +60,7 @@ try {
     `);
     if (selected.rows.length !== 1) throw new Error("Pilot batch not found.");
     const batchId = selected.rows[0]!.id;
-    const products = await ctx.tx.execute<{ id: string; wp: number; events: number; accepted: number; previews: number; last_at: Date }>(sql`
+    const products = await ctx.tx.execute<{ id: string; wp: number; events: number; accepted: number; previews: number; last_at: string }>(sql`
       SELECT p.id, p.wordpress_id AS wp,
         COUNT(w.id)::int AS events,
         COUNT(w.id) FILTER (WHERE w.kind = 'ACCEPT')::int AS accepted,
@@ -100,7 +100,7 @@ try {
         VALUES (${batchId}::uuid,${p.id}::uuid,${actorId}::uuid,${p.last_at},${reason})
       `);
       await ctx.recordAudit({ action: "CATALOG_REVIEW_TEST_RESET", entityType: "catalog_legacy_product", entityId: p.id,
-        after: { actorId, through: p.last_at.toISOString(), events: p.events, accepted: p.accepted } });
+        after: { actorId, through: p.last_at, events: p.events, accepted: p.accepted } });
     }
     console.log("TEST RESET MARKERS COMMITTED:", products.rows.length);
   });
