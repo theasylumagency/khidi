@@ -6,6 +6,7 @@
  * explicit database name, exact event counts per WordPress ID, and the Hub stopped for --apply.
  */
 import { parseArgs } from "node:util";
+import { spawnSync } from "node:child_process";
 import { sql } from "drizzle-orm";
 import { connectMigratorDatabase } from "@khidi/db";
 import { withDomainTransaction } from "@khidi/domain";
@@ -30,6 +31,12 @@ if (!actorEmail || !values["expect-database"] || !counts.length || counts.some(v
   throw new Error("Required: --actor=EMAIL --expect-database=NAME --expect-counts=7171:44,7393:2 [--apply]");
 }
 assertProductionConfiguration(process.env, "deployment");
+if (values.apply) {
+  const status = spawnSync("systemctl", ["is-active", "khidi-hub"], { encoding: "utf8" });
+  if (status.status === 0 || status.error) {
+    throw new Error("Stop khidi-hub before applying a photo-test reset.");
+  }
+}
 const actualDatabase = decodeURIComponent(new URL(process.env.DATABASE_MIGRATOR_URL!).pathname.slice(1));
 if (actualDatabase !== values["expect-database"] || actualDatabase.endsWith("_test") || actualDatabase.endsWith("_dev")) {
   throw new Error("Expected database mismatch or test database.");
