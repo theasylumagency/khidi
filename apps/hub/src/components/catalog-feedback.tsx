@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { PilotRow,getReviewProduct,roundDetails } from "@khidi/catalog-review";
 import { changes,fieldKeys,roundQuestions,relationKinds,type FieldKey,type Assessments } from "@khidi/catalog-review/fields";
 import { t } from "@khidi/i18n";
-import { CatalogFeedbackForm } from "./catalog-feedback-form.tsx";
+import { CatalogStoreReview, StorePreview } from "./catalog-store-review.tsx";
 import { RoundControls } from "./catalog-round-controls.tsx";
 import { ReviewPhotoStudio,ReviewPhotoHistory } from "./review-photo-studio.tsx";
 
@@ -41,8 +41,10 @@ function RecordedFeedback({row}:{row:PilotRow}) {
         {" · "}{r.answers[i]?.state==="KNOWN"?r.answers[i]?.source:r.answers[i]?.text}</p>)}</>}</>;
 }
 export function PilotProduct({row,rows,result}:{row:PilotRow;rows:PilotRow[];result:Awaited<ReturnType<typeof getReviewProduct>>}) {
-  const photos=result.photos.map(p=>({id:p.id,position:p.position,url:`/api/catalog-review/photo/${row.id}/${p.id}`}));
-  const canWrite=row.canWrite && !row.submitted, old=result.product.baseline;
+  const photos=result.photos.map(p=>({id:p.id,position:p.position,url:`/api/catalog-review/photo/${row.id}/${p.id}`,illustration:row.illustrations.includes(p.id)}));
+  const canWrite=row.canWrite && !row.submitted, old=result.product.baseline, text=(k:string)=>String(old[k] ?? "");
+  const peers=rows.filter(r=>r.id!==row.id).map(r=>({wp:r.card.wp,name:r.card.name,id:r.id}));
+  const values=Object.fromEntries(fieldKeys.map(k=>[k,row.response?.fields[k].value ?? row.original[k]])) as Record<FieldKey,string[]>;
   return <article className="catalog-review pilot"><Link href="/review">← {t("pilot.back")}</Link>
     <header><small>{t("fields.round")} {row.round} · {row.position} / 20 · #{row.card.wp}</small><h1>{row.response?.fields.name.value[0] ?? row.card.name}</h1></header>
     <details className="review-source-notes"><summary>{t("pilot.source")}</summary>{["არსებული სახელი","არსებული მოკლე აღწერა","არსებული სრული აღწერა"].map(k=>
@@ -50,12 +52,13 @@ export function PilotProduct({row,rows,result}:{row:PilotRow;rows:PilotRow[];res
     {!!row.card.links.length && <details className="review-source-notes"><summary>{t("pilot.peers")}</summary><p>{t("pilot.peerHelp")}</p>
       {row.card.links.map(l=>{const peer=rows.find(p=>p.card.wp===l.wp);return peer && <div key={l.wp}><strong>{peer.card.name} · #{l.wp}</strong>
         <p>{t(`pilot.relation.${l.kind}`)} · {peer.card.facts.join(" · ")}</p></div>;})}</details>}
-    {canWrite?<>{row.legacy && <RecordedFeedback row={row}/>}<CatalogFeedbackForm key={row.id} row={row} photos={photos}
-      peers={rows.filter(r=>r.id!==row.id).map(r=>({wp:r.card.wp,name:r.card.name}))} next={rows.find(r=>!r.submitted && r.id!==row.id)?.id ?? null}/>
+    {canWrite?<>{row.legacy && <RecordedFeedback row={row}/>}<CatalogStoreReview key={row.id} row={row} photos={photos} peers={peers}
+      next={rows.find(r=>!r.submitted && r.id!==row.id)?.id ?? null}
+      old={{name:text("არსებული სახელი"),short:text("არსებული მოკლე აღწერა"),full:text("არსებული სრული აღწერა")}}/>
       <details className="review-source-notes"><summary>{t("pilot.photoTools")}</summary><ReviewPhotoStudio productId={row.id} photos={photos}
         activity={result.photoWork} paid={Boolean(process.env.REVIEW_GEMINI_API_KEY)}/></details></>:<>
-      {!row.response && !row.legacy && <section className="review-card">{fieldKeys.map(k=><div key={k}><h3>{t(`pilot.target.${k}`)}</h3>
-        <DisplayValues row={row} field={k} values={row.original[k]}/></div>)}</section>}<RecordedFeedback row={row}/></>}
+      <StorePreview row={row} values={values} layout={row.response?.layout} photos={photos} peers={peers}/>
+      {row.response?.layout?.missing && <p><strong>{t("store.missing")}</strong> · {row.response.layout.missing}</p>}<RecordedFeedback row={row}/></>}
     <ReviewPhotoHistory activity={result.photoWork}/></article>;
 }
 

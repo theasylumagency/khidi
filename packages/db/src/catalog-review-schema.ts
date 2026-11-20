@@ -4,6 +4,11 @@ export const catalogFeedbackCards = pgTable("catalog_feedback_round_cards", {
   round: integer("round_no").notNull(), position: integer("position").notNull(), wp: integer("wordpress_id").notNull(),
   definition: jsonb("definition").notNull(), schemaVersion: integer("schema_version").notNull().default(2)
 });
+export const catalogFeedbackCardRevisions = pgTable("catalog_feedback_round_card_revisions", {
+  round: integer("round_no").notNull(), position: integer("position").notNull(), revision: integer("revision").notNull(),
+  definition: jsonb("definition").notNull(), note: text("note").notNull(),
+  createdAt: timestamp("created_at", { withTimezone:true }).defaultNow().notNull()
+});
 export const catalogFeedbackSurveys = pgTable("catalog_feedback_round_surveys", {
   round: integer("round_no").primaryKey(), batchId: uuid("batch_id").notNull(), actor: uuid("actor_id").notNull(),
   answers: jsonb("answers").$type<string[]>().notNull(), createdAt: timestamp("created_at", { withTimezone:true }).defaultNow().notNull()

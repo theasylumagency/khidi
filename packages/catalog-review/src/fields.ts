@@ -1,7 +1,8 @@
 import { z } from "zod";
 export const fieldKeys = ["name","description","facts","kit","links","photos"] as const;
 export type FieldKey = typeof fieldKeys[number];
-export const relationKinds = ["compare","alternative","attachment","part","kit","supply"] as const;
+// "fits" points from an accessory, part or consumable to the machine it is used with.
+export const relationKinds = ["compare","alternative","attachment","part","kit","supply","fits"] as const;
 const line = z.string().trim().min(1).max(300);
 export const cardDefinition = z.object({
   wp: z.number().int().positive(), type: line, name: line, description: z.string().trim().min(1).max(4000),
@@ -10,6 +11,27 @@ export const cardDefinition = z.object({
   questions: z.array(z.object({ field: line, prompt: z.string().trim().min(1).max(800) }).strict()).max(8)
 }).strict();
 export type CardDefinition = z.infer<typeof cardDefinition>;
+// Store-page sections the reviewer may reorder; name and photos stay at the top of a product page.
+export const storeSections = ["description","facts","kit","links"] as const;
+export const storeLayout = z.object({ order: z.array(z.enum(storeSections)).length(storeSections.length)
+  .refine(order => new Set(order).size === order.length), missing: z.string().trim().max(1600) }).strict();
+export type StoreLayout = z.infer<typeof storeLayout>;
+// A fact line reads "label: value"; the label is optional for free text.
+export function splitFact(line: string): [string, string] {
+  const i = line.indexOf(":");
+  return i < 0 ? ["", line.trim()] : [line.slice(0, i).trim(), line.slice(i + 1).trim()];
+}
+const shortLineLabels = ["სიმძლავრე","ძრავის მოცულობა","ხსნარის ავზი","ავზი","ბარაბანი","დისკის დიამეტრი","დიამეტრი","ზომა",
+  "მაქსიმალური დატვირთვა","ღერძი"];
+// The automatic short line: product type plus up to three key facts, first value before a comma.
+export function shortLine(type: string, facts: string[]) {
+  const pairs = facts.map(splitFact), out = [type];
+  for (const label of shortLineLabels) {
+    const found = pairs.find(([k]) => k === label);
+    if (found && out.length < 4) out.push(found[1].split(",")[0]!.trim());
+  }
+  return out.filter(Boolean);
+}
 export const roundQuestions = ["რა აკლდა ყველა ბარათს?", "რომელ ველს არასდროს შეავსებდით მაღაზიაში?",
   "რას გეკითხებიან მყიდველები ყველაზე ხშირად, რაც ბარათზე არ ჩანს?"] as const;
 const fieldReview = z.object({ value: z.array(z.string().trim().max(4000)).max(32),
