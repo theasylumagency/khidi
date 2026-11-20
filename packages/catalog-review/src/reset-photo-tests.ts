@@ -11,7 +11,7 @@ import { sql } from "drizzle-orm";
 import { connectMigratorDatabase } from "@khidi/db";
 import { withDomainTransaction } from "@khidi/domain";
 import { assertProductionConfiguration } from "@khidi/shared/production-config";
-import { pilotBaseline } from "../packages/catalog-review/src/access.ts";
+import { pilotBaseline } from "./access.ts";
 
 const { values } = parseArgs({ options: {
   actor: { type: "string" },
