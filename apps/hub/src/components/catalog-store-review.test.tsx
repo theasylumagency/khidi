@@ -27,8 +27,10 @@ it("names every blocking field and question instead of one generic word", () => 
   const fields = { ...startReview(original), name: { ...ok("name"), verdict: "EDIT" as const, value: ["ახალი სახელი"] },
     kit: { ...startReview(original).kit, unknown: true } };
   const html = render(row(fields, [known("100 მეტრიანი შლანგი"), { state: "", text: "", source: "" }]));
-  expect(html).toContain(t("store.left") + " 8");
-  expect(html).toContain(t("pilot.target.name") + ": " + t("store.problem.reason"));
+  expect(html).toContain(t("store.left") + " 7");
+  // An edit without a reason no longer blocks (owner decision 2026-11-25); the reason field stays available.
+  expect(html).not.toContain(">" + t("pilot.target.name") + ": ");
+  expect(html).toContain(t("store.reason"));
   expect(html).toContain(t("pilot.target.description") + ": " + t("store.problem.rate"));
   expect(html).toContain(t("pilot.target.kit") + ": " + t("store.problem.unknownOnly"));
   expect(html).toContain(t("store.question") + " 1: " + t("store.problem.answerSource"));

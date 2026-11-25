@@ -138,6 +138,10 @@ it("counts a reordering separately from insertions and rejects reverted edits",(
   expect(changes("description",["ერთი ორი სამი"],["ორი სამი ოთხი"])).toEqual({removed:["ერთი"],added:["ოთხი"],moved:[]});
   expect(fieldProblem("kit",{value:[],verdict:"EDIT",reason:"why",unknown:false},[],true)).toBe(true);
   expect(fieldProblem("kit",{value:[],verdict:"OK",reason:"",unknown:true},[],true)).toBe(false);
+  // The reason is optional for EDIT and UNNEEDED; the verdict is not.
+  expect(fieldProblem("kit",{value:["new"],verdict:"EDIT",reason:"",unknown:false},[],true)).toBe(false);
+  expect(fieldProblem("kit",{value:[],verdict:"UNNEEDED",reason:"",unknown:false},["old"],true)).toBe(false);
+  expect(fieldProblem("kit",{value:["new"],verdict:"",reason:"why",unknown:true},[],true)).toBe(true);
   expect(fieldProblem("kit",{value:[],verdict:"UNNEEDED",reason:"why",unknown:true},[],true)).toBe(true);
   expect(shortLine("მოტობლოკი",["ბრენდი: ჰირომიკი","სიმძლავრე: 7 ცხ.ძ., 3600 ბრ/წთ","ღერძი: მსხვილი"])).toEqual(["მოტობლოკი","7 ცხ.ძ.","მსხვილი"]);
   expect(storeLayout.safeParse({order:["kit","facts","links","description"],missing:""}).success).toBe(true);

@@ -167,7 +167,6 @@ export function CatalogStoreReview({ row, photos, peers, next, old, studio }: {
   for (const k of fieldKeys) {
     const f = fields[k];
     if (!f.verdict) problems.push({ field: k, key: f.unknown ? "store.problem.unknownOnly" : editing === k ? "store.problem.notChanged" : "store.problem.rate" });
-    else if (f.verdict !== "OK" && !f.reason.trim()) problems.push({ field: k, key: f.verdict === "UNNEEDED" ? "store.problem.reasonUnneeded" : "store.problem.reason" });
   }
   response.answers.forEach((a, question) => {
     const key: TranslationKey | null = !a.state ? "store.problem.answerState" : a.state !== "KNOWN" ? null
@@ -245,7 +244,7 @@ export function CatalogStoreReview({ row, photos, peers, next, old, studio }: {
       {section && <span className="store-order">
         <button type="button" aria-label={t("store.sectionUp")} onClick={() => moveSection(field as Section, -1)}>↑</button>
         <button type="button" aria-label={t("store.sectionDown")} onClick={() => moveSection(field as Section, 1)}>↓</button></span>}
-      {(f.verdict === "EDIT" || f.verdict === "UNNEEDED") && <input className="store-reason" maxLength={600} aria-invalid={!f.reason.trim()}
+      {(f.verdict === "EDIT" || f.verdict === "UNNEEDED") && <input className="store-reason" maxLength={600}
         aria-label={t(`pilot.target.${field}`) + ": " + t("fields.reason")} placeholder={t("store.reason")} value={f.reason}
         onChange={e => setField(field, { ...f, reason: e.target.value })}/>}
       {field === "photos" && mainId && mainKind !== "PHOTO" && <div className="store-mainphoto" data-kind={mainKind} role="note">
