@@ -6,6 +6,7 @@ import { CatalogStoreReview, StorePreview } from "./catalog-store-review.tsx";
 import { RoundControls } from "./catalog-round-controls.tsx";
 import { ReviewPhotoStudio,ReviewPhotoHistory } from "./review-photo-studio.tsx";
 import { readyImageModels } from "../lib/review-image-methods.ts";
+import { pilotDrafts } from "../lib/catalog-feedback-report.ts";
 
 type Details=Awaited<ReturnType<typeof roundDetails>>;
 function verdict(v:Assessments[FieldKey]["verdict"]) {return t(v==="OK"?"fields.ok":v==="EDIT"?"fields.edit":"fields.unneeded");}
@@ -66,6 +67,7 @@ export function PilotResults({rows,details,admin,candidates,type,current}:{rows:
   candidates:{wp:number;name:string}[];type?:string;current:number}) {
   const first=rows[0];if(!first) return <p>{t("pilot.none")}</p>;
   const completed=rows.filter(r=>r.submitted), subset=completed.filter(r=>!type || r.card.type===type);
+  const drafts=pilotDrafts(rows).filter(r=>!type || r.card.type===type);
   return <section className="catalog-review pilot"><Link href="/review">← {t("pilot.back")}</Link><h1>{t("pilot.report")}</h1>
     <nav className="review-actions">{Array.from({length:current},(_,i)=><Link key={i} aria-current={i+1===first.round?"page":undefined}
       href={"/review/results?round="+(i+1)}>{t("fields.round")} {i+1}</Link>)}</nav><p>{t("pilot.progress")} · {completed.length} / 20</p>
@@ -83,5 +85,8 @@ export function PilotResults({rows,details,admin,candidates,type,current}:{rows:
       details.survey && admin?<RoundControls round={first.round} mode="release" candidates={candidates}/>:null}
     {completed.length===20 && !details.survey && first.canWrite && <RoundControls round={first.round} mode="survey"/>}
     <h2>{t("pilot.summary")}</h2>{subset.map(r=><details key={r.id} className="review-source-notes"><summary>{r.card.name} · #{r.card.wp}</summary><RecordedFeedback row={r}/></details>)}
+    {drafts.length>0 && <section className="pilot-drafts"><h2>{t("pilot.drafts")} · {drafts.length}</h2><p>{t("pilot.draftsHelp")}</p>
+      {drafts.map(r=><details key={r.id} className="review-source-notes" data-draft="true"><summary>{r.card.name} · #{r.card.wp} · {t("pilot.draft")}</summary>
+        <RecordedFeedback row={r}/></details>)}</section>}
   </section>;
 }

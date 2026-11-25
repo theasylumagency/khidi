@@ -551,3 +551,12 @@
 @media (prefers-reduced-motion: reduce) { .ps-spinner, .ps-shimmer { animation: none; } .ps-card { transition: none; } }
 .store-studio { border: 2px solid #244f39; border-radius: .9rem; padding: 1rem; background: #fbfcfa; }
 .ps-warn { margin: 0; padding: .55rem .75rem; border-radius: .5rem; background: #fdf3e6; border-left: 4px solid #d79a2b; color: #5c4210; font-size: .9rem; }
+.store-todo { border: 1px solid #e3b7ab; background: #fdf3ef; border-radius: .5rem; padding: .55rem .65rem; margin: .6rem 0; }
+.store-todo p { margin: 0 0 .35rem; } .store-todo small { display: block; color: #6b4a40; }
+.store-todo ol { margin: 0; padding-inline-start: 1.2rem; display: grid; gap: .2rem; }
+.store-todo button { border: 0; background: none; padding: .15rem 0; font: inherit; color: #8a2f1f; text-align: start; text-decoration: underline; cursor: pointer; min-height: 32px; }
+.store-checklist li[data-open] span:first-child { color: #a43c28; font-weight: 600; }
+.store-strip[data-open], .store-question[data-open] { outline: 2px dashed #d27d66; outline-offset: 3px; border-radius: .4rem; }
+.pilot-primary[aria-disabled=true] { opacity: .6; }
+.pilot-drafts { border-top: 2px dashed #d79a2b; margin-top: 1.25rem; padding-top: .75rem; }
+.pilot-drafts > p { color: #6b5a3a; }

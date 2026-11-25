@@ -71,7 +71,8 @@ export function fieldProblem(key: FieldKey, f: Assessments[FieldKey], source: st
   const single = key === "name" || key === "description";
   if (single && f.value.length > 1 || f.value.some(v => !v || v.length > (key === "description" ? 4000 : 300))) return true;
   if (!submit) return false;
-  if (!f.verdict || f.verdict !== "OK" && !f.reason.trim()) return true;
+  // Owner decision 2026-11-25: the reason for EDIT/UNNEEDED is optional; a verdict is still required.
+  if (!f.verdict) return true;
   if (f.verdict === "UNNEEDED") return f.value.length !== 0 || f.unknown;
   return f.verdict === "OK" ? !sameValues(source,f.value) : sameValues(source,f.value);
 }
