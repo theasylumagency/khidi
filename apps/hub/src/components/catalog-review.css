@@ -558,3 +558,5 @@
 .store-checklist li[data-open] span:first-child { color: #a43c28; font-weight: 600; }
 .store-strip[data-open], .store-question[data-open] { outline: 2px dashed #d27d66; outline-offset: 3px; border-radius: .4rem; }
 .pilot-primary[aria-disabled=true] { opacity: .6; }
+.pilot-drafts { border-top: 2px dashed #d79a2b; margin-top: 1.25rem; padding-top: .75rem; }
+.pilot-drafts > p { color: #6b5a3a; }
