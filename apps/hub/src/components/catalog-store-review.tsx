@@ -14,6 +14,7 @@ type Section = (typeof storeSections)[number];
 type Kind = (typeof relationKinds)[number];
 const identityLabels = ["ბრენდი", "კოდი", "მოდელი", "წარმოშობა"];
 const defaultLayout = (): StoreLayout => ({ order: [...storeSections], missing: "" });
+type Problem = { key: TranslationKey; field?: FieldKey; question?: number };
 const kindOf = (value: string) => relationKinds.find(k => value.startsWith(k + ":")) ?? "compare";
 
 /** Read-only store page: the reviewer's version as a buyer would roughly see it. */
@@ -160,22 +161,39 @@ export function CatalogStoreReview({ row, photos, peers, next, old, studio }: {
   const setValues = (field: FieldKey, value: string[]) =>
     setField(field, { ...fields[field], value, verdict: sameValues(row.original[field], value) ? "" : "EDIT" });
   const values = Object.fromEntries(fieldKeys.map(k => [k, fields[k].value])) as Record<FieldKey, string[]>;
-  const problems: TranslationKey[] = [];
+  // Every condition that blocks finishing, named by field or question, so the reviewer can go straight to it.
+  // The rules match the server's submit validation; only the guidance is richer.
+  const problems: Problem[] = [];
   for (const k of fieldKeys) {
     const f = fields[k];
-    if (!f.verdict) problems.push("store.rate"); else if (f.verdict !== "OK" && !f.reason.trim()) problems.push("store.needReason");
+    if (!f.verdict) problems.push({ field: k, key: f.unknown ? "store.problem.unknownOnly" : editing === k ? "store.problem.notChanged" : "store.problem.rate" });
+    else if (f.verdict !== "OK" && !f.reason.trim()) problems.push({ field: k, key: f.verdict === "UNNEEDED" ? "store.problem.reasonUnneeded" : "store.problem.reason" });
   }
-  if (response.answers.some(a => !a.state || a.state === "KNOWN" && (!a.text.trim() || !a.source.trim()))) problems.push("store.answer");
+  response.answers.forEach((a, question) => {
+    const key: TranslationKey | null = !a.state ? "store.problem.answerState" : a.state !== "KNOWN" ? null
+      : !a.text.trim() ? "store.problem.answerText" : !a.source.trim() ? "store.problem.answerSource" : null;
+    if (key) problems.push({ question, key });
+  });
   const mainId = fields.photos.value[0], mainKind = photos.find(p => p.id === mainId)?.kind ?? "PHOTO";
   const mainNote = response.mainPhoto?.photoId === mainId ? response.mainPhoto : undefined;
-  if (mainPhotoProblem(mainKind, mainId, mainNote)) problems.push("store.mainConfirm");
+  if (mainPhotoProblem(mainKind, mainId, mainNote)) problems.push({ field: "photos", key: "store.mainConfirm" });
+  const openFields = new Set(problems.map(p => p.field)), openQuestions = new Set(problems.map(p => p.question));
+  const problemText = (p: Problem) => (p.field ? t(`pilot.target.${p.field}`) : t("store.question") + " " + (p.question! + 1)) + ": " + t(p.key);
+  function go(p: Problem) {
+    setBuyer(false);
+    if (p.question !== undefined) setTab("questions");
+    requestAnimationFrame(() => {
+      const target = document.querySelector<HTMLElement>(p.question !== undefined ? `[data-question="${p.question}"]` : `[data-field="${p.field}"] .store-strip`);
+      target?.scrollIntoView({ block: "center", behavior: "smooth" });
+      target?.querySelector<HTMLElement>("input:not([type=checkbox]), textarea, button:not(:disabled)")?.focus({ preventScroll: true });
+    });
+  }
   const setMainNote = (patch: Partial<MainPhotoNote>) =>
     update({ mainPhoto: { photoId: mainId!, checked: false, reason: "", ...mainNote, ...patch } });
   const restoreReal = () => {
     const real = fields.photos.value.find(id => photos.find(p => p.id === id)?.kind === "PHOTO");
     if (real) setValues("photos", [real, ...fields.photos.value.filter(id => id !== real)]);
   };
-  const firstProblem = fieldKeys.find(k => !fields[k].verdict || fields[k].verdict !== "OK" && !fields[k].reason.trim());
 
   function moveSection(s: Section, by: number) {
     const order = [...layout.order], i = order.indexOf(s), j = i + by;
@@ -185,12 +203,15 @@ export function CatalogStoreReview({ row, photos, peers, next, old, studio }: {
   }
   async function save(submit: boolean) {
     if (saving.current) return;
-    const invalid = fieldKeys.filter(k => fieldProblem(k, fields[k], row.original[k], submit));
-    if (invalid.length || submit && problems.length) {
-      setMessage(invalid.length ? "fields.required" : problems[0]);
-      document.querySelector(`[data-field="${invalid[0] ?? firstProblem ?? "name"}"]`)?.scrollIntoView({ block: "center" });
+    const invalid = fieldKeys.filter(k => fieldProblem(k, fields[k], row.original[k], false));
+    if (invalid.length) {
+      setMessage("fields.required");
+      document.querySelector(`[data-field="${invalid[0]}"]`)?.scrollIntoView({ block: "center" });
       return;
     }
+    if (submit && problems.length) { setMessage(undefined); go(problems[0]!); return; }
+    const mismatch = submit ? fieldKeys.find(k => fieldProblem(k, fields[k], row.original[k], true)) : undefined;
+    if (mismatch) { setMessage("fields.required"); go({ field: mismatch, key: "fields.required" }); return; }
     saving.current = true; setBusy(true); setEditing(null);
     const body = { ...response, activeSeconds: seconds.current };
     const payload = JSON.stringify({ productId: row.id, revision, submit, response: body });
@@ -211,7 +232,7 @@ export function CatalogStoreReview({ row, photos, peers, next, old, studio }: {
     const pick = (verdict: "OK" | "UNNEEDED") => setField(field, f.verdict === verdict ? { ...f, verdict: "" }
       : { ...f, verdict, value: verdict === "UNNEEDED" ? [] : f.verdict === "UNNEEDED" ? row.original[field] : f.value,
         reason: verdict === "OK" ? "" : f.reason, unknown: verdict === "UNNEEDED" ? false : f.unknown });
-    return <div className="store-strip">
+    return <div className="store-strip" data-open={openFields.has(field) || undefined}>
       <strong>{t(`pilot.target.${field}`)}</strong>
       <button type="button" aria-pressed={f.verdict === "OK"} data-verdict="OK" disabled={changed} onClick={() => pick("OK")}>{t("store.ok")}</button>
       <button type="button" aria-pressed={f.verdict === "EDIT" || editing === field} data-verdict="EDIT"
@@ -266,11 +287,13 @@ export function CatalogStoreReview({ row, photos, peers, next, old, studio }: {
             onChange={e => update({ suggestion: e.target.value })}/></label></div>}
       </div>
       {!buyer && <aside className="store-rail">
-        <section><h2>{t("store.status")}</h2><ul className="store-checklist">{fieldKeys.map(k => <li key={k}><span>{t(`pilot.target.${k}`)}</span>
+        <section><h2>{t("store.status")}</h2><ul className="store-checklist">{fieldKeys.map(k => <li key={k} data-open={openFields.has(k) || undefined}><span>{t(`pilot.target.${k}`)}</span>
           <span className="store-dots"><i data-v={fields[k].verdict || "none"}/>{fields[k].unknown && <i data-v="UNKNOWN"/>}</span></li>)}</ul>
-          <p role="status" aria-live="polite">{message ? t(message) : problems[0] ? t(problems[0]) : t("store.ready")}</p>
+          {problems.length > 0 && <div className="store-todo"><p><strong>{t("store.left")} {problems.length}</strong> <small>{t("store.leftHelp")}</small></p>
+            <ol>{problems.map((p, i) => <li key={i}><button type="button" onClick={() => go(p)}>{problemText(p)}</button></li>)}</ol></div>}
+          <p role="status" aria-live="polite">{message ? t(message) : problems.length ? "" : t("store.ready")}</p>
           <div className="review-actions"><button className="review-button" type="button" disabled={busy} onClick={() => void save(false)}>{t("pilot.draftSave")}</button>
-            <button className="review-button pilot-primary" type="button" disabled={busy || problems.length > 0} onClick={() => void save(true)}>{t("pilot.finish")}</button></div>
+            <button className="review-button pilot-primary" type="button" disabled={busy} aria-disabled={problems.length > 0 || undefined} onClick={() => void save(true)}>{t("pilot.finish")}</button></div>
           {dirty && <small>{t("pilot.leave")}</small>}</section>
         <section><div role="tablist" className="store-tabs">
           <button type="button" role="tab" aria-selected={tab === "questions"} onClick={() => setTab("questions")}>{t("store.questions")} ({row.card.questions.length})</button>
@@ -279,10 +302,11 @@ export function CatalogStoreReview({ row, photos, peers, next, old, studio }: {
             .map(([k, v]) => <div key={k}><h3>{t(k as TranslationKey)}</h3><p>{v || "—"}</p></div>)}</div>
             : row.card.questions.map((q, i) => { const a = response.answers[i]!;
               const set = (patch: Partial<typeof a>) => update({ answers: response.answers.map((x, n) => n === i ? { ...x, ...patch } : x) });
-              return <div key={i} className="store-question"><small>{q.field}</small><p>{q.prompt}</p>
+              return <div key={i} className="store-question" data-question={i} data-open={openQuestions.has(i) || undefined}><small>{t("store.question")} {i + 1} · {q.field}</small><p>{q.prompt}</p>
                 <div className="store-strip">{(["KNOWN", "UNKNOWN"] as const).map(s => <button key={s} type="button" aria-pressed={a.state === s} data-verdict={s === "KNOWN" ? "OK" : "UNKNOWN"}
                   onClick={() => set(a.state === s ? { state: "" } : s === "UNKNOWN" ? { state: s, source: "" } : { state: s })}>{t(s === "KNOWN" ? "pilot.known" : "pilot.unknown")}</button>)}</div>
                 {a.state === "KNOWN" && <><textarea aria-label={t("pilot.answer")} maxLength={1600} rows={2} value={a.text} onChange={e => set({ text: e.target.value })}/>
+                  <small>{t("pilot.sourcePrompt")}</small>
                   <div className="store-strip">{(["plate", "manual", "box", "experience"] as const).map(s => <button key={s} type="button" data-verdict="EDIT"
                     aria-pressed={a.source === t(`pilot.${s}`)} onClick={() => set({ source: a.source === t(`pilot.${s}`) ? "" : t(`pilot.${s}`) })}>{t(`pilot.${s}`)}</button>)}</div></>}
                 {a.state === "UNKNOWN" && <input aria-label={t("pilot.missingEvidence")} placeholder={t("pilot.missingEvidence")} maxLength={1600} value={a.text}
