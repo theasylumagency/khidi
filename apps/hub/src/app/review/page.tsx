@@ -15,7 +15,7 @@ export default async function ReviewPage({ searchParams }: {
   const [principal, params] = await Promise.all([requirePageAuth({ allowedRoles: [...reviewRoles] }), searchParams]);
   const db = getDb();
   const pilot = await listPilot(db, principal);
-  if (pilot.length) return <PilotQueue rows={pilot} details={await roundDetails(db,pilot)}/>;
+  if (pilot.length) return <PilotQueue rows={pilot} details={await roundDetails(db,pilot)} admin={principal.role === "ADMIN"}/>;
   const [products, reports] = await Promise.all([listReviewProducts(db, principal), listReviewCheckpoints(db, principal)]);
   const filters = readReviewFilters(params);
 
