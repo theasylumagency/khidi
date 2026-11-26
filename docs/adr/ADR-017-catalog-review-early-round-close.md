@@ -1,6 +1,6 @@
 # ADR-017 — Closing a catalog review round early
 
-- Status: **Proposed**
+- Status: **Accepted** (owner, 2026-11-26), with variant B for the closing questions
 - Date: 2026-11-26
 - Scope: legacy catalog review pilot rounds only (`/review`, `/review/results`)
 - References: catalog-review-pilot.md; ADR-016; migration 0062; AGENTS.md §8, §11
@@ -16,7 +16,7 @@ finish the remaining verdicts, sources and answers. The system has no way to rec
 There is a second gap: a card of an earlier round stays writable after the next round opens,
 because `savePilot` checks assignment, not whether the card's round is still current.
 
-## Decision (proposed)
+## Decision
 
 ### 1. Explicit early closure, ADMIN only
 
@@ -44,12 +44,13 @@ CONFLICT ("Round closed"). The same freeze applies to a round that already has a
 decision, which closes the second gap above. Entries are never rewritten: a draft stays a draft
 with its last revision, and is never converted into a submission.
 
-### 3. Closing questions and the next round
+### 3. Closing questions and the next round (owner chose variant B)
 
 The completion check in `saveRound` accepts "all twenty submitted **or** a closure exists".
-Everything after it is unchanged: the reviewer answers the three closing questions, then ADMIN
-records KEEP/CHANGE with a note and imports twenty new cards in one transaction. The decision →
-survey foreign key stays.
+The three closing questions are now **optional for every round**: the reviewer may answer them
+once before the decision, and ADMIN may record KEEP/CHANGE and import twenty new cards without
+them. For round 1 the owner asks the questions verbally. The decision → survey foreign key is
+dropped; a decision still requires a finished or closed round, checked under the round lock.
 
 ### 4. Reports
 
@@ -64,15 +65,14 @@ survey foreign key stays.
 - **Ask the reviewer to finish all cards.** Rejected by the owner: more fatigue than information.
 - **Mark drafts as submitted.** Rejected: it would put unconfirmed values into completed-card
   statistics and rewrite the meaning of existing entries.
-- **Let ADMIN skip the closing questions (variant B).** Possible, but it needs the decision →
-  survey foreign key dropped in a new migration, and reports must show "no survey". Not proposed
-  by default because the three answers are the cheapest and most direct record of how the round
-  went. The owner chooses between this and §3.
+- **Keep the closing questions required.** Rejected by the owner on 2026-11-26: they are asked
+  verbally for round 1 and are optional from now on (§3).
 
 ## Migration and compatibility
 
 New migration `0067_catalog_feedback_round_closures.sql`: the table, its grants (`SELECT, INSERT`
-for `hub_app`), the append-only trigger. No existing migration changes, no backfill. Old rounds
+for `hub_app`), the append-only trigger, and the decision → survey foreign key replaced by a
+`round_no > 0` check. No existing migration changes, no backfill. Old rounds
 without a closure behave exactly as before. Rolling back the application leaves the table unused;
 a closed round would then become writable again, so roll forward instead.
 
@@ -85,7 +85,13 @@ a closed round would then become writable again, so roll forward instead.
 - Counts on the closure row match the entries at closure time; audit and outbox rows exist.
 - Results page and XLSX show the closure; field table and first sheet count submitted cards only.
 
-## Open questions for the owner
+## Locking
 
-1. Closing questions after an early close: required (§3) or optional (variant B)?
-2. Should the reviewer see the closure note on her list, or only that the round is closed?
+Pilot writes (`savePilot`, pilot photo work) take the round key as a shared advisory lock before
+the per-card lock; `CLOSE` and `OPEN` take it exclusively. A write therefore either commits before
+the closure or sees it and fails.
+
+## Visibility
+
+The reviewer's list and cards say only that the round is closed. The closure note, date and counts
+appear on the results page and in the XLSX closing-questions sheet.
