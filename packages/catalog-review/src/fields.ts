@@ -1,6 +1,9 @@
 import { z } from "zod";
 export const fieldKeys = ["name","description","facts","kit","links","photos"] as const;
 export type FieldKey = typeof fieldKeys[number];
+// Whether the store still sells the product (owner decision 2026-11-26). DISCONTINUED needs no field verdicts.
+export const assortmentStatuses = ["ACTIVE","ON_ORDER","TEMP_OUT","DISCONTINUED"] as const;
+export type AssortmentStatus = typeof assortmentStatuses[number];
 // "fits" points from an accessory, part or consumable to the machine it is used with.
 export const relationKinds = ["compare","alternative","attachment","part","kit","supply","fits"] as const;
 const line = z.string().trim().min(1).max(300);

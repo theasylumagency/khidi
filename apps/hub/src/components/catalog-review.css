@@ -560,3 +560,12 @@
 .pilot-primary[aria-disabled=true] { opacity: .6; }
 .pilot-drafts { border-top: 2px dashed #d79a2b; margin-top: 1.25rem; padding-top: .75rem; }
 .pilot-drafts > p { color: #6b5a3a; }
+.store-assortment { border: 1px solid #d8d2c4; border-radius: .5rem; padding: .5rem .75rem .65rem; margin: 0 0 .75rem; }
+.store-assortment[data-open] { outline: 2px dashed #d27d66; outline-offset: 3px; }
+.store-assortment legend { font-weight: 600; padding: 0 .25rem; }
+.store-assortment [role=group] { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .35rem; }
+.store-assortment button { min-height: 40px; padding: .35rem .8rem; border-radius: .4rem; border: 1px solid #b9b2a3; background: #fff; font: inherit; cursor: pointer; }
+.store-assortment button[aria-pressed=true] { background: #2f4f3f; border-color: #2f4f3f; color: #fff; }
+.store-assortment button[data-status=DISCONTINUED][aria-pressed=true] { background: #8a2f1f; border-color: #8a2f1f; }
+.store-assortment p { margin: .5rem 0 0; color: #6b4a40; }
+.store-help { display: block; color: #6b6458; margin-top: .25rem; }

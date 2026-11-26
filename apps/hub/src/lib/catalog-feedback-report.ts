@@ -25,17 +25,18 @@ function records(rows:PilotRow[]) {
       r.response?r.card.questions.map((q,i)=>[q.prompt,pilotAnswerText(r.response!.answers[i])].join(" · ")).join("\n"):"",
       r.response?.suggestion ?? "",k==="photos"?r.response?.photoNote ?? "":"",r.actor ?? "",r.at?.toISOString() ?? "",String(r.revision),r.legacy ? JSON.stringify(r.legacy) : "",
       String(r.cardRevision),r.response?.layout ? r.response.layout.order.map(s=>t(`pilot.target.${s}`)).join(" → ") : "",r.response?.layout?.missing ?? "",
-      r.response?.activeSeconds!==undefined ? String(Math.round(r.response.activeSeconds/60)) : "",mainPhoto(r)];
+      r.response?.activeSeconds!==undefined ? String(Math.round(r.response.activeSeconds/60)) : "",mainPhoto(r),
+      r.response?.assortment ? t(`store.assortment.${r.response.assortment}`) : ""];
   }));
 }
 
 type Closure={note:string;submitted:number;drafts:number;untouched:number;createdAt:Date}|null;
 
 export function pilotReport(rows:PilotRow[],answers:string[]=[],closure:Closure=null) {
-  const widths=[10,12,26,36,13,20,52,52,28,40,34,34,36,15,14,46,36,30,24,26,12,32,12,40,40,12,40],headers=[t("fields.round"),"WP ID",t("fields.type"),t("pilot.target.name"),t("fields.code"),
+  const widths=[10,12,26,36,13,20,52,52,28,40,34,34,36,15,14,46,36,30,24,26,12,32,12,40,40,12,40,24],headers=[t("fields.round"),"WP ID",t("fields.type"),t("pilot.target.name"),t("fields.code"),
     t("fields.field"),t("fields.original"),t("fields.final"),t("fields.verdict"),t("fields.reason"),t("fields.removed"),
     t("fields.added"),t("fields.moved"),t("fields.missing"),t("fields.empty"),t("fields.evidence"),t("pilot.suggestions"),t("pilot.photoReview"),t("pilot.author"),"UTC",t("fields.revision"),t("fields.legacy"),
-    t("fields.cardRevision"),t("fields.order"),t("fields.pageMissing"),t("fields.minutes"),t("fields.mainPhoto")];
+    t("fields.cardRevision"),t("fields.order"),t("fields.pageMissing"),t("fields.minutes"),t("fields.mainPhoto"),t("fields.assortment")];
   return [{name:t("fields.sheet"),widths,headers,rows:records(rows.filter(r=>r.submitted))},
     {name:t("fields.questions"),widths:[58,72],headers:[t("fields.question"),t("fields.answer")],rows:[...roundQuestions.map((q,i)=>[q,answers[i] ?? ""]),
       ...(closure?[[t("fields.closed"),closure.createdAt.toISOString()+" · "+closure.note],

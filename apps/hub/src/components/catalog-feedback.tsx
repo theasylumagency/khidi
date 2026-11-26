@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { PilotRow,getReviewProduct,roundDetails } from "@khidi/catalog-review";
-import { changes,fieldKeys,roundQuestions,relationKinds,type FieldKey,type Assessments } from "@khidi/catalog-review/fields";
+import { assortmentStatuses,changes,fieldKeys,roundQuestions,relationKinds,type FieldKey,type Assessments } from "@khidi/catalog-review/fields";
 import { t } from "@khidi/i18n";
 import { CatalogStoreReview, StorePreview } from "./catalog-store-review.tsx";
 import { RoundControls } from "./catalog-round-controls.tsx";
@@ -33,6 +33,7 @@ function RecordedFeedback({row}:{row:PilotRow}) {
   const r=row.response;
   return <>{row.actor && <small>{row.actor} · {row.at?.toLocaleString("ka-GE",{timeZone:"Asia/Tbilisi"})}</small>}
     {row.legacy && <details><summary>{t("fields.legacy")}</summary><pre>{JSON.stringify(row.legacy,null,2)}</pre></details>}
+    {r?.assortment && <p><strong>{t("store.assortment")}</strong> · {t(`store.assortment.${r.assortment}`)}</p>}
     {r && <>{fieldKeys.map(k=>{
       const f=r.fields[k],diff=changes(k,row.original[k],f.value);
       return <section key={k} className="field-history"><h3>{t(`pilot.target.${k}`)} · {f.verdict && verdict(f.verdict)}</h3>
@@ -72,6 +73,9 @@ export function PilotResults({rows,details,admin,candidates,type,current}:{rows:
   const completed=rows.filter(r=>r.submitted), subset=completed.filter(r=>!type || r.card.type===type);
   const drafts=pilotDrafts(rows).filter(r=>!type || r.card.type===type);
   const closure=details.closure, finished=completed.length===20 || Boolean(closure);
+  // Assortment status across saved cards, finished or not: it is the reviewer's statement about the product, not a verdict.
+  const assortment=assortmentStatuses.map(s=>[s,rows.filter(r=>(!type || r.card.type===type) && r.response?.assortment===s).length] as const)
+    .filter(([,n])=>n>0).map(([s,n])=>t(`store.assortment.${s}`)+" "+n);
   return <section className="catalog-review pilot"><Link href="/review">← {t("pilot.back")}</Link><h1>{t("pilot.report")}</h1>
     <nav className="review-actions">{Array.from({length:current},(_,i)=><Link key={i} aria-current={i+1===first.round?"page":undefined}
       href={"/review/results?round="+(i+1)}>{t("fields.round")} {i+1}</Link>)}</nav><p>{t("pilot.progress")} · {completed.length} / 20</p>
@@ -92,6 +96,7 @@ export function PilotResults({rows,details,admin,candidates,type,current}:{rows:
     {/* The closing answers are the reviewer's own; an administrator records verbal answers in the decision note. */}
     {finished && !details.survey && !details.decision && first.canWrite && !admin && <RoundControls round={first.round} mode="survey"/>}
     {admin && !finished && !details.decision && rows.length===20 && <RoundControls round={first.round} mode="close"/>}
+    {assortment.length>0 && <p>{t("store.assortment")}: {assortment.join(" · ")}</p>}
     <h2>{t("pilot.summary")}</h2>{subset.map(r=><details key={r.id} className="review-source-notes"><summary>{r.card.name} · #{r.card.wp}</summary><RecordedFeedback row={r}/></details>)}
     {drafts.length>0 && <section className="pilot-drafts"><h2>{t("pilot.drafts")} · {drafts.length}</h2><p>{t(first.locked ? "pilot.draftsHelpClosed" : "pilot.draftsHelp")}</p>
       {drafts.map(r=><details key={r.id} className="review-source-notes" data-draft="true"><summary>{r.card.name} · #{r.card.wp} · {t("pilot.draft")}</summary>

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { FeedbackResponse, PilotRow } from "@khidi/catalog-review";
-import { fieldKeys, fieldProblem, mainPhotoProblem, relationKinds, sameValues, shortLine, splitFact, startReview, storeSections,
+import { assortmentStatuses, fieldKeys, fieldProblem, mainPhotoProblem, relationKinds, sameValues, shortLine, splitFact, startReview, storeSections,
   type Assessments, type FieldKey, type MainPhotoNote, type PhotoKind, type StoreLayout } from "@khidi/catalog-review/fields";
 import { t, type TranslationKey } from "@khidi/i18n";
 import { useLightbox } from "./photo-lightbox.tsx";
@@ -14,7 +14,7 @@ type Section = (typeof storeSections)[number];
 type Kind = (typeof relationKinds)[number];
 const identityLabels = ["ბრენდი", "კოდი", "მოდელი", "წარმოშობა"];
 const defaultLayout = (): StoreLayout => ({ order: [...storeSections], missing: "" });
-type Problem = { key: TranslationKey; field?: FieldKey; question?: number };
+type Problem = { key: TranslationKey; field?: FieldKey; question?: number; assortment?: true };
 const kindOf = (value: string) => relationKinds.find(k => value.startsWith(k + ":")) ?? "compare";
 
 /** Read-only store page: the reviewer's version as a buyer would roughly see it. */
@@ -91,7 +91,7 @@ function StoreFrame({ row, values, layout, photos, peers, phone, slot, editor, r
 function ValueEditor({ field, values, photos, peers, onChange }: {
   field: FieldKey; values: string[]; photos: Photo[]; peers: Peer[]; onChange: (v: string[]) => void;
 }) {
-  const [kind, setKind] = useState<Kind>("alternative");
+  const [kind, setKind] = useState<Kind | "">("");
   const move = (i: number, by: number) => { const next = [...values]; next.splice(i + by, 0, ...next.splice(i, 1)); onChange(next); };
   const tools = (i: number) => <span className="store-row-tools">
     <button type="button" aria-label={t("fields.up") + " " + (i + 1)} disabled={!i} onClick={() => move(i, -1)}>↑</button>
@@ -112,11 +112,13 @@ function ValueEditor({ field, values, photos, peers, onChange }: {
     <button type="button" disabled={values.length >= 32} onClick={() => onChange([...values, t("fields.newRow")])}>{t("fields.rowAdd")}</button></div>;
   if (field === "links") return <div className="store-rows">{values.map((v, i) => { const wp = v.split(":")[1];
     return <div key={v} className="store-row"><span>{t(`store.relation.${kindOf(v)}`)} · {peers.find(p => String(p.wp) === wp)?.name ?? "#" + wp}</span>{tools(i)}</div>; })}
-    <div className="store-row"><select aria-label={t("fields.type")} value={kind} onChange={e => setKind(e.target.value as Kind)}>
+    <div className="store-row"><select aria-label={t("store.relationKind")} value={kind} onChange={e => setKind(e.target.value as Kind | "")}>
+      <option value="">{t("store.relationKind")}</option>
       {relationKinds.filter(k => k !== "compare").map(k => <option key={k} value={k}>{t(`store.relation.${k}`)}</option>)}</select>
-      <select aria-label={t("fields.choose")} value="" onChange={e => e.target.value && onChange([...values, kind + ":" + e.target.value])}>
+      <select aria-label={t("fields.choose")} value="" disabled={!kind} onChange={e => { if (kind && e.target.value) { onChange([...values, kind + ":" + e.target.value]); setKind(""); } }}>
         <option value="">{t("fields.choose")}</option>{peers.filter(p => !values.some(v => v.endsWith(":" + p.wp)))
-          .map(p => <option key={p.wp} value={p.wp}>{p.name} · #{p.wp}</option>)}</select></div></div>;
+          .map(p => <option key={p.wp} value={p.wp}>{p.name} · #{p.wp}</option>)}</select></div>
+    <small className="store-help">{t("store.relationHelp")}</small></div>;
   return <div className="store-rows">{values.map((id, i) => { const p = photos.find(x => x.id === id);
     return <div key={id} className="store-row"><img src={p?.url} alt="" width={64} height={64}/>
       <span>{t("review.photo")} {p?.position}{i ? "" : " · " + t("store.main")}{p && p.kind !== "PHOTO" ? " · " + t(`store.kind.${p.kind}`) : ""}</span>{tools(i)}</div>; })}
@@ -164,25 +166,27 @@ export function CatalogStoreReview({ row, photos, peers, next, old, studio }: {
   // Every condition that blocks finishing, named by field or question, so the reviewer can go straight to it.
   // The rules match the server's submit validation; only the guidance is richer.
   const problems: Problem[] = [];
-  for (const k of fieldKeys) {
+  const status = response.assortment ?? "", retired = status === "DISCONTINUED";
+  if (!status) problems.push({ assortment: true, key: "store.problem.assortment" });
+  if (!retired) for (const k of fieldKeys) {
     const f = fields[k];
     if (!f.verdict) problems.push({ field: k, key: f.unknown ? "store.problem.unknownOnly" : editing === k ? "store.problem.notChanged" : "store.problem.rate" });
   }
-  response.answers.forEach((a, question) => {
+  if (!retired) response.answers.forEach((a, question) => {
     const key: TranslationKey | null = !a.state ? "store.problem.answerState" : a.state !== "KNOWN" ? null
       : !a.text.trim() ? "store.problem.answerText" : !a.source.trim() ? "store.problem.answerSource" : null;
     if (key) problems.push({ question, key });
   });
   const mainId = fields.photos.value[0], mainKind = photos.find(p => p.id === mainId)?.kind ?? "PHOTO";
   const mainNote = response.mainPhoto?.photoId === mainId ? response.mainPhoto : undefined;
-  if (mainPhotoProblem(mainKind, mainId, mainNote)) problems.push({ field: "photos", key: "store.mainConfirm" });
+  if (!retired && mainPhotoProblem(mainKind, mainId, mainNote)) problems.push({ field: "photos", key: "store.mainConfirm" });
   const openFields = new Set(problems.map(p => p.field)), openQuestions = new Set(problems.map(p => p.question));
-  const problemText = (p: Problem) => (p.field ? t(`pilot.target.${p.field}`) : t("store.question") + " " + (p.question! + 1)) + ": " + t(p.key);
+  const problemText = (p: Problem) => (p.assortment ? t("store.assortment") : p.field ? t(`pilot.target.${p.field}`) : t("store.question") + " " + (p.question! + 1)) + ": " + t(p.key);
   function go(p: Problem) {
     setBuyer(false);
     if (p.question !== undefined) setTab("questions");
     requestAnimationFrame(() => {
-      const target = document.querySelector<HTMLElement>(p.question !== undefined ? `[data-question="${p.question}"]` : `[data-field="${p.field}"] .store-strip`);
+      const target = document.querySelector<HTMLElement>(p.assortment ? "[data-assortment]" : p.question !== undefined ? `[data-question="${p.question}"]` : `[data-field="${p.field}"] .store-strip`);
       target?.scrollIntoView({ block: "center", behavior: "smooth" });
       target?.querySelector<HTMLElement>("input:not([type=checkbox]), textarea, button:not(:disabled)")?.focus({ preventScroll: true });
     });
@@ -266,6 +270,11 @@ export function CatalogStoreReview({ row, photos, peers, next, old, studio }: {
       onChange={v => setValues(field, v)}/> : null;
 
   return <div className={"store-review" + (buyer ? " is-buyer" : "")}>
+    <fieldset className="store-assortment" data-assortment data-open={!status || undefined}><legend>{t("store.assortment")}</legend>
+      {!status && <small>{t("store.assortment.help")}</small>}
+      <div role="group" aria-label={t("store.assortment")}>{assortmentStatuses.map(s => <button type="button" key={s} aria-pressed={status === s}
+        data-status={s} onClick={() => update({ assortment: status === s ? "" : s })}>{t(`store.assortment.${s}`)}</button>)}</div>
+      {retired && <p role="note">{t("store.assortment.retired")}</p>}</fieldset>
     <div className="store-toolbar">
       <div role="group" aria-label={t("store.mode")}>
         <button type="button" aria-pressed={!buyer} onClick={() => setBuyer(false)}>{t("store.mode.review")}</button>
