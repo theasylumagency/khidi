@@ -12,7 +12,7 @@ import { pilotAnswerText } from "../lib/catalog-feedback-answer.ts";
 type Details=Awaited<ReturnType<typeof roundDetails>>;
 function verdict(v:Assessments[FieldKey]["verdict"]) {return t(v==="OK"?"fields.ok":v==="EDIT"?"fields.edit":"fields.unneeded");}
 
-export function PilotQueue({rows,details}:{rows:PilotRow[];details:Details}) {
+export function PilotQueue({rows,details,admin=false}:{rows:PilotRow[];details:Details;admin?:boolean}) {
   const done=rows.filter(r=>r.submitted).length, first=rows[0]!, closed=first.locked;
   const finished=done===20 || Boolean(details.closure);
   const next=closed ? undefined : rows.find(r=>!r.submitted && r.revision) ?? rows.find(r=>!r.submitted);
@@ -20,7 +20,7 @@ export function PilotQueue({rows,details}:{rows:PilotRow[];details:Details}) {
     <progress value={done} max={20}/><div className="review-actions">{next && <Link className="review-button pilot-primary" href={"/review/"+next.id}>
       {t(done || next.revision?"pilot.resume":"pilot.begin")}</Link>}<Link href={"/review/results?round="+first.round}>{t("pilot.overview")}</Link></div>
     {closed && details.closure && <p className="pilot-notice">{t("pilot.closed")}</p>}
-    {finished && !details.decision && <><p className="pilot-notice">{t("fields.nextPending")}</p>{first.canWrite && !details.survey && <RoundControls round={first.round} mode="survey"/>}</>}
+    {finished && !details.decision && <><p className="pilot-notice">{t("fields.nextPending")}</p>{first.canWrite && !admin && !details.survey && <RoundControls round={first.round} mode="survey"/>}</>}
     <ol className="pilot-queue">{rows.map(r=><li key={r.id}><Link href={"/review/"+r.id}><strong>{r.card.name}</strong><small>#{r.card.wp} ·
       {t(r.submitted?"pilot.done":r.revision?"pilot.draft":"pilot.new")}</small></Link></li>)}</ol></section>;
 }
@@ -89,10 +89,11 @@ export function PilotResults({rows,details,admin,candidates,type,current}:{rows:
     {details.survey && <section className="review-card"><h2>{t("fields.survey")}</h2>{roundQuestions.map((q,i)=><div key={q}><strong>{q}</strong><p>{details.survey!.answers[i]}</p></div>)}</section>}
     {details.decision?<p>{t(details.decision.choice==="KEEP"?"fields.keep":"fields.change")} · {details.decision.note}</p>:
       finished && admin?<RoundControls round={first.round} mode="release" candidates={candidates}/>:null}
-    {finished && !details.survey && !details.decision && first.canWrite && <RoundControls round={first.round} mode="survey"/>}
+    {/* The closing answers are the reviewer's own; an administrator records verbal answers in the decision note. */}
+    {finished && !details.survey && !details.decision && first.canWrite && !admin && <RoundControls round={first.round} mode="survey"/>}
     {admin && !finished && !details.decision && rows.length===20 && <RoundControls round={first.round} mode="close"/>}
     <h2>{t("pilot.summary")}</h2>{subset.map(r=><details key={r.id} className="review-source-notes"><summary>{r.card.name} · #{r.card.wp}</summary><RecordedFeedback row={r}/></details>)}
-    {drafts.length>0 && <section className="pilot-drafts"><h2>{t("pilot.drafts")} · {drafts.length}</h2><p>{t("pilot.draftsHelp")}</p>
+    {drafts.length>0 && <section className="pilot-drafts"><h2>{t("pilot.drafts")} · {drafts.length}</h2><p>{t(first.locked ? "pilot.draftsHelpClosed" : "pilot.draftsHelp")}</p>
       {drafts.map(r=><details key={r.id} className="review-source-notes" data-draft="true"><summary>{r.card.name} · #{r.card.wp} · {t("pilot.draft")}</summary>
         <RecordedFeedback row={r}/></details>)}</section>}
   </section>;
