@@ -27,7 +27,11 @@ export function RoundControls({round,mode,candidates=[]}:{round:number;mode:"sur
     if (last.current.payload!==payload) last.current={payload,key:crypto.randomUUID()};
     pending.current=true;setBusy(true);
     try { const res=await fetch("/api/catalog-review/round",{method:"POST",headers:{"Content-Type":"application/json","Idempotency-Key":last.current.key},body:payload});
-      if(!res.ok){setMessage(res.status===409?"review.conflict":res.status===400?"fields.invalidFile":"review.failed");return;}
+      if(!res.ok){
+        const error=await res.json().catch(()=>null) as {error?:unknown;reason?:unknown}|null;
+        setMessage(res.status===409 && error?.error==="CONFLICT" && error?.reason==="PHOTO_RENDER_PENDING"
+          ?"fields.photoRenderPending":res.status===409?"review.conflict":res.status===400?"fields.invalidFile":"review.failed");return;
+      }
       setMessage("fields.done");if(mode==="release") router.push("/review");router.refresh();
     } catch {setMessage("review.failed");} finally {pending.current=false;setBusy(false);}
   }

@@ -38,3 +38,25 @@ it("reports saved drafts on their own sheet without counting them as completed",
   expect(closed[1]!.rows.slice(3)).toEqual([[t("fields.closed"),"2026-11-26T08:00:00.000Z · enough learned"],[t("fields.closedCounts"),"0 / 1 / 1"]]);
   expect(closed[0]!.rows).toHaveLength(0);
 });
+
+it("keeps unanswered questions distinct from explicit uncertainty in exported draft evidence",()=>{
+  const card={wp:9,type:"type",name:"მონახაზი",description:"d",facts:[],kit:[],links:[],questions:[
+    {field:"facts",prompt:"ცნობილი კითხვა"},{field:"facts",prompt:"დასაზუსტებელი კითხვა"},{field:"facts",prompt:"უპასუხო კითხვა"}
+  ]};
+  const original=originals(card,[]);
+  const row:PilotRow={card,original,response:{fields:startReview(original),answers:[
+    {state:"KNOWN",text:"100 ლ",source:"ინსტრუქცია"},
+    {state:"UNKNOWN",text:"ფირფიტის ფოტო გვჭირდება",source:""},
+    {state:"",text:"შენახული მონახაზი",source:"შეფუთვა"}
+  ]},id:"id",batch:"batch",position:1,round:1,cardRevision:1,photoKinds:{},photoIds:[],revision:2,
+    submitted:false,canWrite:true,locked:true,actor:"reviewer",at:new Date(),legacy:null};
+  const before=JSON.stringify(row.response), [completed,,drafts]=pilotReport([row]);
+  const evidence=drafts!.headers.indexOf(t("fields.evidence"));
+  expect(completed!.rows).toHaveLength(0);
+  expect(drafts!.rows[0]![evidence]).toBe([
+    "ცნობილი კითხვა · პასუხი მაქვს · 100 ლ · ინსტრუქცია",
+    "დასაზუსტებელი კითხვა · ჯერ ვერ ვადასტურებ · ფირფიტის ფოტო გვჭირდება",
+    "უპასუხო კითხვა · პასუხი არ არის გაცემული · შენახული მონახაზი · შეფუთვა"
+  ].join("\n"));
+  expect(JSON.stringify(row.response)).toBe(before);
+});

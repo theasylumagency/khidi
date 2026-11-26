@@ -15,6 +15,46 @@ The release form lists the remaining eligible WordPress IDs and downloads a JSON
 
 The pilot adds an editorial queue to the existing Hub. It uses the same sessions, invitation and office sign-in flow, PostgreSQL, audit/outbox transaction and private media storage. A reviewer account opens at `/review`. The reviewer can see only assigned batches and can review the products that have proposals. Admins can inspect the pilot. A reviewer has no operational entity memberships or permissions.
 
+### Before closing a round
+
+Closing a round or opening its successor waits for photo rendering to settle. An attempt is pending
+when it has a visible `RENDER` entry and no `PREVIEW` or `FAILED` result. The close/release form explains
+that photo processing has not finished; review the result and retry. Existing previews and accepted
+photos remain stored, and draft answers are never changed by closing the round. Read-only cards,
+results and the XLSX label unanswered questions separately from explicit uncertainty while retaining
+any saved answer text and source.
+
+Before a release or round closure, inspect pending attempts using the confirmed pilot batch ID and
+round number as the psql variables `batch_id` and `round_no`. This query is read-only; the server
+repeats the check under its round lock when the administrator submits the action.
+
+```sql
+SELECT w.id AS attempt_id, p.wordpress_id, w.actor_id, w.model, w.created_at
+FROM catalog_review_photo_work w
+JOIN catalog_legacy_products p ON p.id = w.product_id
+JOIN catalog_feedback_round_cards c ON c.wordpress_id = p.wordpress_id
+WHERE w.batch_id = :'batch_id'::uuid
+  AND c.round_no = :round_no
+  AND w.kind = 'RENDER'
+  AND NOT EXISTS (
+    SELECT 1 FROM catalog_review_photo_test_resets r
+    WHERE r.product_id = w.product_id AND r.actor_id = w.actor_id
+      AND w.created_at <= r.cutoff_at
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM catalog_review_photo_work result
+    WHERE result.parent_id = w.id AND result.kind IN ('PREVIEW', 'FAILED')
+  )
+ORDER BY w.created_at, w.id;
+```
+
+A process interrupted after recording its attempt may leave a pending row even though no provider
+call is still running. Such a row continues to block closure and needs investigation against logs,
+provider status and stored media. Retrying the same render key does not call the provider again.
+There is no general settlement command in this release: do not invent a failure, delete history,
+or use the exploratory-photo reset to bypass this check. An audited recovery operation would need
+its own implementation before such an orphaned attempt can be resolved safely.
+
 ## Migration and data flow
 
 1. Apply migrations through 0060 on an isolated local database. Migrations 0056 through 0058 create legacy snapshot, assignment, photo, proposal, decision and first-pass report tables, and add the reviewer to the office enrollment checks. Earlier migrations stay frozen.

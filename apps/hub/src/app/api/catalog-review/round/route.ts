@@ -20,6 +20,7 @@ export async function POST(request: Request) {
     const error = err instanceof AppError ? err.code : "INTERNAL_ERROR";
     const status: Record<string, number> = { UNAUTHORIZED:401, FORBIDDEN:403, NOT_FOUND:404, VALIDATION_ERROR:400,
       PAYLOAD_TOO_LARGE:413, CONFLICT:409, IDEMPOTENCY_CONFLICT:409 };
-    return Response.json({ error }, { status: status[error] ?? 500, headers });
+    const pendingRender=err instanceof AppError && err.code==="CONFLICT" && err.details?.reason==="PHOTO_RENDER_PENDING";
+    return Response.json({ error, ...(pendingRender?{reason:"PHOTO_RENDER_PENDING"}:{}) }, { status: status[error] ?? 500, headers });
   }
 }

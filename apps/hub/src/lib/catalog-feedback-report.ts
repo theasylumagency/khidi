@@ -1,6 +1,7 @@
 import type { PilotRow } from "@khidi/catalog-review";
 import { changes, fieldKeys, roundQuestions } from "@khidi/catalog-review/fields";
 import { t } from "@khidi/i18n";
+import { pilotAnswerText } from "./catalog-feedback-answer.ts";
 
 /** Main photo kind as stored, with the reviewer's reason when she chose an illustration anyway. */
 function mainPhoto(r:PilotRow) {
@@ -21,7 +22,7 @@ function records(rows:PilotRow[]) {
       field?.verdict?t(field.verdict==="OK"?"fields.ok":field.verdict==="EDIT"?"fields.edit":"fields.unneeded"):t("fields.legacy"),
       field?.reason ?? "",...([diff.removed,diff.added,diff.moved].map(v=>v.join("\n"))),
       field?t(field.unknown?"fields.yes":"fields.no"):"",field?t(after.length?"fields.no":"fields.yes"):"",
-      r.card.questions.map((q,i)=>{const a=r.response?.answers[i]; return a?[q.prompt,t(a.state==="KNOWN"?"pilot.known":"pilot.unknown"),a.text,a.source].filter(Boolean).join(" · "):"";}).filter(Boolean).join("\n"),
+      r.response?r.card.questions.map((q,i)=>[q.prompt,pilotAnswerText(r.response!.answers[i])].join(" · ")).join("\n"):"",
       r.response?.suggestion ?? "",k==="photos"?r.response?.photoNote ?? "":"",r.actor ?? "",r.at?.toISOString() ?? "",String(r.revision),r.legacy ? JSON.stringify(r.legacy) : "",
       String(r.cardRevision),r.response?.layout ? r.response.layout.order.map(s=>t(`pilot.target.${s}`)).join(" → ") : "",r.response?.layout?.missing ?? "",
       r.response?.activeSeconds!==undefined ? String(Math.round(r.response.activeSeconds/60)) : "",mainPhoto(r)];
