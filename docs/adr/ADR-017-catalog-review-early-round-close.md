@@ -44,6 +44,13 @@ CONFLICT ("Round closed"). The same freeze applies to a round that already has a
 decision, which closes the second gap above. Entries are never rewritten: a draft stays a draft
 with its last revision, and is never converted into a submission.
 
+Before `CLOSE` or `OPEN` freezes a round, the service checks for visible photo `RENDER` attempts
+on that round's products and batch without a `PREVIEW` or `FAILED` result. It rejects the action
+with `CONFLICT` and the public reason `PHOTO_RENDER_PENDING` until those attempts settle. The
+provider call and its result storage continue normally; the result is not discarded or hidden.
+The administrator can retry after inspecting the finished photo work. Historical attempts already
+excluded by the operator test-reset markers do not block the round.
+
 ### 3. Closing questions and the next round (owner chose variant B)
 
 The completion check in `saveRound` accepts "all twenty submitted **or** a closure exists".
@@ -59,6 +66,8 @@ dropped; a decision still requires a finished or closed round, checked under the
   field table or the first sheet, so completed-card statistics keep their meaning.
 - The XLSX gains no new columns; the closure note and counts are added as rows of the existing
   closing-questions sheet.
+- Read-only cards, results and XLSX distinguish an unanswered question from an explicit
+  `UNKNOWN` answer. They preserve saved text and source even when the answer state is still blank.
 
 ## Alternatives considered
 
@@ -84,12 +93,31 @@ a closed round would then become writable again, so roll forward instead.
 - After a normal KEEP/CHANGE decision: writes to the previous round → CONFLICT.
 - Counts on the closure row match the entries at closure time; audit and outbox rows exist.
 - Results page and XLSX show the closure; field table and first sheet count submitted cards only.
+- A paused photo render blocks `CLOSE` and `OPEN` with the specific pending-render response.
+  Its eventual preview remains available for acceptance; closure succeeds after it settles.
+- Terminal results, attempts from other rounds/batches and excluded operator experiments do not
+  block closure. A render starting while closure owns the round lock cannot slip past the freeze.
+- Unanswered and explicitly unknown answers stay distinct on closed cards and in the export;
+  rendering either view does not change the saved response.
 
 ## Locking
 
 Pilot writes (`savePilot`, pilot photo work) take the round key as a shared advisory lock before
 the per-card lock; `CLOSE` and `OPEN` take it exclusively. A write therefore either commits before
 the closure or sees it and fails.
+
+The pending-render check runs while that exclusive lock is held. A renderer commits its attempt
+before contacting the provider, so closure sees it after acquiring the lock. A later attempt must
+wait for the lock and recheck whether the round is frozen. Result persistence does not need to hold
+the round lock across a provider call: while any result is outstanding, closure is refused. A
+result committed just after the check can at most require the administrator to retry.
+
+An interrupted process can leave a recorded attempt without a terminal result. Closure remains
+blocked in that case: elapsed time alone does not prove a provider call failed or was not billed.
+There is no automatic recovery or expiry of such attempts. Investigate the attempt and its storage
+before closing the round; do not fabricate a result or use the exploratory-photo reset as recovery.
+The [pilot operations note](../catalog/catalog-review-pilot.md#before-closing-a-round) includes a
+read-only query for identifying these attempts.
 
 ## Visibility
 

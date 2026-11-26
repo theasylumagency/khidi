@@ -7,6 +7,7 @@ import { RoundControls } from "./catalog-round-controls.tsx";
 import { ReviewPhotoStudio,ReviewPhotoHistory } from "./review-photo-studio.tsx";
 import { readyImageModels } from "../lib/review-image-methods.ts";
 import { pilotDrafts } from "../lib/catalog-feedback-report.ts";
+import { pilotAnswerText } from "../lib/catalog-feedback-answer.ts";
 
 type Details=Awaited<ReturnType<typeof roundDetails>>;
 function verdict(v:Assessments[FieldKey]["verdict"]) {return t(v==="OK"?"fields.ok":v==="EDIT"?"fields.edit":"fields.unneeded");}
@@ -41,8 +42,7 @@ function RecordedFeedback({row}:{row:PilotRow}) {
         {f.reason && <p>{f.reason}</p>}{f.unknown && <strong>{t("fields.unknown")}</strong>}</section>;})}
       {r.suggestion && <p><strong>{t("pilot.suggestions")}</strong> · {r.suggestion}</p>}
       {r.photoNote && <p><strong>{t("pilot.photoReview")}</strong> · {r.photoNote}</p>}
-      {row.card.questions.map((q,i)=><p key={i}><strong>{q.prompt}</strong><br/>{r.answers[i]?.state==="KNOWN"?r.answers[i]?.text:t("pilot.unknown")}
-        {" · "}{r.answers[i]?.state==="KNOWN"?r.answers[i]?.source:r.answers[i]?.text}</p>)}</>}</>;
+      {row.card.questions.map((q,i)=><p key={i}><strong>{q.prompt}</strong><br/>{pilotAnswerText(r.answers[i])}</p>)}</>}</>;
 }
 export function PilotProduct({row,rows,result}:{row:PilotRow;rows:PilotRow[];result:Awaited<ReturnType<typeof getReviewProduct>>}) {
   const photos=result.photos.map(p=>({id:p.id,position:p.position,url:`/api/catalog-review/photo/${row.id}/${p.id}`,kind:row.photoKinds[p.id] ?? "PHOTO" as const}));

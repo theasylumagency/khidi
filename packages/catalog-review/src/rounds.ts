@@ -2,11 +2,13 @@ import { and, asc, eq, exists, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AuthenticatedPrincipal } from "@khidi/auth";
 import { catalogFeedbackCards as cards, catalogFeedbackSurveys as surveys, catalogFeedbackDecisions as decisions, catalogFeedbackClosures as closures,
-  catalogLegacyProducts as products, catalogReviewProposals as proposals, type AppDatabase, type DbExecutor } from "@khidi/db";
+  catalogLegacyProducts as products, catalogReviewProposals as proposals, catalogReviewPhotoWork as work,
+  type AppDatabase, type DbExecutor } from "@khidi/db";
 import { executeIdempotent, withDomainTransaction } from "@khidi/domain";
 import { AppError } from "@khidi/shared";
 import { cardDefinition } from "./fields.ts";
 import { listPilot, type PilotRow } from "./pilot.ts";
+import { visiblePhotoWork } from "./photo-visibility.ts";
 
 const round=z.number().int().positive();
 const reason=z.string().trim().min(1).max(1600);
@@ -36,6 +38,15 @@ export async function nextCandidates(db:DbExecutor,principal:AuthenticatedPrinci
     .orderBy(asc(products.wordpressId));
   return found.map(p=>({wp:p.wp,name:String(p.baseline["არსებული სახელი"] ?? "")}));
 }
+/** Called under the exclusive round lock, before freezing a round. Provider results must be retained. */
+async function requireSettledPhotoWork(db:DbExecutor,rows:PilotRow[]) {
+  const [pending]=await db.select({id:work.id}).from(work).where(and(
+    eq(work.batchId,rows[0]!.batch),inArray(work.productId,rows.map(row=>row.id)),eq(work.kind,"RENDER"),visiblePhotoWork,
+    sql`NOT EXISTS (SELECT 1 FROM catalog_review_photo_work result
+      WHERE result.parent_id=${work.id} AND result.kind IN ('PREVIEW','FAILED'))`
+  )).limit(1);
+  if (pending) throw new AppError("CONFLICT","Photo rendering is still in progress.",{reason:"PHOTO_RENDER_PENDING"});
+}
 export async function saveRound(db:AppDatabase,principal:AuthenticatedPrincipal,key:string,raw:z.infer<typeof roundAction>) {
   const result=roundAction.safeParse(raw);
   if (!result.success) throw new AppError("VALIDATION_ERROR","Invalid round.");
@@ -51,6 +62,7 @@ export async function saveRound(db:AppDatabase,principal:AuthenticatedPrincipal,
       if (input.action==="CLOSE") {
         const submitted=rows.filter(r=>r.submitted).length, drafts=rows.filter(r=>!r.submitted && r.revision>0).length;
         if (rows.length!==20 || closure || submitted===20) throw new AppError("CONFLICT","Round cannot be closed early.");
+        await requireSettledPhotoWork(ctx.tx,rows);
         await ctx.tx.insert(closures).values({round:input.round,batchId:first.batch,actor:principal.userId,note:input.note,
           submitted,drafts,untouched:20-submitted-drafts});
       } else if (!roundFinished(rows,closure)) throw new AppError("CONFLICT","Complete or close the round first.");
@@ -65,6 +77,7 @@ export async function saveRound(db:AppDatabase,principal:AuthenticatedPrincipal,
         if (available.length!==20 || reused.length || input.cards.some(c=>
           new Set(c.links.map(l=>l.wp)).size!==c.links.length || c.links.some(l=>l.wp===c.wp || !ids.includes(l.wp))))
           throw new AppError("VALIDATION_ERROR","Choose twenty distinct unused products and valid peers.");
+        await requireSettledPhotoWork(ctx.tx,rows);
         await ctx.tx.insert(decisions).values({round:input.round,actor:principal.userId,choice:input.choice,note:input.note});
         await ctx.tx.insert(cards).values(input.cards.map((card,i)=>({round:input.round+1,position:i+1,wp:card.wp,definition:card})));
       }
