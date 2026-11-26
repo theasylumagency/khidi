@@ -7,14 +7,15 @@ import { executeIdempotent, withDomainTransaction } from "@khidi/domain";
 import { AppError, createUuidV7 } from "@khidi/shared";
 import { assigned, lockPilotPhotoWork, pilotBatch, reviewerAssignment } from "./access.ts";
 import { visibleGalleryPhoto } from "./photo-visibility.ts";
-import { assessments, fieldKeys, fieldProblem, mainPhotoNote, mainPhotoProblem, originals, photoKind, relationKinds, storeLayout,
+import { assessments, assortmentStatuses, fieldKeys, fieldProblem, mainPhotoNote, mainPhotoProblem, originals, photoKind, relationKinds, storeLayout,
   type CardDefinition, type Originals, type PhotoKind } from "./fields.ts";
 
 const note=z.string().trim().max(1600);
 export const feedbackAnswer=z.object({state:z.enum(["","KNOWN","UNKNOWN"]),text:note,source:note}).strict();
 export const feedbackResponse=z.object({ fields:assessments, answers:z.array(feedbackAnswer).max(8),
   suggestion:note.optional(), photoNote:note.optional(), layout:storeLayout.optional(),
-  activeSeconds:z.number().int().nonnegative().max(7*24*3600).optional(), mainPhoto:mainPhotoNote.optional() }).strict();
+  activeSeconds:z.number().int().nonnegative().max(7*24*3600).optional(), mainPhoto:mainPhotoNote.optional(),
+  assortment:z.enum(["",...assortmentStatuses]).optional() }).strict();
 export type FeedbackResponse=z.infer<typeof feedbackResponse>;
 export const feedbackInput=z.object({productId:z.string().uuid(), revision:z.number().int().nonnegative(),
   submit:z.boolean(), response:feedbackResponse}).strict();
@@ -75,8 +76,10 @@ export async function savePilot(db: AppDatabase, principal: AuthenticatedPrincip
       if (!row) throw new AppError("NOT_FOUND","Unknown card.");
       if (row.revision!==input.revision) throw new AppError("CONFLICT","Newer feedback exists.");
       const {fields,answers}=input.response;
-      if (fieldKeys.some(k=>fieldProblem(k,fields[k],row.original[k],input.submit)) ||
-        answers.length!==row.card.questions.length || input.submit && answers.some(a=>!a.state || a.state==="KNOWN" && (!a.text || !a.source)))
+      // A finished card names its assortment status; a discontinued product needs no verdicts or answers.
+      const status=input.response.assortment ?? "", retired=status==="DISCONTINUED", full=input.submit && !retired;
+      if (input.submit && !status || fieldKeys.some(k=>fieldProblem(k,fields[k],row.original[k],full)) ||
+        answers.length!==row.card.questions.length || full && answers.some(a=>!a.state || a.state==="KNOWN" && (!a.text || !a.source)))
         throw new AppError("VALIDATION_ERROR","Incomplete feedback.");
       const refs=fields.links.value.map(v=>v.split(":"));
       if (refs.some(([kind,wp,...rest])=>rest.length || !relationKinds.some(k=>k===kind) ||
@@ -85,7 +88,7 @@ export async function savePilot(db: AppDatabase, principal: AuthenticatedPrincip
         new Set(fields.photos.value).size!==fields.photos.value.length) throw new AppError("VALIDATION_ERROR","Invalid selection.");
       // An AI-edited or illustrative lead photo needs the reviewer's explicit confirmation (and a reason for an illustration).
       const main=fields.photos.value[0];
-      if (input.submit && main && mainPhotoProblem(row.photoKinds[main] ?? "PHOTO",main,input.response.mainPhoto))
+      if (full && main && mainPhotoProblem(row.photoKinds[main] ?? "PHOTO",main,input.response.mainPhoto))
         throw new AppError("VALIDATION_ERROR","Main photo needs confirmation.");
       const id=createUuidV7(), revision=input.revision+1;
       await ctx.tx.insert(entries).values({ id,revision,productId:row.id,actorId:principal.userId,

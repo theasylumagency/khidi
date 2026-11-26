@@ -14,10 +14,10 @@ const questions = [{ field: "კომპლექტაცია", prompt: "რ
 const ok = (k: keyof Assessments) => ({ value: original[k], verdict: "OK" as const, reason: "", unknown: false });
 const allOk = (): Assessments => ({ name: ok("name"), description: ok("description"), facts: ok("facts"), kit: ok("kit"), links: ok("links"), photos: ok("photos") });
 type Answer = { state: "" | "KNOWN" | "UNKNOWN"; text: string; source: string };
-const row = (fields: Assessments, answers: Answer[]): Row => ({
+const row = (fields: Assessments, answers: Answer[], assortment: "" | "ACTIVE" | "DISCONTINUED" = ""): Row => ({
   id: "product", original, revision: 3, submitted: false, legacy: null, photoIds: [], photoKinds: {},
   card: { type: "მისაბმელიანი შემასხურებელი", questions },
-  response: { fields, answers, suggestion: "", photoNote: "", layout: { order: ["description", "facts", "kit", "links"], missing: "" }, activeSeconds: 0 }
+  response: { fields, answers, suggestion: "", photoNote: "", layout: { order: ["description", "facts", "kit", "links"], missing: "" }, activeSeconds: 0, assortment }
 } as unknown as Row);
 const render = (r: Row) => renderToStaticMarkup(createElement(CatalogStoreReview,
   { row: r, photos: [], peers: [], next: null, old: { name: "", short: "", full: "" } }));
@@ -27,7 +27,8 @@ it("names every blocking field and question instead of one generic word", () => 
   const fields = { ...startReview(original), name: { ...ok("name"), verdict: "EDIT" as const, value: ["ახალი სახელი"] },
     kit: { ...startReview(original).kit, unknown: true } };
   const html = render(row(fields, [known("100 მეტრიანი შლანგი"), { state: "", text: "", source: "" }]));
-  expect(html).toContain(t("store.left") + " 7");
+  expect(html).toContain(t("store.left") + " 8");
+  expect(html).toContain(t("store.assortment") + ": " + t("store.problem.assortment"));
   // An edit without a reason no longer blocks (owner decision 2026-11-25); the reason field stays available.
   expect(html).not.toContain(">" + t("pilot.target.name") + ": ");
   expect(html).toContain(t("store.reason"));
@@ -47,8 +48,15 @@ it("keeps the finish button clickable so it can lead to the first open item", ()
 });
 
 it("reports a fully answered card as ready", () => {
-  const html = render(row(allOk(), [known("კი", t("pilot.box")), { state: "UNKNOWN", text: "", source: "" }]));
+  const html = render(row(allOk(), [known("კი", t("pilot.box")), { state: "UNKNOWN", text: "", source: "" }], "ACTIVE"));
   expect(html).toContain(t("store.ready"));
   expect(html).not.toContain(t("store.left"));
   expect(html).not.toContain("data-open");
+});
+
+it("needs only the status for a product that will not be imported again", () => {
+  const html = render(row(startReview(original), [{ state: "", text: "", source: "" }, { state: "", text: "", source: "" }], "DISCONTINUED"));
+  expect(html).toContain(t("store.assortment.retired"));
+  expect(html).toContain(t("store.ready"));
+  expect(html).not.toContain(t("store.left"));
 });

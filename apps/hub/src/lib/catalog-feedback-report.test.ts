@@ -16,7 +16,11 @@ it("exports exactly six records per completed card and three ordered survey answ
   const [details,survey]=pilotReport([...rows,{...row,submitted:false}],["one","two","=safe"]);
   expect(details!.rows).toHaveLength(120);
   expect(details!.rows[2]!.slice(4,13)).toEqual(["facts",expect.any(String),"A\nB\nC","C\nA\nB",expect.any(String),"first","","","C (3 → 1)"]);
-  expect(details!.rows[0]!.slice(-5)).toEqual(["2",expect.stringContaining(" → "),"price","3",""]);
+  // The assortment status is appended as the last column; earlier columns keep their positions.
+  expect(details!.rows[0]!.slice(-6)).toEqual(["2",expect.stringContaining(" → "),"price","3","",""]);
+  expect(details!.headers.at(-1)).toBe(t("fields.assortment"));
+  const [withStatus]=pilotReport([{...row,response:{...row.response!,assortment:"ON_ORDER"}}]);
+  expect(withStatus!.rows.every(r=>r.at(-1)===t("store.assortment.ON_ORDER"))).toBe(true);
   expect(survey!.rows.map(r=>r[1])).toEqual(["one","two","=safe"]);
   expect((await exportWorkbook([details!,survey!])).subarray(0,4)).toEqual(Buffer.from([80,75,3,4]));
 });

@@ -54,7 +54,7 @@ it("keeps all twenty responses, rejects the twenty-first and never releases on r
       const rows=await listPilot(db,person);
       function accepted(i:number):FeedbackResponse {
         const row=rows[i]!, fields=startReview(row.original);for(const k of fieldKeys) fields[k].verdict="OK";
-        return { fields,answers:row.card.questions.map(()=>({state:"UNKNOWN",text:"",source:""})) };
+        return { fields,answers:row.card.questions.map(()=>({state:"UNKNOWN",text:"",source:""})),assortment:"ACTIVE" };
       }
       const response=accepted(0);
       // Migration 0063 revises round 1 without touching the append-only revision 1.
@@ -89,6 +89,9 @@ it("keeps all twenty responses, rejects the twenty-first and never releases on r
         .rejects.toMatchObject({ code: "VALIDATION_ERROR" });
       await expect(savePilot(db, person, uuid(), { ...draft, revision: 1, submit: true, response: { ...draft.response,
         answers: answered.map(a => ({ ...a, source: "" })) } })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+      // A finished card names its assortment status.
+      await expect(savePilot(db, person, uuid(), { ...draft, revision: 1, submit: true, response: { ...draft.response, assortment: "" } }))
+        .rejects.toMatchObject({ code: "VALIDATION_ERROR" });
       const photosField = response.fields.photos;
       // An illustration may lead only with an acknowledgement and a reason; neither alone is enough to finish.
       const illustrationFirst = { ...response.fields, photos: { ...photosField, value: [composition, photoId], verdict: "EDIT" as const, reason: "shows the blades" } };
@@ -162,6 +165,10 @@ it("closes a round early, freezes its drafts and opens the next round without th
       fields.name = { ...fields.name, value: ["new name"], verdict: "EDIT", reason: "" };
       const response: FeedbackResponse = { fields, answers: rows[0]!.card.questions.map(() => ({ state: "", text: "", source: "" })) };
       await savePilot(db, person, uuid(), { productId: first.id, revision: 0, submit: false, response });
+      // A discontinued product is finished with its status alone: no verdicts, answers or photo checks.
+      const third = items[2]!, retired: FeedbackResponse = { fields: startReview(rows[2]!.original), assortment: "DISCONTINUED",
+        answers: rows[2]!.card.questions.map(() => ({ state: "", text: "", source: "" })) };
+      await savePilot(db, person, uuid(), { productId: third.id, revision: 0, submit: true, response: retired });
       const close = { action: "CLOSE" as const, round: 1, note: "Enough learned from the drafts" };
       const release = { action: "OPEN" as const, round: 1, choice: "CHANGE" as const, note: "Add assortment status",
         cards: items.slice(20).map(p => ({ ...pilotCards[0]!, wp: p.wp, links: [] })) };
@@ -175,7 +182,8 @@ it("closes a round early, freezes its drafts and opens the next round without th
       expect(frozen[0]!.response?.fields.name.value).toEqual(["new name"]);
       expect(frozen[0]!.submitted).toBe(false);
       const { closure, survey } = await roundDetails(db, frozen);
-      expect(closure).toMatchObject({ note: close.note, submitted: 0, drafts: 1, untouched: 19, actor: admin.userId });
+      expect(closure).toMatchObject({ note: close.note, submitted: 1, drafts: 1, untouched: 18, actor: admin.userId });
+      expect(frozen[2]!.response?.assortment).toBe("DISCONTINUED");
       expect(survey).toBeNull();
       await expect(savePilot(db, person, uuid(), { productId: first.id, revision: 1, submit: false, response })).rejects.toMatchObject({ code: "CONFLICT" });
       await expect(savePilot(db, person, uuid(), { productId: second.id, revision: 0, submit: false,
