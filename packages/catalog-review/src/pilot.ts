@@ -28,6 +28,8 @@ export async function listPilot(db: DbExecutor, principal: AuthenticatedPrincipa
       WHERE r.round_no=${cards.round} AND r.position=${cards.position} ORDER BY r.revision DESC LIMIT 1),${cards.definition})`,
     cardRevision:sql<number>`COALESCE((SELECT max(r.revision) FROM catalog_feedback_round_card_revisions r
       WHERE r.round_no=${cards.round} AND r.position=${cards.position}),1)`,canWrite:sql<boolean>`${reviewerAssignment(db,principal)}`,revision:entries.revision,
+    locked:sql<boolean>`(EXISTS (SELECT 1 FROM catalog_feedback_round_closures x WHERE x.round_no=${cards.round})
+      OR EXISTS (SELECT 1 FROM catalog_feedback_round_decisions d WHERE d.round_no=${cards.round}))`,
     submitted:entries.submitted,response:entries.response,actor:users.fullName,at:entries.createdAt,snapshot:entries.card})
     .from(products).innerJoin(cards,eq(cards.wp,products.wordpressId)).leftJoin(entries,eq(entries.productId,products.id))
     .leftJoin(users,eq(entries.actorId,users.id)).where(and(assigned(db,principal),pilotBatch(db),eq(cards.round,round)))
@@ -48,7 +50,7 @@ export async function listPilot(db: DbExecutor, principal: AuthenticatedPrincipa
     const photoKinds:Record<string,PhotoKind>=Object.fromEntries(assets.map(p=>[p.id,photoKind((p.audit as Record<string,unknown>|null)?.origin)]));
     return { id:row.id,batch:row.batch,round:row.round,position:row.position,cardRevision:Number(row.cardRevision),card,original,
       photoIds:assets.map(p=>p.id),photoKinds,
-      revision:row.revision ?? 0,submitted:row.submitted ?? false,canWrite:row.canWrite,actor:row.actor,at:row.at,
+      revision:row.revision ?? 0,submitted:row.submitted ?? false,canWrite:row.canWrite,locked:Boolean(row.locked),actor:row.actor,at:row.at,
       response:parsed.success ? parsed.data : null,legacy:snap?.previousFeedback ?? (parsed.success ? null : row.response as Record<string,unknown>|null) };
   });
 }

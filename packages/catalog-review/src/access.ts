@@ -41,6 +41,14 @@ export async function lockPilotPhotoWork(db: DbExecutor, principal: Authenticate
     .where(and(eq(products.id, productId), pilotBatch(db)));
   if (!row) return;
   if (!row.canWrite) throw new AppError("FORBIDDEN", "Pilot reviewer assignment required.");
+  // ADR-017: a round that was closed early or already decided is frozen. The shared round lock orders this check
+  // against CLOSE/OPEN, which hold the same key exclusively; it is taken before the per-card lock.
+  await db.execute(sql`SELECT pg_advisory_xact_lock_shared(hashtextextended('catalog-feedback-round',0))`);
+  const frozen = (await db.execute<{ frozen: boolean }>(sql`SELECT EXISTS (
+    SELECT 1 FROM catalog_feedback_round_cards c JOIN catalog_legacy_products p ON p.wordpress_id = c.wordpress_id
+    WHERE p.id = ${productId} AND (EXISTS (SELECT 1 FROM catalog_feedback_round_closures x WHERE x.round_no = c.round_no)
+      OR EXISTS (SELECT 1 FROM catalog_feedback_round_decisions d WHERE d.round_no = c.round_no))) AS frozen`)).rows[0];
+  if (frozen?.frozen) throw new AppError("CONFLICT", "Pilot round is closed.");
   await db.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${"feedback:" + productId},0))`);
   const [done] = await db.select({ id: feedback.id }).from(feedback)
     .where(and(eq(feedback.productId, productId), eq(feedback.submitted, true)));

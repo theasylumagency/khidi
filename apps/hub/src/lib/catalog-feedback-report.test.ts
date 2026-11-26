@@ -11,7 +11,7 @@ it("exports exactly six records per completed card and three ordered survey answ
   for(const k of fieldKeys) fields[k].verdict="OK";
   fields.facts={value:["C","A","B"],verdict:"EDIT",reason:"first",unknown:false};
   const row:PilotRow={card,original,response:{fields,answers:[],layout:{order:["facts","description","kit","links"],missing:"price"},activeSeconds:150},
-    id:"id",batch:"batch",position:1,round:1,cardRevision:2,photoKinds:{},photoIds:[],revision:1,submitted:true,canWrite:false,actor:"reviewer",at:new Date(),legacy:null};
+    id:"id",batch:"batch",position:1,round:1,cardRevision:2,photoKinds:{},photoIds:[],revision:1,submitted:true,canWrite:false,locked:false,actor:"reviewer",at:new Date(),legacy:null};
   const rows=Array.from({length:20},(_,i)=>({...row,position:i+1,card:{...card,wp:i+1}}));
   const [details,survey]=pilotReport([...rows,{...row,submitted:false}],["one","two","=safe"]);
   expect(details!.rows).toHaveLength(120);
@@ -25,7 +25,7 @@ it("reports saved drafts on their own sheet without counting them as completed",
   const card={wp:9,type:"type",name:"მონახაზი",description:"d",facts:[],kit:[],links:[],questions:[]};
   const original=originals(card,[]), fields=startReview(original);
   const base:PilotRow={card,original,response:{fields,answers:[],activeSeconds:0},id:"id",batch:"batch",position:1,round:1,cardRevision:1,
-    photoKinds:{},photoIds:[],revision:2,submitted:false,canWrite:true,actor:"reviewer",at:new Date(),legacy:null};
+    photoKinds:{},photoIds:[],revision:2,submitted:false,canWrite:true,locked:false,actor:"reviewer",at:new Date(),legacy:null};
   const untouched={...base,id:"new",revision:0,response:null};
   const [details,survey,drafts]=pilotReport([base,untouched]);
   expect(details!.rows).toHaveLength(0);
@@ -34,4 +34,7 @@ it("reports saved drafts on their own sheet without counting them as completed",
   expect(drafts!.headers).toEqual(details!.headers);
   expect(drafts!.rows).toHaveLength(6);
   expect(drafts!.rows.every(r=>r[1]==="9")).toBe(true);
+  const closed=pilotReport([base,untouched],[],{note:"enough learned",submitted:0,drafts:1,untouched:1,createdAt:new Date("2026-11-26T08:00:00Z")});
+  expect(closed[1]!.rows.slice(3)).toEqual([[t("fields.closed"),"2026-11-26T08:00:00.000Z · enough learned"],[t("fields.closedCounts"),"0 / 1 / 1"]]);
+  expect(closed[0]!.rows).toHaveLength(0);
 });

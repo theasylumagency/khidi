@@ -16,8 +16,8 @@ export async function GET(request:Request) {
     if (!Number.isSafeInteger(round) || round<1) return new Response(null,{status:400,headers});
     const db=getDb(), rows=await listPilot(db,principal,round);
     if (!rows.length) return new Response(null,{status:404,headers});
-    const {survey}=await roundDetails(db,rows);
-    const bytes=await exportWorkbook(pilotReport(rows,survey?.answers));
+    const {survey,closure}=await roundDetails(db,rows);
+    const bytes=await exportWorkbook(pilotReport(rows,survey?.answers,closure));
     return new Response(new Uint8Array(bytes),{headers:{...headers,
       "Content-Type":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "Content-Disposition":'attachment; filename="catalog-feedback-'+round+'.xlsx"'}});

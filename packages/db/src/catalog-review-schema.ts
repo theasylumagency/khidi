@@ -18,6 +18,13 @@ export const catalogFeedbackDecisions = pgTable("catalog_feedback_round_decision
   createdAt: timestamp("created_at", { withTimezone:true }).defaultNow().notNull()
 });
 
+/** ADR-017: an administrator's early closure of a pilot round; append-only. */
+export const catalogFeedbackClosures = pgTable("catalog_feedback_round_closures", {
+  round: integer("round_no").primaryKey(), batchId: uuid("batch_id").notNull(), actor: uuid("actor_id").notNull(), note: text("note").notNull(),
+  submitted: integer("submitted_count").notNull(), drafts: integer("draft_count").notNull(), untouched: integer("untouched_count").notNull(),
+  createdAt: timestamp("created_at", { withTimezone:true }).defaultNow().notNull()
+});
+
 export const catalogFeedbackEntries = pgTable("catalog_feedback_entries", {
   id: uuid("id").primaryKey(), productId: uuid("product_id").notNull(), actorId: uuid("actor_id").notNull(),
   revision: integer("revision").notNull(), submitted: boolean("submitted").notNull(),

@@ -116,7 +116,8 @@ it("keeps all twenty responses, rejects the twenty-first and never releases on r
       await expect(lockPilotPhotoWork(db, person, first.id)).rejects.toMatchObject({ code: "CONFLICT" });
       await expect(savePilot(db, person, uuid(), { ...draft, revision: 2 })).rejects.toMatchObject({ code: "CONFLICT" });
       await expect(getReviewProduct(db, admin, extra.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
-      await expect(saveRound(db,admin,uuid(),release)).rejects.toMatchObject({code:"CONFLICT"});
+      // ADR-017: a complete round cannot be closed early; the closing questions are optional (release is tested below).
+      await expect(saveRound(db,admin,uuid(),{action:"CLOSE",round:1,note:"too late"})).rejects.toMatchObject({code:"CONFLICT"});
       await expect(saveRound(db,admin,uuid(),survey)).rejects.toMatchObject({code:"FORBIDDEN"});
       await saveRound(db,person,uuid(),survey);
       expect((await roundDetails(db,observed)).survey?.answers).toEqual(survey.answers);
@@ -128,6 +129,65 @@ it("keeps all twenty responses, rejects the twenty-first and never releases on r
       expect((await listPilot(db,person))[0]?.round).toBe(2);
       expect((await listPilot(db,admin,1)).map(r=>r.response)).toEqual(observed.map(r=>r.response));
       expect((await getReviewProduct(db,person,extra.id)).product.id).toBe(extra.id);
+      // A decided round is frozen for the reviewer as well.
+      expect((await listPilot(db,person,1)).every(r=>r.locked)).toBe(true);
+      expect((await listPilot(db,person)).some(r=>r.locked)).toBe(false);
+      throw rollback;
+    })).rejects.toBe(rollback);
+  } finally { await migrator.close(); }
+},30000);
+
+it("closes a round early, freezes its drafts and opens the next round without the closing questions", async () => {
+  const migrator = connectMigratorDatabase(), rollback = new Error("rollback early close fixture");
+  const person: AuthenticatedPrincipal = { userId: uuid(), role: "CATALOG_REVIEWER", email: null, fullName: "Reviewer",
+    locale: "ka", entityIds: [], permissions: [], authMethod: "OFFICE_PASSWORD_TOTP", deviceId: null };
+  const admin = { ...person, role: "ADMIN" as const, userId: uuid() };
+  const batch = uuid();
+  try {
+    await expect(migrator.db.transaction(async tx => {
+      const pilotCards=(await tx.select().from(catalogFeedbackCards).orderBy(asc(catalogFeedbackCards.position))).map(r=>cardDefinition.parse(r.definition));
+      const items=[...pilotCards.map(card=>card.wp),...Array.from({length:20},(_,i)=>987654+i)].map(wp=>({wp,id:uuid()}));
+      await tx.insert(users).values([person, admin].map(p => ({ id: p.userId, fullName: p.fullName, email: p.userId + "@example.test", role: p.role })));
+      await tx.insert(catalogReviewBatches).values({ id: batch, createdAt: new Date("2000-01-01T00:00:00Z"), sources: { baseline: pilotBaseline },
+        sourceSha256: batch.replaceAll("-", "").repeat(2) });
+      await tx.insert(catalogReviewAssignments).values({ batchId: batch, userId: person.userId });
+      await tx.insert(catalogLegacyProducts).values(items.map((p,i) => ({ id: p.id, batchId: batch, wordpressId: p.wp,
+        sourceStatus: "PUBLISHED" as const, baseline: {}, reviewSource: {}, recommendedOrder: i < 20 ? i+1 : null })));
+      await tx.insert(catalogReviewProposals).values(items.map(p => ({ id: uuid(), productId: p.id,
+        field: "NAME" as const, proposed: "old", observation: "source", rationale: "source" })));
+      await tx.execute(sql`SET LOCAL ROLE hub_app`);
+      const db = tx as unknown as AppDatabase;
+      const rows = await listPilot(db, person), first = items[0]!, second = items[1]!;
+      const fields = startReview(rows[0]!.original);
+      fields.name = { ...fields.name, value: ["new name"], verdict: "EDIT", reason: "" };
+      const response: FeedbackResponse = { fields, answers: rows[0]!.card.questions.map(() => ({ state: "", text: "", source: "" })) };
+      await savePilot(db, person, uuid(), { productId: first.id, revision: 0, submit: false, response });
+      const close = { action: "CLOSE" as const, round: 1, note: "Enough learned from the drafts" };
+      const release = { action: "OPEN" as const, round: 1, choice: "CHANGE" as const, note: "Add assortment status",
+        cards: items.slice(20).map(p => ({ ...pilotCards[0]!, wp: p.wp, links: [] })) };
+      await expect(saveRound(db, admin, uuid(), release)).rejects.toMatchObject({ code: "CONFLICT" });
+      await expect(saveRound(db, person, uuid(), close)).rejects.toMatchObject({ code: "FORBIDDEN" });
+      const key = uuid(), closed = await saveRound(db, admin, key, close);
+      expect((await saveRound(db, admin, key, close)).body).toEqual(closed.body);
+      await expect(saveRound(db, admin, uuid(), close)).rejects.toMatchObject({ code: "CONFLICT" });
+      const frozen = await listPilot(db, person);
+      expect(frozen.every(r => r.locked)).toBe(true);
+      expect(frozen[0]!.response?.fields.name.value).toEqual(["new name"]);
+      expect(frozen[0]!.submitted).toBe(false);
+      const { closure, survey } = await roundDetails(db, frozen);
+      expect(closure).toMatchObject({ note: close.note, submitted: 0, drafts: 1, untouched: 19, actor: admin.userId });
+      expect(survey).toBeNull();
+      await expect(savePilot(db, person, uuid(), { productId: first.id, revision: 1, submit: false, response })).rejects.toMatchObject({ code: "CONFLICT" });
+      await expect(savePilot(db, person, uuid(), { productId: second.id, revision: 0, submit: false,
+        response: { ...response, answers: rows[1]!.card.questions.map(() => ({ state: "", text: "", source: "" })) } })).rejects.toMatchObject({ code: "CONFLICT" });
+      await expect(lockPilotPhotoWork(db, person, second.id)).rejects.toMatchObject({ code: "CONFLICT" });
+      await expect(tx.transaction(async nested => { await nested.execute(sql`UPDATE catalog_feedback_round_closures SET note = 'changed'`); }))
+        .rejects.toThrow();
+      await saveRound(db, admin, uuid(), release);
+      const next = await listPilot(db, person);
+      expect(next[0]?.round).toBe(2);
+      expect(next.some(r => r.locked)).toBe(false);
+      expect((await listPilot(db, admin, 1)).map(r => r.response)).toEqual(frozen.map(r => r.response));
       throw rollback;
     })).rejects.toBe(rollback);
   } finally { await migrator.close(); }
