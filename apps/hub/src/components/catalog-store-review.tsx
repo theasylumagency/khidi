@@ -213,7 +213,7 @@ export function CatalogStoreReview({ row, photos, peers, next, old, studio }: {
       return;
     }
     if (submit && problems.length) { setMessage(undefined); go(problems[0]!); return; }
-    const mismatch = submit ? fieldKeys.find(k => fieldProblem(k, fields[k], row.original[k], true)) : undefined;
+    const mismatch = submit && !retired ? fieldKeys.find(k => fieldProblem(k, fields[k], row.original[k], true)) : undefined;
     if (mismatch) { setMessage("fields.required"); go({ field: mismatch, key: "fields.required" }); return; }
     saving.current = true; setBusy(true); setEditing(null);
     const body = { ...response, activeSeconds: seconds.current };
