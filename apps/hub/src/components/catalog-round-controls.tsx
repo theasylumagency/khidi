@@ -4,10 +4,10 @@ import { useRouter } from "next/navigation";
 import { t, type TranslationKey } from "@khidi/i18n";
 import { cardDefinition,roundQuestions,type CardDefinition } from "@khidi/catalog-review/fields";
 
-export function RoundControls({round,mode,candidates=[]}:{round:number;mode:"survey"|"release";candidates?:{wp:number;name:string}[]}) {
+export function RoundControls({round,mode,candidates=[]}:{round:number;mode:"survey"|"release"|"close";candidates?:{wp:number;name:string}[]}) {
   const router=useRouter(), [answers,setAnswers]=useState(["","",""]),[choice,setChoice]=useState(""),
     [note,setNote]=useState(""),[cards,setCards]=useState<CardDefinition[]>([]),[message,setMessage]=useState<TranslationKey>(),
-    [busy,setBusy]=useState(false);
+    [busy,setBusy]=useState(false),[confirmed,setConfirmed]=useState(false);
   const last=useRef({payload:"",key:""}), pending=useRef(false);
   function template() {
     const draft=candidates.slice(0,20).map(p=>({...p,type:"",description:"",facts:[],kit:[],links:[],questions:[]}));
@@ -23,7 +23,7 @@ export function RoundControls({round,mode,candidates=[]}:{round:number;mode:"sur
   }
   async function send() {
     if (pending.current) return;
-    const payload=JSON.stringify(mode==="survey"?{action:"SURVEY",round,answers}:{action:"OPEN",round,choice,note,cards});
+    const payload=JSON.stringify(mode==="survey"?{action:"SURVEY",round,answers}:mode==="close"?{action:"CLOSE",round,note}:{action:"OPEN",round,choice,note,cards});
     if (last.current.payload!==payload) last.current={payload,key:crypto.randomUUID()};
     pending.current=true;setBusy(true);
     try { const res=await fetch("/api/catalog-review/round",{method:"POST",headers:{"Content-Type":"application/json","Idempotency-Key":last.current.key},body:payload});
@@ -32,9 +32,12 @@ export function RoundControls({round,mode,candidates=[]}:{round:number;mode:"sur
     } catch {setMessage("review.failed");} finally {pending.current=false;setBusy(false);}
   }
   return <form className="review-card pilot-form" onSubmit={e=>{e.preventDefault();void send();}}>
-    <fieldset disabled={busy}><legend>{t(mode==="survey"?"fields.survey":"fields.activate")}</legend>
-      {mode==="survey"?roundQuestions.map((q,i)=><label key={q}>{q}<textarea required maxLength={1600} value={answers[i]}
-        onChange={e=>setAnswers(answers.map((a,n)=>n===i?e.target.value:a))}/></label>):<>
+    <fieldset disabled={busy}><legend>{t(mode==="survey"?"fields.survey":mode==="close"?"fields.close":"fields.activate")}</legend>
+      {mode==="close"?<><p>{t("fields.closeHelp")}</p>
+        <label>{t("fields.closeNote")}<textarea required maxLength={1600} value={note} onChange={e=>setNote(e.target.value)}/></label>
+        <label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> {t("fields.closeConfirm")}</label></>:
+      mode==="survey"?<><p>{t("fields.surveyOptional")}</p>{roundQuestions.map((q,i)=><label key={q}>{q}<textarea required maxLength={1600} value={answers[i]}
+        onChange={e=>setAnswers(answers.map((a,n)=>n===i?e.target.value:a))}/></label>)}</>:<>
         <p>{t("fields.openHelp")}</p><details><summary>{t("fields.chooseAll")} ({candidates.length})</summary><ul>
           {candidates.map(p=><li key={p.wp}>#{p.wp} · {p.name}</li>)}</ul></details>
         <button type="button" onClick={template}>{t("fields.template")}</button>
@@ -43,6 +46,6 @@ export function RoundControls({round,mode,candidates=[]}:{round:number;mode:"sur
         <label>{t("fields.verdict")}<select required value={choice} onChange={e=>setChoice(e.target.value)}><option value="">{t("fields.select")}</option>
           <option value="KEEP">{t("fields.keep")}</option><option value="CHANGE">{t("fields.change")}</option></select></label>
         <label>{t("fields.schemaNote")}<textarea required maxLength={1600} value={note} onChange={e=>setNote(e.target.value)}/></label></>}
-      <button className="review-button pilot-primary" type="submit" disabled={busy || (mode==="survey"?answers.some(a=>!a.trim()):cards.length!==20 || !choice || !note.trim())}>
-        {t(mode==="survey"?"fields.sendSurvey":"fields.open")}</button></fieldset>{message && <p role="status">{t(message)}</p>}</form>;
+      <button className="review-button pilot-primary" type="submit" disabled={busy || (mode==="survey"?answers.some(a=>!a.trim()):mode==="close"?!confirmed || !note.trim():cards.length!==20 || !choice || !note.trim())}>
+        {t(mode==="survey"?"fields.sendSurvey":mode==="close"?"fields.closeSend":"fields.open")}</button></fieldset>{message && <p role="status">{t(message)}</p>}</form>;
 }

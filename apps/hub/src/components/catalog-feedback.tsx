@@ -12,12 +12,14 @@ type Details=Awaited<ReturnType<typeof roundDetails>>;
 function verdict(v:Assessments[FieldKey]["verdict"]) {return t(v==="OK"?"fields.ok":v==="EDIT"?"fields.edit":"fields.unneeded");}
 
 export function PilotQueue({rows,details}:{rows:PilotRow[];details:Details}) {
-  const done=rows.filter(r=>r.submitted).length, first=rows[0]!;
-  const next=rows.find(r=>!r.submitted && r.revision) ?? rows.find(r=>!r.submitted);
+  const done=rows.filter(r=>r.submitted).length, first=rows[0]!, closed=first.locked;
+  const finished=done===20 || Boolean(details.closure);
+  const next=closed ? undefined : rows.find(r=>!r.submitted && r.revision) ?? rows.find(r=>!r.submitted);
   return <section className="catalog-review pilot"><h1>{t("pilot.title")}</h1><p>{t("fields.round")} {first.round} · {t("pilot.progress")} {done} / 20</p>
     <progress value={done} max={20}/><div className="review-actions">{next && <Link className="review-button pilot-primary" href={"/review/"+next.id}>
       {t(done || next.revision?"pilot.resume":"pilot.begin")}</Link>}<Link href={"/review/results?round="+first.round}>{t("pilot.overview")}</Link></div>
-    {done===20 && <><p className="pilot-notice">{t("fields.nextPending")}</p>{first.canWrite && !details.survey && <RoundControls round={first.round} mode="survey"/>}</>}
+    {closed && details.closure && <p className="pilot-notice">{t("pilot.closed")}</p>}
+    {finished && !details.decision && <><p className="pilot-notice">{t("fields.nextPending")}</p>{first.canWrite && !details.survey && <RoundControls round={first.round} mode="survey"/>}</>}
     <ol className="pilot-queue">{rows.map(r=><li key={r.id}><Link href={"/review/"+r.id}><strong>{r.card.name}</strong><small>#{r.card.wp} ·
       {t(r.submitted?"pilot.done":r.revision?"pilot.draft":"pilot.new")}</small></Link></li>)}</ol></section>;
 }
@@ -44,10 +46,11 @@ function RecordedFeedback({row}:{row:PilotRow}) {
 }
 export function PilotProduct({row,rows,result}:{row:PilotRow;rows:PilotRow[];result:Awaited<ReturnType<typeof getReviewProduct>>}) {
   const photos=result.photos.map(p=>({id:p.id,position:p.position,url:`/api/catalog-review/photo/${row.id}/${p.id}`,kind:row.photoKinds[p.id] ?? "PHOTO" as const}));
-  const canWrite=row.canWrite && !row.submitted, old=result.product.baseline, text=(k:string)=>String(old[k] ?? "");
+  const canWrite=row.canWrite && !row.submitted && !row.locked, old=result.product.baseline, text=(k:string)=>String(old[k] ?? "");
   const peers=rows.filter(r=>r.id!==row.id).map(r=>({wp:r.card.wp,name:r.card.name,id:r.id}));
   const values=Object.fromEntries(fieldKeys.map(k=>[k,row.response?.fields[k].value ?? row.original[k]])) as Record<FieldKey,string[]>;
   return <article className="catalog-review pilot"><Link href="/review">← {t("pilot.back")}</Link>
+    {row.locked && !row.submitted && <p className="pilot-notice">{t("pilot.closed")}</p>}
     <header><small>{t("fields.round")} {row.round} · {row.position} / 20 · #{row.card.wp}</small><h1>{row.response?.fields.name.value[0] ?? row.card.name}</h1></header>
     <details className="review-source-notes"><summary>{t("pilot.source")}</summary>{["არსებული სახელი","არსებული მოკლე აღწერა","არსებული სრული აღწერა"].map(k=>
       old[k]?<p className="pilot-original" key={k}>{String(old[k])}</p>:null)}</details>
@@ -68,9 +71,12 @@ export function PilotResults({rows,details,admin,candidates,type,current}:{rows:
   const first=rows[0];if(!first) return <p>{t("pilot.none")}</p>;
   const completed=rows.filter(r=>r.submitted), subset=completed.filter(r=>!type || r.card.type===type);
   const drafts=pilotDrafts(rows).filter(r=>!type || r.card.type===type);
+  const closure=details.closure, finished=completed.length===20 || Boolean(closure);
   return <section className="catalog-review pilot"><Link href="/review">← {t("pilot.back")}</Link><h1>{t("pilot.report")}</h1>
     <nav className="review-actions">{Array.from({length:current},(_,i)=><Link key={i} aria-current={i+1===first.round?"page":undefined}
       href={"/review/results?round="+(i+1)}>{t("fields.round")} {i+1}</Link>)}</nav><p>{t("pilot.progress")} · {completed.length} / 20</p>
+    {closure && <p className="pilot-notice"><strong>{t("fields.closed")}</strong> · {closure.createdAt.toLocaleDateString("ka-GE",{timeZone:"Asia/Tbilisi"})}
+      {" · "}{t("fields.closedCounts")}: {closure.submitted} / {closure.drafts} / {closure.untouched}<br/>{closure.note}</p>}
     <a className="review-button" href={"/api/catalog-review/results?round="+first.round}>{t("fields.download")}</a>
     <form className="review-actions"><input type="hidden" name="round" value={first.round}/><label>{t("fields.type")} <select name="type" defaultValue={type}>
       <option value="">{t("fields.byType")}</option>{[...new Set(rows.map(r=>r.card.type))].map(k=><option key={k}>{k}</option>)}</select></label>
@@ -82,8 +88,9 @@ export function PilotResults({rows,details,admin,candidates,type,current}:{rows:
         <td>{f.filter(s=>s.unknown).length}</td></tr>;})}</tbody></table></div>
     {details.survey && <section className="review-card"><h2>{t("fields.survey")}</h2>{roundQuestions.map((q,i)=><div key={q}><strong>{q}</strong><p>{details.survey!.answers[i]}</p></div>)}</section>}
     {details.decision?<p>{t(details.decision.choice==="KEEP"?"fields.keep":"fields.change")} · {details.decision.note}</p>:
-      details.survey && admin?<RoundControls round={first.round} mode="release" candidates={candidates}/>:null}
-    {completed.length===20 && !details.survey && first.canWrite && <RoundControls round={first.round} mode="survey"/>}
+      finished && admin?<RoundControls round={first.round} mode="release" candidates={candidates}/>:null}
+    {finished && !details.survey && !details.decision && first.canWrite && <RoundControls round={first.round} mode="survey"/>}
+    {admin && !finished && !details.decision && rows.length===20 && <RoundControls round={first.round} mode="close"/>}
     <h2>{t("pilot.summary")}</h2>{subset.map(r=><details key={r.id} className="review-source-notes"><summary>{r.card.name} · #{r.card.wp}</summary><RecordedFeedback row={r}/></details>)}
     {drafts.length>0 && <section className="pilot-drafts"><h2>{t("pilot.drafts")} · {drafts.length}</h2><p>{t("pilot.draftsHelp")}</p>
       {drafts.map(r=><details key={r.id} className="review-source-notes" data-draft="true"><summary>{r.card.name} · #{r.card.wp} · {t("pilot.draft")}</summary>
